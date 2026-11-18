@@ -10,7 +10,7 @@ import os
 import signal
 import sys
 
-from threading import Lock, stack_size
+from threading import Lock, stack_size, Thread
 from typing import Any, Optional, Type, TYPE_CHECKING
 
 try:  # pragma: no cover
@@ -125,10 +125,57 @@ class AbstractPatroniDaemon(abc.ABC):
     def sigterm_handler(self, *_: Any) -> None:
         """Handle SIGTERM signals.
 
-        Terminate the daemon process through :func:`api_sigterm`.
+        Until :func:`enable_graceful_sigterm` is called, terminate the daemon process immediately by raising
+        :exc:`SystemExit`. The daemon could be blocked during the start, for example, waiting for DCS, and there is
+        nothing to shut down gracefully yet.
+
+        Afterwards, flag the daemon as "SIGTERM received" and wake up the main loop, which exits and shuts down
+        the daemon.
+
+        .. note::
+            Python runs signal handlers in the main thread between arbitrary bytecode instructions. An exception
+            raised from the handler could be raised after the interrupted code acquired a lock, but before it entered
+            the ``with`` or ``try`` block that releases it, for example, the mutex of the logging queue. Such a lock
+            remains locked forever and the shutdown deadlocks. The handler must not acquire locks either, because the
+            interrupted code could be holding them.
         """
-        if self.api_sigterm():
+        if self._received_sigterm:
+            return
+        self._received_sigterm = True
+        if not self._graceful_sigterm:
             sys.exit()
+        try:
+            self._sigterm_wakeup_lock.release()
+        except RuntimeError:  # already released by a nested call of the handler
+            pass
+
+    def enable_graceful_sigterm(self) -> None:
+        """Make SIGTERM shut down the daemon gracefully.
+
+        From now on :func:`sigterm_handler` doesn't raise :exc:`SystemExit`, but only flags the daemon as
+        "SIGTERM received". Start a thread that wakes up the main loop after that happened, because the signal
+        handler can't safely do it.
+
+        .. note::
+            Should be called after the daemon is initialized and before the main loop is started.
+        """
+        thread = Thread(target=self._wakeup_on_sigterm, name='sigterm-waiter')
+        thread.daemon = True
+        thread.start()
+        self._graceful_sigterm = True
+
+    def _wakeup_on_sigterm(self) -> None:
+        """Wait until SIGTERM is received and wake up the main loop."""
+        self._sigterm_wakeup_lock.acquire()  # released by sigterm_handler()
+        self._wakeup()
+
+    def _wakeup(self) -> None:
+        """Wake up the main loop if it is waiting for the next execution cycle.
+
+        .. note::
+            Called from a separate thread when SIGTERM is received. Does nothing by default, override it if
+            :func:`_run_cycle` could wait for a long time.
+        """
 
     def setup_signal_handlers(self) -> None:
         """Set up daemon signal handlers.
@@ -142,6 +189,11 @@ class AbstractPatroniDaemon(abc.ABC):
         self._received_sighup = False
         self._sigterm_lock = Lock()
         self._received_sigterm = False
+        self._graceful_sigterm = False
+        # Used to wake up the thread started by enable_graceful_sigterm() from sigterm_handler(). The C implementation
+        # of Lock.release() is safe to call from the signal handler, unlike most other synchronization primitives.
+        self._sigterm_wakeup_lock = Lock()
+        self._sigterm_wakeup_lock.acquire()
         if os.name != 'nt':
             signal.signal(signal.SIGHUP, self.sighup_handler)
         signal.signal(signal.SIGTERM, self.sigterm_handler)
@@ -238,6 +290,7 @@ def abstract_main(cls: Type[AbstractPatroniDaemon], configfile: str) -> None:
         logger.warning('Failed to set threading.stack_size(%s): %r', thread_stack_size, e)
 
     controller = cls(config, patroni_logger)
+    controller.enable_graceful_sigterm()
     try:
         controller.run()
     except KeyboardInterrupt:

@@ -263,7 +263,13 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
         if self.postgresql.role != PostgresqlRole.UNINITIALIZED:
             self.config.save_cache()
 
-        self.schedule_next_run()
+        # Don't wait for the next cycle if SIGTERM was received while running the current one.
+        if not self.received_sigterm:
+            self.schedule_next_run()
+
+    def _wakeup(self) -> None:
+        """Wake up the HA loop if it is waiting for the next cycle in :func:`schedule_next_run`."""
+        self.ha.wakeup()
 
     def _shutdown(self) -> None:
         """Perform shutdown of ``patroni`` daemon process.
