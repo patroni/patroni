@@ -264,6 +264,11 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
     def set_read_timeout(self, timeout: float) -> None:
         self._read_timeout = timeout
 
+    def _on_successful_retry(self, base_uri: str) -> None:
+        """Select the responding node and refresh cluster membership."""
+        self.set_base_uri(base_uri)
+        self._refresh_machines_cache()
+
     def _do_http_request(self, retry: Optional[Retry], machines_cache: List[str],
                          request_executor: Callable[..., urllib3.response.HTTPResponse],
                          method: str, path: str, fields: Optional[Dict[str, Any]] = None,
@@ -279,8 +284,7 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
                 response = request_executor(method, base_uri + path, **kwargs)
                 response.data.decode('utf-8')
                 if some_request_failed:
-                    self.set_base_uri(base_uri)
-                    self._refresh_machines_cache()
+                    self._on_successful_retry(base_uri)
                 return self._handle_server_response(response)
             except (HTTPError, HTTPException, socket.error, socket.timeout, StaleEtcdNode) as e:
                 self.http.clear()

@@ -19,7 +19,7 @@ from patroni.interrupt import WatchInterrupted
 from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 from patroni.postgresql.mpp import get_mpp
 
-from . import HangingHTTPServer, MockResponse, SleepException
+from . import HangingHTTPServer, MockResponse, read_after_kill_stream, SleepException
 
 
 def mock_list_namespaced_config_map(*args, **kwargs):
@@ -302,6 +302,7 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
                                            annotations={'optime': '1234', 'leader': 'p-0', 'transitions': '0',
                                                         'renewTime': 'now', 'acquireTime': 'now', 'ttl': '30'})
         mock_read.return_value = k8s_client.V1ConfigMap(metadata=metadata)
+        self.k.get_cluster = Mock(return_value=self.k.get_cluster())
         with patch.object(k8s_client.CoreV1Api, 'patch_namespaced_config_map', create=True) as mock_patch:
             mock_patch.side_effect = K8sException
             self.assertRaises(KubernetesError, self.k.attempt_to_acquire_leader)
@@ -620,3 +621,18 @@ class TestCacheBuilder(BaseTestKubernetes):
             watch.assert_not_called()
             cache._build_cache()
             watch.assert_called_once()
+
+    @patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', mock_list_namespaced_config_map, create=True)
+    def test_kill_stream_while_publishing(self):
+        cache = self.k._kinds
+        previous = cache._object_cache
+        with patch.object(cache, '_object_cache_lock') as lock, patch.object(self.k._condition, 'notify') as notify:
+            lock.__enter__.side_effect = cache.kill_stream
+            cache._build_cache()
+        notify.assert_not_called()
+        self.assertIs(cache._object_cache, previous)
+
+    @patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', mock_list_namespaced_config_map, create=True)
+    def test_reader_waits_after_kill_stream(self):
+        cluster = read_after_kill_stream(self.k._kinds, self.k.get_cluster)
+        self.assertEqual(cluster.leader_name, 'p-0')

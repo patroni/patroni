@@ -4,6 +4,7 @@ import shutil
 import socketserver
 import unittest
 
+from concurrent.futures import ThreadPoolExecutor
 from threading import Event, Thread
 from unittest.mock import Mock, patch, PropertyMock
 
@@ -53,6 +54,26 @@ class HangingHTTPServer(socketserver.ThreadingTCPServer):
         self.stopped.set()
         self.shutdown()
         self.server_close()
+
+
+def read_after_kill_stream(cache, get_cluster):
+    waiting = Event()
+    wait = cache._condition.wait
+
+    def wait_for_snapshot(timeout):
+        waiting.set()
+        return wait(timeout)
+
+    with cache._condition:
+        cache._is_ready = True
+        cache.kill_stream()
+    with patch.object(cache._condition, 'wait', wait_for_snapshot), ThreadPoolExecutor(1) as pool:
+        reader = pool.submit(get_cluster)
+        if not waiting.wait(5):
+            raise AssertionError('get_cluster() did not wait for a fresh snapshot')
+        with patch.object(cache, '_do_watch', lambda _: reader.result(5)):
+            cache._build_cache()
+        return reader.result(5)
 
 
 mock_available_gucs = PropertyMock(return_value={

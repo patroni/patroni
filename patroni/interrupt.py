@@ -22,7 +22,7 @@ import sys
 import time
 
 from contextlib import contextmanager
-from threading import local, Thread
+from threading import Condition, local, Thread
 from typing import Any, Generator, List, Optional
 
 import urllib3
@@ -140,15 +140,22 @@ _armed = _Armed()
 
 
 class WatchStreamThread(Thread):
-    """Daemon thread with an independently interruptible HTTP watch stream."""
+    """Daemon thread with an independently interruptible HTTP watch stream.
 
-    def __init__(self) -> None:
+    Readers check readiness and publishers install snapshots while holding :attr:`_condition`.
+    """
+
+    def __init__(self, condition: Optional[Condition] = None) -> None:
         super().__init__(daemon=True)
+        self._condition = condition if condition is not None else Condition()
+        self._is_ready = False
         self._watch_interrupter = Interrupter()
 
     def kill_stream(self) -> None:
-        """Interrupt this thread's watch so it can rebuild its cache."""
-        self._watch_interrupter.interrupt()
+        """Invalidate the cache for readers and interrupt the watch so it can rebuild."""
+        with self._condition:
+            self._is_ready = False
+            self._watch_interrupter.interrupt()
 
     @staticmethod
     def _finish_response(response: urllib3.response.HTTPResponse) -> None:

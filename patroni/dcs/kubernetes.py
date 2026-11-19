@@ -600,13 +600,11 @@ class ObjectCache(WatchStreamThread):
 
     def __init__(self, dcs: 'Kubernetes', func: Callable[..., Any], retry: Retry,
                  condition: Condition, name: Optional[str] = None) -> None:
-        super(ObjectCache, self).__init__()
+        super(ObjectCache, self).__init__(condition)
         self._dcs = dcs
         self._func = func
         self._retry = retry
-        self._condition = condition
         self._name = name  # name of this pod
-        self._is_ready = False
         self._object_cache: Dict[str, K8sObject] = {}
         self._object_cache_lock = Lock()
         self._annotations_map = {self._dcs.leader_path: getattr(self._dcs, '_LEADER'),
@@ -692,11 +690,10 @@ class ObjectCache(WatchStreamThread):
     def _build_cache(self) -> None:
         self._watch_interrupter.clear()
         objects = self._list()
-        if self._watch_interrupter.is_set():  # kill_stream() while listing, the result could be stale already
-            return
-        with self._object_cache_lock:
+        with self._condition, self._object_cache_lock:
+            if self._watch_interrupter.is_set():
+                return
             self._object_cache = {item.metadata.name: item for item in objects.items}
-        with self._condition:
             self._is_ready = True
             self._condition.notify()
 

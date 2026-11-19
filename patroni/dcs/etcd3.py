@@ -9,7 +9,7 @@ import time
 
 from collections import defaultdict
 from enum import IntEnum
-from threading import Condition, current_thread, Lock
+from threading import current_thread, Lock
 from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Tuple, Type, TYPE_CHECKING, Union
 
 import etcd
@@ -527,16 +527,13 @@ class KVCache(StaleEtcdNodeGuard, WatchStreamThread):
         StaleEtcdNodeGuard.__init__(self)
         self._dcs = dcs
         self._client = client
-        self.condition = Condition()
         self._config_key = base64_encode(dcs.config_path)
         self._leader_key = base64_encode(dcs.leader_path)
         self._optime_key = base64_encode(dcs.leader_optime_path)
         self._status_key = base64_encode(dcs.status_path)
         self._name = base64_encode(getattr(dcs, '_name'))  # pyright
-        self._is_ready = False
         self._object_cache = {}
         self._object_cache_lock = Lock()
-        self.start()
 
     def set(self, value: Dict[str, Any], overwrite: bool = False) -> Tuple[bool, Optional[Dict[str, Any]]]:
         with self._object_cache_lock:
@@ -558,6 +555,13 @@ class KVCache(StaleEtcdNodeGuard, WatchStreamThread):
     def copy(self) -> List[Dict[str, Any]]:
         with self._object_cache_lock:
             return [v.copy() for v in self._object_cache.values()]
+
+    def snapshot(self, timeout: float) -> List[Dict[str, Any]]:
+        """Wait up to *timeout* seconds for a ready cache and copy it before it can be invalidated."""
+        with self._condition:
+            if not self._condition.wait_for(self.is_ready, timeout):
+                raise RetryFailedError('Exceeded retry deadline')
+            return self.copy()
 
     def get(self, name: str) -> Optional[Dict[str, Any]]:
         with self._object_cache_lock:
@@ -612,16 +616,15 @@ class KVCache(StaleEtcdNodeGuard, WatchStreamThread):
     def _build_cache(self) -> None:
         self._watch_interrupter.clear()
         result = self._dcs.retry(self._client.prefix, self._dcs.cluster_prefix)
-        if self._watch_interrupter.is_set():  # kill_stream() while listing, the result could be stale already
-            return
         header = result.get('header', EMPTY_DICT)
-        with self._object_cache_lock:
+        with self._condition, self._object_cache_lock:
+            if self._watch_interrupter.is_set():
+                return
             self._reset_cluster_raft_term()
             self._object_cache = {node['key']: node for node in result.get('kvs', [])}
             self._check_cluster_raft_term(header.get('cluster_id'), header.get('raft_term'))
-        with self.condition:
             self._is_ready = True
-            self.condition.notify()
+            self._condition.notify()
 
         try:
             self._do_watch(result['header']['revision'])
@@ -632,7 +635,7 @@ class KVCache(StaleEtcdNodeGuard, WatchStreamThread):
         except Exception as e:
             logger.error('watchprefix failed: %r', e)
         finally:
-            with self.condition:
+            with self._condition:
                 self._is_ready = False
 
     def run(self) -> None:
@@ -644,12 +647,11 @@ class KVCache(StaleEtcdNodeGuard, WatchStreamThread):
                 time.sleep(1)
 
     def is_ready(self) -> bool:
-        """Must be called only when holding the lock on `condition`"""
+        """Must be called only when holding the lock on `_condition`"""
         if self._is_ready:
             try:
                 self._client._check_cluster_raft_term(self._cluster_id, self._raft_term)
             except StaleEtcdNode:
-                self._is_ready = False
                 self.kill_stream()
         return self._is_ready
 
@@ -666,30 +668,26 @@ class PatroniEtcd3Client(Etcd3Client):
     def start_watcher(self) -> None:
         if self._cluster_version >= (3, 1):
             self._kv_cache = KVCache(self._etcd3, self)
+            self._kv_cache.start()
 
     def _restart_watcher(self) -> None:
-        # The KVCache thread switches the node only while doing its own request, i.e. not while watching. Its next watch
-        # request goes to the new node anyway, and interrupting itself would only make it list the keys once again.
+        """Interrupt an external watch; the cache thread checks its own list endpoint after a retry."""
         if self._kv_cache and self._kv_cache is not current_thread():
+            self._kv_cache.kill_stream()
+
+    def _on_successful_retry(self, base_uri: str) -> None:
+        """Discard the cache thread's list if refreshing membership selected a different watch endpoint."""
+        super()._on_successful_retry(base_uri)
+        if self._base_uri != base_uri and self._kv_cache and self._kv_cache is current_thread():
             self._kv_cache.kill_stream()
 
     def set_base_uri(self, value: str) -> None:
         super(PatroniEtcd3Client, self).set_base_uri(value)
         self._restart_watcher()
 
-    def _wait_cache(self, timeout: float) -> None:
-        stop_time = time.monotonic() + timeout
-        while self._kv_cache and not self._kv_cache.is_ready():
-            timeout = stop_time - time.monotonic()
-            if timeout <= 0:
-                raise RetryFailedError('Exceeded retry deadline')
-            self._kv_cache.condition.wait(timeout)
-
     def get_cluster(self, path: str) -> List[Dict[str, Any]]:
         if self._kv_cache and path.startswith(self._etcd3.cluster_prefix):
-            with self._kv_cache.condition:
-                self._wait_cache(self.read_timeout)
-                ret = self._kv_cache.copy()
+            ret = self._kv_cache.snapshot(self.read_timeout)
         else:
             serializable = not getattr(self._etcd3, '_ctl')  # use linearizable for patronictl
             ret = self._etcd3.retry(self.prefix, path, serializable).get('kvs', [])

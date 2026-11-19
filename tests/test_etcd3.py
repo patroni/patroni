@@ -16,7 +16,7 @@ from patroni.dcs.etcd3 import AuthFailed, AuthOldRevision, base64_encode, Cluste
 from patroni.interrupt import WatchInterrupted
 from patroni.postgresql.mpp import get_mpp
 
-from . import HangingHTTPServer, MockResponse, SleepException
+from . import HangingHTTPServer, MockResponse, read_after_kill_stream, SleepException
 
 
 def mock_urlopen(self, method, url, **kwargs):
@@ -170,11 +170,11 @@ class TestKVCache(BaseTestEtcd3):
             return prefix(*args, **kwargs)
 
         with patch.object(self.client, 'watchprefix', side_effect=WatchInterrupted) as watch:
-            with patch.object(self.kv_cache.condition, 'notify', side_effect=self.kv_cache.kill_stream):
+            with patch.object(self.kv_cache._condition, 'notify', side_effect=self.kv_cache.kill_stream):
                 self.kv_cache._build_cache()
             watch.assert_not_called()
             with patch.object(self.client, 'prefix', kill_while_listing), \
-                    patch.object(self.kv_cache.condition, 'notify') as notify:
+                    patch.object(self.kv_cache._condition, 'notify') as notify:
                 self.kv_cache._build_cache()
             notify.assert_not_called()
             watch.assert_not_called()
@@ -182,9 +182,52 @@ class TestKVCache(BaseTestEtcd3):
             watch.assert_called_once()
 
     @patch.object(urllib3.PoolManager, 'urlopen', mock_urlopen)
+    def test_kill_stream_while_publishing(self):
+        cache = self.kv_cache
+        previous = cache._object_cache
+        with patch.object(cache, '_object_cache_lock') as lock, patch.object(cache._condition, 'notify') as notify:
+            lock.__enter__.side_effect = cache.kill_stream
+            cache._build_cache()
+        notify.assert_not_called()
+        self.assertIs(cache._object_cache, previous)
+
+    @patch.object(urllib3.PoolManager, 'urlopen', mock_urlopen)
+    def test_reader_waits_after_kill_stream(self):
+        cluster = read_after_kill_stream(self.kv_cache, self.etcd3.get_cluster)
+        self.assertEqual(cluster.leader_name, 'foo')
+
+    def test_snapshot_timeout(self):
+        self.assertRaises(RetryFailedError, self.kv_cache.snapshot, 0)
+
+    def test_watch_after_list_failover(self):
+        first, responder = self.client.machines_cache
+        old, fresh = MockResponse(), MockResponse()
+        old.content = '{"header":{"revision":"100"}}'
+        fresh.content = '{"header":{"revision":"4"}}'
+        for selected in (responder, 'http://localhost:2381'):
+            self.client._base_uri = first
+            self.client._machines_cache = [first, responder]
+            with self.subTest(selected=selected), \
+                    patch('patroni.dcs.etcd3.current_thread', return_value=self.kv_cache), \
+                    patch.object(self.client.http, 'urlopen', side_effect=[socket.timeout(), old, fresh]) as request, \
+                    patch.object(self.client, '_get_machines_list', return_value=[selected]), \
+                    patch.object(self.client, 'watchprefix', side_effect=WatchInterrupted) as watch, \
+                    patch.object(self.kv_cache._condition, 'notify') as notify:
+                self.kv_cache._build_cache()
+                self.assertEqual(self.client._base_uri, selected)
+                if selected != responder:
+                    notify.assert_not_called()
+                    watch.assert_not_called()
+                    self.kv_cache._build_cache()
+                watch.assert_called_once_with(self.etcd3.cluster_prefix, '100' if selected == responder else '4')
+                endpoints = [first, responder] if selected == responder else [first, responder, selected]
+                self.assertEqual([args[1] for args, _ in request.call_args_list],
+                                 [endpoint + self.client.version_prefix + '/kv/range' for endpoint in endpoints])
+
+    @patch.object(urllib3.PoolManager, 'urlopen', mock_urlopen)
     def test_is_ready(self):
         self.kv_cache._build_cache()
-        with self.kv_cache.condition:
+        with self.kv_cache._condition:
             self.kv_cache._is_ready = True
             self.client._raft_term = 2
             self.assertFalse(self.kv_cache.is_ready())
@@ -211,17 +254,18 @@ class TestPatroniEtcd3Client(BaseTestEtcd3):
         self.client.txn({'target': 'MOD', 'mod_revision': '1'},
                         {'request_delete_range': {'key': base64_encode('/patroni/test/leader')}})
 
-    @patch('time.monotonic', Mock(side_effect=[1, 10.9, 100]))
-    def test__wait_cache(self):
-        with self.kv_cache.condition:
-            self.assertRaises(RetryFailedError, self.client._wait_cache, 10)
-
     @patch.object(urllib3.PoolManager, 'urlopen')
     def test__restart_watcher(self, mock_urlopen):
         mock_urlopen.return_value = MockResponse()
         mock_urlopen.return_value.status_code = 400
         mock_urlopen.return_value.content = '{"code":9,"error":"etcdserver: authentication is not enabled"}'
         self.client.authenticate()
+
+    def test_start_watcher_registers_before_start(self):
+        started = []
+        with patch.object(Thread, 'start', lambda cache: started.append(self.client._kv_cache is cache)):
+            self.client.start_watcher()
+        self.assertEqual(started, [True])
 
     def test__restart_watcher_from_kv_cache(self):
         self.kv_cache.run = lambda: self.client.set_base_uri('http://localhost:2380')
