@@ -963,6 +963,21 @@ class Ha(object):
         while True:
             sync_state = self.state_handler.sync_handler.current_state(self.cluster)
             if sync_state is None:
+                if leader != self.state_handler.name:  # failover
+                    # Verification of synchronous_standby_names might take long after promote, while commits
+                    # could already be acknowledged by standbys. The former leader must immediately lose the
+                    # privilege to be promoted without votes. It takes the place of the new leader in voters,
+                    # therefore the set of nodes that could vote and the quorum don't change.
+                    voters = CaseInsensitiveSet((CaseInsensitiveSet(sync.voters)
+                                                 - CaseInsensitiveSet([self.state_handler.name]))
+                                                | CaseInsensitiveSet([leader]))
+                    logger.info("Setting leader to %s, quorum to %d of (%s)",
+                                self.state_handler.name, sync.quorum, ", ".join(sorted(voters)))
+                    sync = self.dcs.write_sync_state(self.state_handler.name, voters, sync.quorum,
+                                                     version=sync.version)
+                    if not sync:
+                        return logger.info('Synchronous replication key updated by someone else.')
+                    leader = self.state_handler.name
                 transition = 'restart'
                 transitions = []
             else:
@@ -979,7 +994,8 @@ class Ha(object):
                                                        numsync_confirmed=len(sync_state.sync_confirmed),
                                                        active=sync_state.active,
                                                        sync_wanted=global_config.synchronous_node_count,
-                                                       leader_wanted=self.state_handler.name))
+                                                       leader_wanted=self.state_handler.name,
+                                                       quorum_catchup=sync_state.quorum_catchup))
 
             for i, (transition, leader, num, nodes) in enumerate(transitions):
                 if _check_timeout():
@@ -993,7 +1009,7 @@ class Ha(object):
                 elif transition == 'sync':
                     if self.state_handler.sync_handler.set_synchronous_standby_names(nodes, num) and \
                             i < len(transitions) - 1:
-                        # If synchronous_standby_names change is not yet effective
+                        # If synchronous_standby_names change is not yet effective (or remaining nodes must catch up)
                         # and this is not the last transition we need to wait and restart the state machine.
                         transition = 'restart'
                         break
@@ -1007,12 +1023,13 @@ class Ha(object):
                 if transition == 'break' and sync_state:
                     self.state_handler.slots_handler.handle_manage_sync_slots_toggle(sync_state.active)
                 return
-            # Here we consider two cases:
+            # Here we consider three cases:
             # 1. synchronous_standby_names was transitioned from empty to non-empty and it may take
             #    some time for checkpointer to enforce it and for nodes to become synchronous.
             # 2. some nodes were removed from synchronous_standby_names and we need to wait until
             #    this change becomes effective after reload.
-            # In both cases we need to wait and restart state machine hoping that we can update
+            # 3. quorum became stricter and remaining nodes must catch up with the primary.
+            # In all cases we need to wait and restart state machine hoping that we can update
             # /sync key earlier than in loop_wait seconds.
             time.sleep(1)
             self.state_handler.reset_cluster_info_state(None)
