@@ -24,7 +24,7 @@ from urllib3.connection import HTTPSConnection
 from urllib3.exceptions import HTTPError, ProtocolError, ReadTimeoutError, SSLError
 
 from ..exceptions import DCSError
-from ..interrupt import make_interruptible, WatchInterrupted
+from ..interrupt import InterruptibleHTTPSConnectionPool, make_interruptible, WatchInterrupted
 from ..postgresql.mpp import AbstractMPP
 from ..request import get as requests_get
 from ..utils import AddrInfo, getaddrinfo, Retry, RetryFailedError, split_host_port, uri, USER_AGENT
@@ -136,7 +136,7 @@ class StaleEtcdNodeGuard(object):
         self._raft_term = raft_term
 
 
-class EtcdHTTPSConnectionPool(urllib3.HTTPSConnectionPool):
+class EtcdHTTPSConnectionPool(InterruptibleHTTPSConnectionPool):
     """Enforce SAN-only verification with urllib3's legacy hostname matcher."""
 
     def _validate_conn(self, conn: HTTPSConnection) -> None:

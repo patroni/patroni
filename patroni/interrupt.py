@@ -336,7 +336,12 @@ class _HTTPConnectionPool(urllib3.HTTPConnectionPool):
     ConnectionCls = _HTTPConnection
 
 
-class _HTTPSConnectionPool(urllib3.HTTPSConnectionPool):
+class InterruptibleHTTPSConnectionPool(urllib3.HTTPSConnectionPool):
+    """HTTPS connection pool of pool managers made interruptible with :func:`make_interruptible`.
+
+    Custom HTTPS connection pools of such pool managers must be based on it to keep responses interruptible.
+    """
+
     ConnectionCls = _HTTPSConnection
 
 
@@ -348,5 +353,5 @@ def make_interruptible(pool_manager: urllib3.PoolManager) -> urllib3.PoolManager
     :returns: *pool_manager*.
     """
     pool_manager.clear()
-    pool_manager.pool_classes_by_scheme = {'http': _HTTPConnectionPool, 'https': _HTTPSConnectionPool}
+    pool_manager.pool_classes_by_scheme = {'http': _HTTPConnectionPool, 'https': InterruptibleHTTPSConnectionPool}
     return pool_manager

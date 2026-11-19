@@ -487,6 +487,19 @@ class TestConfigureTLS(unittest.TestCase):
         self.assertIs(client.http.pool_classes_by_scheme['https'],
                       EtcdHTTPSConnectionPool)
 
+    def test_cn_fallback_false_on_urllib3_1x_keeps_responses_interruptible(self):
+        from patroni.dcs.etcd import AbstractEtcdClientWithFailover, EtcdHTTPSConnectionPool
+        from patroni.interrupt import make_interruptible
+        http = make_interruptible(urllib3.PoolManager())
+        connection_cls = http.connection_from_url('https://etcd:2379').ConnectionCls
+        http.clear()
+        client = Mock(_config={'hostname_checks_common_name': False}, http=http)
+        with patch('patroni.dcs.etcd.urllib3.__version__', '1.26.20'):
+            AbstractEtcdClientWithFailover._configure_tls(client)
+        pool = http.connection_from_url('https://etcd:2379')
+        self.assertIsInstance(pool, EtcdHTTPSConnectionPool)
+        self.assertIs(pool.ConnectionCls, connection_cls)
+
     def test_cn_fallback_true_on_urllib3_2x(self):
         # urllib3 2.x + cn_fallback=True -> builds a custom ssl_context.
         fake_ctx = MagicMock()
