@@ -245,11 +245,14 @@ class Watchdog(object):
                     self._disable()
                     self.impl = self.config.get_impl()
                     self._activate()
-                if self.config.timeout != self.active_config.timeout:
-                    self.impl.set_timeout(self.config.timeout)
-                    if self.is_running:
+                timeout_changed = self.config.timeout != self.active_config.timeout
+                if self.impl.is_running and (timeout_changed or self.config.loop_wait != self.active_config.loop_wait):
+                    # Same checks as on activation, a device might not support setting the timeout or might not accept
+                    # one that covers the new loop_wait.
+                    actual_timeout = self._set_timeout()
+                    if timeout_changed and self.is_running:
                         logger.info("%s updated with %s second timeout, timing slack %s seconds",
-                                    self.impl.describe(), self.impl.get_timeout(), self.config.timing_slack)
+                                    self.impl.describe(), actual_timeout, self.config.timing_slack)
                 self.active_config = self.config
         except WatchdogError as e:
             logger.error("Error while sending keepalive: %s", e)
@@ -258,6 +261,20 @@ class Watchdog(object):
     @synchronized
     def is_running(self) -> bool:
         return self.impl.is_running
+
+    @property
+    @synchronized
+    def needs_immediate_keepalive(self) -> bool:
+        """The timeout armed for the previous configuration would expire before the HA loop wakes up after the new
+        ``loop_wait``. Only the keepalive following the leader key update with the new TTL may apply the new timeout,
+        so it has to be sent right away."""
+        if not self.active or not self.impl.is_running:
+            return False
+        try:
+            # The actual timeout, because a device might not have accepted the configured one.
+            return self.impl.get_timeout() < self.config.loop_wait
+        except WatchdogError:
+            return True
 
     @property
     @synchronized

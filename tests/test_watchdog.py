@@ -209,6 +209,15 @@ class TestWatchdog(unittest.TestCase):
         self.assertTrue(watchdog.is_running)
         self.assertEqual(watchdog.config.timeout, 60 // 2)
 
+        impl = watchdog.impl
+        watchdog.reload_config({'ttl': 60, 'loop_wait': 15, 'watchdog': {'mode': 'required', 'driver': 'unknown'}})
+        self.assertIs(watchdog.impl, impl)
+        watchdog.keepalive()
+        self.assertFalse(impl.is_running)
+        self.assertIsInstance(watchdog.impl, NullWatchdog)
+        self.assertFalse(watchdog.is_running)
+        self.assertFalse(watchdog.needs_immediate_keepalive)
+
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'is_healthy', PropertyMock(return_value=True))
     def test_reacquire_after_unsafe_timing(self):
@@ -264,6 +273,53 @@ class TestWatchdog(unittest.TestCase):
         self.assertTrue(watchdog.activate())
         self.assertTrue(watchdog.is_running)
         watchdog.disable()
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
+    def test_timing_reload(self):
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'safety_margin': 10}})
+        self.assertTrue(watchdog.activate())
+        device = mock_devices[-1]
+        self.assertFalse(watchdog.needs_immediate_keepalive)
+        # the new configuration is safe, but the next HA loop sleep is longer than the armed timeout
+        watchdog.reload_config({'ttl': 60, 'loop_wait': 25, 'watchdog': {'safety_margin': 10}})
+        self.assertTrue(watchdog.needs_immediate_keepalive)
+        watchdog.keepalive()
+        self.assertEqual(device.timeout, 49)
+        self.assertFalse(watchdog.needs_immediate_keepalive)
+        with patch.object(LinuxWatchdogDevice, 'get_timeout', Mock(side_effect=WatchdogError(''))):
+            self.assertTrue(watchdog.needs_immediate_keepalive)
+
+        # a timeout shorter than loop_wait must not stay armed
+        watchdog.reload_config({'ttl': 30, 'loop_wait': 25, 'watchdog': {'safety_margin': 10}})
+        watchdog.keepalive()
+        self.assertFalse(device.open)
+        self.assertEqual(device.writes[-1], b'V')
+        self.assertFalse(watchdog.is_running)
+        with patch('patroni.watchdog.base.logger.error') as mock_error:
+            watchdog.reload_config({'ttl': 60, 'loop_wait': 25, 'watchdog': {'safety_margin': 10}})
+            watchdog.keepalive()
+        mock_error.assert_not_called()
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
+    @patch.object(LinuxWatchdogDevice, 'has_set_timeout', Mock(return_value=False))
+    def test_timing_reload_with_fixed_timeout_device(self):
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {}})
+        with patch.object(LinuxWatchdogDevice, 'get_timeout', Mock(return_value=15)):
+            self.assertTrue(watchdog.activate())
+            device = mock_devices[-1]
+            with patch('patroni.watchdog.base.logger.error') as mock_error:
+                watchdog.reload_config({'ttl': 40, 'loop_wait': 10, 'watchdog': {}})
+                watchdog.keepalive()
+            mock_error.assert_not_called()
+            self.assertEqual(watchdog.active_config.ttl, 40)
+            self.assertTrue(device.open)
+            watchdog.reload_config({'ttl': 40, 'loop_wait': 18, 'watchdog': {}})
+            self.assertTrue(watchdog.needs_immediate_keepalive)
+            watchdog.keepalive()
+        self.assertFalse(device.open)
+        self.assertEqual(device.writes[-1], b'V')
 
 
 class TestNullWatchdog(unittest.TestCase):
