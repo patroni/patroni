@@ -1,5 +1,6 @@
 import os
 
+from concurrent.futures import Future
 from unittest.mock import Mock, patch, PropertyMock
 
 from patroni import global_config
@@ -9,6 +10,7 @@ from patroni.postgresql import Postgresql, PostgresqlState
 from patroni.postgresql.config import ConfigHandler
 from patroni.postgresql.misc import PostgresqlRole
 from patroni.postgresql.slots import SlotsHandler
+from patroni.postgresql.sync import CHECKPOINTER_RELOAD_GRACE, SYNC_STRICT_PLACEHOLDER
 
 from . import BaseTestPostgresql, mock_available_gucs, psycopg_connect
 
@@ -216,16 +218,89 @@ class TestSync(BaseTestPostgresql):
             self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a, b, c]))
 
     @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
+    def test_current_state_wait_for_checkpointer(self):
+        a = self.leadermem.name
+        replication = [{'pid': 100, 'application_name': a, 'sync_state': 'sync', 'flush_lsn': 1}]
+        futures = [Future(), Future(), Future(), Future()]
+        executor = Mock()
+        executor.submit.side_effect = futures
+
+        def assert_waiting():
+            # state is returned, so that sync nodes could be removed/replaced, but nothing is confirmed
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet())
+
+        with patch.object(Postgresql, 'synchronous_standby_names', return_value=a) as mock_ssn, \
+                patch.object(Postgresql, 'pg_stat_replication', return_value=replication), \
+                patch.object(Postgresql, 'query', return_value=[(False, True)]) as mock_query, \
+                patch('patroni.thread_pool.get_executor', Mock(return_value=executor)):
+            # checkpointer might process the reload without help, don't force CHECKPOINT right after reload
+            mock_query.return_value = [(False, False)]
+            assert_waiting()
+            executor.submit.assert_not_called()
+
+            # walsender already reports sync_state=sync, but checkpointer is busy and might still not enforce it
+            mock_query.return_value = [(False, True)]
+            assert_waiting()
+            assert_waiting()
+            executor.submit.assert_called_once_with(self.p.checkpoint)
+
+            futures[0].set_result('not accessible or not healthy')
+            with patch('time.monotonic', Mock(return_value=1)) as mock_time:
+                assert_waiting()
+                assert_waiting()
+                self.assertEqual(executor.submit.call_count, 1)  # don't retry before loop_wait passed
+                mock_time.return_value = 11
+                assert_waiting()
+            self.assertEqual(executor.submit.call_count, 2)
+
+            futures[1].set_result(None)
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+            # synchronous_standby_names became empty and non-empty again, the last checkpoint started after reload
+            mock_ssn.return_value = ''
+            self.s.current_state(self.cluster)
+            mock_ssn.return_value = a
+            mock_query.return_value = [(True, True)]
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+            self.assertEqual(executor.submit.call_count, 2)
+
+            # requested checkpoint started (CheckpointDone), there is no need to wait for its completion
+            mock_ssn.return_value = ''
+            self.s.current_state(self.cluster)
+            mock_ssn.return_value = a
+            mock_query.return_value = [(False, True)]
+            assert_waiting()
+            self.assertEqual(executor.submit.call_count, 3)
+            mock_query.return_value = [(True, True)]
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+            self.assertFalse(futures[2].done())
+
+            # CHECKPOINT requested before the next change is still running: don't request another one,
+            # and don't trust its result, because it doesn't prove that the new value is enforced
+            mock_ssn.return_value = ''
+            self.s.current_state(self.cluster)
+            mock_ssn.return_value = a
+            mock_query.return_value = [(False, True)]
+            assert_waiting()
+            self.assertEqual(executor.submit.call_count, 3)
+            futures[2].set_result(None)
+            assert_waiting()
+            self.assertEqual(executor.submit.call_count, 4)
+            futures[3].set_result(None)
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+    @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
     def test_current_state_releases_waiters_on_change(self):
         a, b = self.leadermem.name, '"{0}"'.format(self.other.name)
 
         def wal_generated():
             return any('txid_current' in c[0][0] for c in mock_query.call_args_list)
 
-        # walsenders didn't process the reload yet, therefore the new value remains pending
         with patch.object(Postgresql, 'synchronous_standby_names', return_value=a) as mock_ssn, \
-                patch.object(Postgresql, 'pg_stat_replication', return_value=[]), \
-                patch.object(Postgresql, 'query') as mock_query:
+                patch.object(Postgresql, 'pg_stat_replication', side_effect=lambda: [
+                    {'pid': 100, 'application_name': mock_ssn.return_value.strip('"'), 'sync_state': 'sync',
+                     'flush_lsn': 1}]), \
+                patch.object(Postgresql, 'query', return_value=[(False, False)]) as mock_query:
             # nothing waited for synchronous replication while synchronous_standby_names was empty
             self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet())
             self.assertFalse(wal_generated())
@@ -233,6 +308,154 @@ class TestSync(BaseTestPostgresql):
             mock_ssn.return_value = b
             self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet())
             self.assertTrue(wal_generated())
+
+    @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
+    @patch.object(Postgresql, 'major_version', PropertyMock(return_value=130000))
+    def test_current_state_wait_for_checkpointer_before_v14(self):
+        a = self.leadermem.name
+        replication = [{'pid': 100, 'application_name': a, 'sync_state': 'sync', 'flush_lsn': 1}]
+        executor = Mock()
+        executor.submit.return_value = Future()
+        with patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value=a)), \
+                patch.object(Postgresql, 'pg_stat_replication', Mock(return_value=replication)), \
+                patch.object(Postgresql, 'query', Mock(return_value=[(False, False)])), \
+                patch('patroni.thread_pool.get_executor', Mock(return_value=executor)):
+            # an idle checkpointer can't be detected, hence there is no reason to wait for the grace period
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet())
+            executor.submit.assert_called_once_with(self.p.checkpoint)
+            executor.submit.return_value.set_result(None)
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+    @patch('time.sleep')
+    @patch.object(Postgresql, 'state', PropertyMock(return_value=PostgresqlState.STOPPED))
+    def test_wait_for_checkpointer(self, mock_sleep):
+        a = self.leadermem.name
+        executor = Mock()
+        with patch.object(Postgresql, 'query') as mock_query, \
+                patch('patroni.thread_pool.get_executor', Mock(return_value=executor)):
+            # nothing to enforce
+            self.s.set_synchronous_standby_names([])
+            self.assertTrue(self.s.wait_for_checkpointer(5))
+            mock_query.assert_not_called()
+
+            # our backend has just loaded the new value, checkpointer waits for work after the grace period
+            self.s.set_synchronous_standby_names([a])
+            mock_query.side_effect = [[(False, False)], [(True, True)]]
+            self.assertTrue(self.s.wait_for_checkpointer(5))
+            self.assertEqual(mock_query.call_count, 2)
+            self.assertEqual(mock_query.call_args[0][1], a)
+            self.assertIn("'CheckpointerMain'", mock_query.call_args[0][0])
+            mock_sleep.assert_called_with(CHECKPOINTER_RELOAD_GRACE)
+            executor.submit.assert_not_called()
+
+            # checkpointer is busy, the new value isn't visible, or there is no time to wait for the grace period:
+            # the restartpoint requested after reload must complete in time
+            mock_query.side_effect = None
+            for rows, timeout in (([(False, True)], 5), ([], 5), ([(False, False)], 1)):
+                mock_query.reset_mock()
+                mock_query.return_value = rows
+                executor.submit.return_value = Future()
+                executor.submit.return_value.set_result(None)
+                self.assertTrue(self.s.wait_for_checkpointer(timeout))
+                mock_query.assert_called_once()
+            executor.submit.return_value = Future()
+            executor.submit.return_value.set_result('not accessible or not healthy')
+            self.assertFalse(self.s.wait_for_checkpointer(5))
+            executor.submit.return_value = Future()
+            self.assertFalse(self.s.wait_for_checkpointer(0))
+
+            # it is enough to see that the requested restartpoint has started, its completion isn't awaited
+            mock_query.reset_mock()
+            mock_query.side_effect = [[(False, True)], [(False, True)], [(True, True)]]
+            with patch('patroni.postgresql.sync.wait') as mock_wait:
+                self.assertTrue(self.s.wait_for_checkpointer(5))
+            self.assertEqual(mock_wait.call_count, 2)
+            self.assertEqual(mock_query.call_count, 3)
+            self.assertFalse(executor.submit.return_value.done())
+            mock_query.side_effect = None
+
+            # before v14 interrupts are not processed after a checkpoint, so a wait in the main loop proves nothing
+            mock_query.reset_mock()
+            with patch.object(Postgresql, 'major_version', PropertyMock(return_value=130000)):
+                self.assertFalse(self.s.wait_for_checkpointer(0))
+                mock_query.assert_called_once()
+                self.assertNotIn("'CheckpointerMain'", mock_query.call_args[0][0])
+
+            # before v12 CHECKPOINT doesn't report wait events, therefore its completion is awaited
+            mock_query.reset_mock()
+            executor.submit.return_value.set_result(None)
+            with patch.object(Postgresql, 'major_version', PropertyMock(return_value=110000)):
+                self.assertTrue(self.s.wait_for_checkpointer(5))
+                mock_query.assert_not_called()
+
+            mock_query.side_effect = Exception
+            self.assertFalse(self.s.wait_for_checkpointer(5))
+
+    @patch('time.sleep', Mock())
+    @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
+    @patch.object(Postgresql, 'state', PropertyMock(return_value=PostgresqlState.STOPPED))
+    def test_checkpointer_verified_before_promote(self):
+        a = self.leadermem.name
+        replication = [{'pid': 100, 'application_name': a, 'sync_state': 'sync', 'flush_lsn': 1}]
+        executor = Mock()
+        executor.submit.return_value = Future()
+        with patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value=a)) as mock_ssn, \
+                patch.object(Postgresql, 'pg_stat_replication', Mock(return_value=replication)), \
+                patch.object(Postgresql, 'query') as mock_query, \
+                patch('patroni.thread_pool.get_executor', Mock(return_value=executor)):
+            def promote(verified, sync_after_verification=None):
+                self.p.set_role(PostgresqlRole.REPLICA)
+                self.s.set_synchronous_standby_names([a])
+                mock_query.return_value = [(verified, True)]
+                self.assertEqual(self.s.wait_for_checkpointer(0), verified)
+                if sync_after_verification is not None:
+                    self.s.set_synchronous_standby_names(sync_after_verification)
+                    self.s.set_synchronous_standby_names([a])
+                self.p.set_role(PostgresqlRole.PROMOTED)
+                # checkpointer is busy with the restartpoint or with the checkpoint after promote
+                mock_query.return_value = [(False, True)]
+                return self.s.current_state(self.cluster).sync_confirmed
+
+            # checkpointer keeps enforcing the value that it was verified to enforce before promote
+            self.assertEqual(promote(True), CaseInsensitiveSet([a]))
+            self.assertFalse(self.s.checkpointer_pending)
+            executor.submit.assert_not_called()
+
+            # the verification is trusted only once, for the value observed right after promote
+            mock_ssn.return_value = ''
+            self.s.current_state(self.cluster)
+            mock_ssn.return_value = a
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet())
+            self.assertTrue(self.s.checkpointer_pending)
+
+            # the verification failed, or the value was changed after it and checkpointer might have processed that
+            for verified, sync_after_verification in ((False, None), (True, [])):
+                self.assertEqual(promote(verified, sync_after_verification), CaseInsensitiveSet())
+                self.assertTrue(self.s.checkpointer_pending)
+
+    @patch('time.sleep', Mock())
+    @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
+    @patch.object(Postgresql, 'get_primary_timeline', Mock(return_value=1))
+    @patch.object(Postgresql, 'state', PropertyMock(return_value=PostgresqlState.RUNNING))
+    def test_reset_state_on_demote(self):
+        a = self.leadermem.name
+        replication = [{'pid': 100, 'application_name': a, 'sync_state': 'sync', 'flush_lsn': 1}]
+        with patch.object(Postgresql, 'synchronous_standby_names', return_value=a) as mock_ssn, \
+                patch.object(Postgresql, 'pg_stat_replication', return_value=replication), \
+                patch.object(Postgresql, 'query', return_value=[(True, True)]) as mock_query, \
+                patch('patroni.thread_pool.get_executor', Mock()):
+            self.p.set_role(PostgresqlRole.PRIMARY)
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+            # demoted, strict mode placeholder is set before the next promote
+            self.p.set_role(PostgresqlRole.REPLICA)
+            self.p.set_role(PostgresqlRole.PROMOTED)
+            mock_query.return_value = [(False, True)]
+            mock_ssn.return_value = SYNC_STRICT_PLACEHOLDER
+            self.s.current_state(self.cluster)
+            # checkpointer must be verified again, the previous primary tenure must not be trusted
+            mock_ssn.return_value = a
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet())
 
     @patch('time.sleep', Mock())
     @patch.object(Postgresql, 'is_primary', Mock(return_value=True))
