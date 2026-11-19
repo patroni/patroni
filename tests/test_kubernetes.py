@@ -593,7 +593,9 @@ class TestCacheBuilder(BaseTestKubernetes):
     def test_kill_stream(self):
         pool_manager = self.k._api._api_client.pool_manager
         timeout = urllib3.Timeout(connect=5, read=10)
+        # setUp() created socket_options with fake TCP_KEEP* constants, which aren't valid on every platform
         with HangingHTTPServer(b'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n') as server, \
+                patch.dict(pool_manager.connection_pool_kw, socket_options=None), \
                 patch('patroni.dcs.kubernetes.ObjectCache._watch', Mock(side_effect=lambda *_: pool_manager.urlopen(
                     'GET', server.url, preload_content=False, retries=False, timeout=timeout))):
             Timer(0.1, self.k._kinds.kill_stream).start()
