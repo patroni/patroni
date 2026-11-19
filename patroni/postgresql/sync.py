@@ -301,7 +301,6 @@ class SyncHandler(object):
     def __init__(self, postgresql: 'Postgresql') -> None:
         self._postgresql = postgresql
         self._checkpoint_task: Optional['Future[Optional[str]]'] = None
-        self._requested_synchronous_standby_names = ''  # the last value written to postgresql.conf
         self.reset_state()
 
     def reset_state(self) -> None:
@@ -324,6 +323,8 @@ class SyncHandler(object):
         # CHECKPOINT that might still be running is kept, but its result can't prove the next change
         self._checkpoint_task_valid = False
         self._checkpoint_retry_at = 0.0
+        # value that checkpointer was verified to enforce by wait_for_checkpointer() right before promote
+        self._checkpointer_verified = ''
         # quorum became stricter and remaining members must catch up before they could be counted as synchronous
         self._quorum_catchup = False
 
@@ -364,6 +365,9 @@ END;$$""")
                   `True` is not returned, so that callers could still remove or replace synchronous nodes.
         """
         synchronous_standby_names = self._postgresql.synchronous_standby_names()
+        # The verification done right before promote is trusted only when the value is observed for the first time
+        verified = synchronous_standby_names == self._checkpointer_verified
+        self._checkpointer_verified = ''
 
         if synchronous_standby_names != self._synchronous_standby_names:
             # Backends that already wait for synchronous replication are released only when walsenders process
@@ -372,7 +376,8 @@ END;$$""")
             if not self._synchronous_standby_names:
                 # Commits start waiting for synchronous standbys only after checkpointer processed the reload.
                 # It could be busy for a long time, while walsenders already report the expected sync_state.
-                self._checkpoint_required = True
+                # Checkpointer keeps enforcing the value that it was verified to enforce before promote.
+                self._checkpoint_required = not verified
                 self._checkpoint_task_valid = False
             self._synchronous_standby_names = synchronous_standby_names
 
@@ -433,7 +438,10 @@ END;$$""")
 
         self._set_active_synchronous_standby_names_members(self._ssn_data.members)
 
-        # Newly connected replicas will be counted as sync only when reached self._primary_flush_lsn
+        # Newly connected replicas will be counted as sync only when reached self._primary_flush_lsn.
+        # NB: a change of only N in "ANY N (...)" isn't visible in pg_stat_replication. A walsender that didn't process
+        # the reload yet could still confirm a commit after self._primary_flush_lsn using the old N, but walsenders
+        # process the reload before handling the next replies from standbys, therefore the window is very short.
         self._primary_flush_lsn = self._postgresql.last_operation()
         self._generate_wal()
         self._postgresql.reset_cluster_info_state(None)  # Reset internal cache to query fresh values
@@ -527,33 +535,49 @@ END;$$""")
         If checkpointer is busy with a restartpoint, the new primary would acknowledge commits that might exist only
         locally, while the /sync key already claims that they are protected.
 
-        Since PostgreSQL 14 an idle checkpointer is detected by :meth:`_checkpointer_status`, which is executed at most
-        two times: right after the reload, and once the grace period passed. Otherwise, ``CHECKPOINT`` is executed,
-        which on a replica performs a restartpoint. Its connection is established after the reload, and postmaster
-        forwards a pending reload signal before starting a new backend, while checkpointer processes it before
-        starting the requested restartpoint.
+        Since PostgreSQL 14 an idle checkpointer is detected by :meth:`_checkpointer_status`: right after the reload,
+        and once the grace period passed. Otherwise, ``CHECKPOINT`` is executed, which on a replica performs a
+        restartpoint. Its connection is established after the reload, and postmaster forwards a pending reload signal
+        before starting a new backend, while checkpointer processes it before starting the requested restartpoint.
+        Since PostgreSQL 12 it isn't necessary to wait until the restartpoint completes, it is enough to see that it
+        started, i.e., that ``CHECKPOINT`` waits on ``CheckpointDone``. To recognize it, our backend must load the new
+        value before ``CHECKPOINT`` is executed, therefore :meth:`_checkpointer_status` is always executed first.
+
+        The verified value is remembered, because checkpointer keeps enforcing it after promote, and therefore
+        :meth:`_handle_synchronous_standby_names_change` doesn't need to verify it again.
 
         :param timeout: how long to wait, in seconds.
 
         :returns: ``True`` if checkpointer is known to have processed the reload, or if nothing has to be enforced.
         """
-        ssn = self._requested_synchronous_standby_names
+        ssn = self._postgresql.config.requested_synchronous_standby_names
+        self._checkpointer_verified = ''
         if not ssn:
             return True
         deadline = time.monotonic() + timeout
+        poll = self._postgresql.major_version >= 120000
         try:
-            if self._postgresql.major_version >= 140000:
+            applied = False
+            if poll:
                 time.sleep(0.1)  # Usually it takes 1ms to reload postgresql.conf, but we will give it 100ms
                 applied, settled = self._checkpointer_status(ssn)
-                if not applied and not settled and time.monotonic() + CHECKPOINTER_RELOAD_GRACE < deadline:
+                if not applied and not settled and self._postgresql.major_version >= 140000\
+                        and time.monotonic() + CHECKPOINTER_RELOAD_GRACE < deadline:
                     time.sleep(CHECKPOINTER_RELOAD_GRACE)  # our backend has just loaded the new value
                     applied, settled = self._checkpointer_status(ssn)
-                if applied:
-                    return True
-            logger.info('Requesting CHECKPOINT to make sure that synchronous_standby_names is enforced before promote')
-            task = thread_pool.get_executor().submit(self._postgresql.checkpoint)
-            wait([task], max(deadline - time.monotonic(), 0))
-            return task.done() and task.exception() is None and task.result() is None
+            if not applied:
+                logger.info('Requesting CHECKPOINT to make sure that synchronous_standby_names is enforced'
+                            ' before promote')
+                task = thread_pool.get_executor().submit(self._postgresql.checkpoint)
+                # Since PostgreSQL 12 it is enough to see that the restartpoint requested after the reload started
+                interval = 0.1 if poll else timeout
+                while not applied and not task.done() and time.monotonic() < deadline:
+                    wait([task], max(min(deadline - time.monotonic(), interval), 0))
+                    applied = poll and not task.done() and self._checkpointer_status(ssn)[0]
+                applied = applied or task.done() and task.exception() is None and task.result() is None
+            if applied:
+                self._checkpointer_verified = ssn
+            return applied
         except Exception as e:
             logger.warning('Failed to check that checkpointer enforces synchronous_standby_names: %r', e)
             return False
@@ -695,7 +719,8 @@ END;$$""")
         # Update synchronous_standby_names - this will reload if SSN changed,
         # which also applies any pending synchronized_standby_slots change.
         ssn_changed = self._postgresql.config.set_synchronous_standby_names(sync_param)
-        self._requested_synchronous_standby_names = sync_param or ''
+        if ssn_changed:  # e.g. checkpointer might process an empty value and stop enforcing synchronous replication
+            self._checkpointer_verified = ''
 
         # If only synchronized_standby_slots changed (SSN didn't), trigger a reload to apply it.
         if slots_changed and not ssn_changed and self._postgresql.state == PostgresqlState.RUNNING:

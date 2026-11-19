@@ -2057,6 +2057,13 @@ class TestHa(PostgresInit):
                 self.assertEqual(self.p.sync_handler.current_state.call_count, 2)
                 self.ha.dcs.write_sync_state.assert_not_called()
                 mock_set_sync.assert_not_called()
+        # still not verified after the grace period, e.g. the verification before promote didn't succeed in time
+        self.p.sync_handler.current_state = Mock(return_value=unconfirmed)
+        self.ha.run_cycle()
+        self.ha.dcs.write_sync_state.assert_called_once()
+        self.assertEqual(self.ha.dcs.write_sync_state.call_args[0][:2], ('leader', CaseInsensitiveSet()))
+        self.ha.dcs.write_sync_state.reset_mock()
+        mock_set_sync.reset_mock()
         # nothing to wait for if enforcement by checkpointer is already verified
         self.p.sync_handler._checkpoint_required = False
         self.p.sync_handler.current_state = Mock(return_value=unconfirmed)
