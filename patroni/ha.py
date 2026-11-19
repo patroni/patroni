@@ -70,6 +70,12 @@ class _MemberStatus(Tags, NamedTuple('_MemberStatus',
         return self.data.get('timeline', 0)
 
     @property
+    def replay_lsn(self) -> int:
+        """Value of ``replayed_location`` from JSON, ``0`` if unknown."""
+        wal: Dict[str, Any] = self.data.get('wal') or self.data.get('xlog') or {}
+        return wal.get('replayed_location') or 0
+
+    @property
     def watchdog_failed(self) -> bool:
         """Indicates that watchdog is required by configuration but not available or failed."""
         return self.data.get('watchdog_failed', False)
@@ -321,6 +327,19 @@ class Ha(object):
         :returns: ``True`` if the primary already put its name into the ``/sync`` in DCS.
         """
         return self.is_quorum_commit_mode() and not self.cluster.sync.is_empty
+
+    def _sync_quorum_is_active(self) -> bool:
+        """Check whether the ``quorum`` from the ``/sync`` key must be respected in the leader race.
+
+        A non-zero ``quorum`` is written to the ``/sync`` key only in quorum commit mode. After ``synchronous_mode``
+        is switched from ``quorum`` to ``on`` the key keeps it until the primary processes the change, while
+        ``synchronous_standby_names`` still uses ``ANY`` semantics, therefore a single voter might not have all
+        transactions that were already acknowledged to clients.
+
+        :returns: ``True`` if quorum commit mode is active or if synchronous mode is active and the ``/sync`` key
+                  has a non-zero ``quorum``.
+        """
+        return self.quorum_commit_mode_is_active() or self.sync_mode_is_active() and self.cluster.sync.quorum > 0
 
     def _get_failover_action_name(self) -> str:
         """Return the currently requested manual failover action name or the default ``failover``.
@@ -1404,7 +1423,14 @@ class Ha(object):
             logger.info('My wal position exceeds maximum replication lag')
             return False  # Too far behind last reported wal position on primary
 
-        if not self.is_standby_cluster() and self.check_timeline():
+        check_timeline = not self.is_standby_cluster() and self.check_timeline()
+        switchpoints: Dict[int, int] = {}
+        if check_timeline and self.cluster.history and self.cluster.history.lines:
+            try:
+                switchpoints = {int(line[0]): int(line[1]) for line in self.cluster.history.lines}
+            except Exception:
+                pass
+        if check_timeline:
             if my_timeline is None:
                 logger.info('Can not figure out my timeline')
                 return False
@@ -1412,7 +1438,8 @@ class Ha(object):
                 logger.info('My timeline %s is behind last known cluster timeline %s', my_timeline, cluster_timeline)
                 return False
 
-        if self.quorum_commit_mode_is_active():
+        quorum_active = self._sync_quorum_is_active()
+        if quorum_active:
             quorum = self.cluster.sync.quorum
             voting_set = CaseInsensitiveSet(self.cluster.sync.members)
         else:
@@ -1446,7 +1473,23 @@ class Ha(object):
                 if st.in_recovery is False:
                     logger.warning('Primary (%s) is still alive', st.member.name)
                     return False
+                timeline_ok = not check_timeline or bool(st.timeline) and st.timeline >= cluster_timeline
+                # A member on an older timeline that replayed WAL beyond the point where its timeline ended has
+                # diverged from the cluster history. Otherwise it might still be catching up and we wait for it.
+                # If the switchpoint is unknown we compare with our position, which is beyond it, because we
+                # passed the timeline check.
+                diverged = not timeline_ok and (not st.timeline
+                                                or st.replay_lsn > switchpoints.get(st.timeline, my_wal_position))
                 if my_wal_position < st.wal_position:
+                    if diverged:
+                        logger.info('Ignoring %s being ahead of us: its timeline %s is behind '
+                                    'last known cluster timeline %s', st.member.name, st.timeline, cluster_timeline)
+                        # it can't have acknowledged anything past the switchpoint, so its quorum vote is valid
+                        if st.timeline in switchpoints and st.member.name in voting_set:
+                            logger.info('Got quorum vote from %s', st.member.name)
+                            quorum_votes += 1
+
+                        continue
                     nodes_ahead += 1
                     logger.info('Wal position of %s is ahead of my wal position', st.member.name)
                     # In synchronous mode the former leader might be still accessible and even be ahead of us.
@@ -1459,7 +1502,7 @@ class Ha(object):
                     if quorum_vote:
                         logger.info('Got quorum vote from %s', st.member.name)
                         quorum_votes += 1
-                    if my_wal_position == st.wal_position:
+                    if my_wal_position == st.wal_position and not diverged:
                         eligible_members.append(st)
 
         action = self._get_failover_action_name()
@@ -1501,7 +1544,7 @@ class Ha(object):
                             leader_name, st.failover_priority, self.patroni.failover_priority)
                 low_priority = False
 
-            if low_priority and (not self.quorum_commit_mode_is_active() or st.member.name in voting_set):
+            if low_priority and (not quorum_active or st.member.name in voting_set):
                 # There's a higher priority non-lagging replica
                 logger.info(
                     '%s has equally tolerable WAL position and priority %s, while this node has priority %s',
@@ -1511,7 +1554,7 @@ class Ha(object):
         # When not in quorum commit we just want to return `True`.
         # In quorum commit the former leader is special and counted healthy even when there are no other nodes.
         # Otherwise check that the number of votes exceeds the quorum field from the /sync key.
-        return not self.quorum_commit_mode_is_active() or quorum_votes >= quorum\
+        return not quorum_active or quorum_votes >= quorum\
             or nodes_ahead == 0 and self.cluster.sync.leader == self.state_handler.name
 
     def is_failover_possible(self, *, cluster_lsn: int = 0,
@@ -1667,7 +1710,13 @@ class Ha(object):
             return True
 
         if self.is_paused():
-            return False
+            # In a standby cluster the former standby leader is allowed to (re)acquire the leader lock in pause
+            # (for example, after the leader key expired or DCS was wiped). We identify it by checking that Postgres
+            # is already configured to replicate from the remote member, i.e. becoming a standby leader is a no-op.
+            # Nodes with the nostream tag are excluded, because their recovery parameters might be identical.
+            return self.is_standby_cluster() and not self.patroni.nostream \
+                and (not self.cluster.initialize or self.state_handler.sysid == self.cluster.initialize) \
+                and self.state_handler.config.recovery_params_match(self.get_remote_member())
 
         if self.patroni.nofailover:  # nofailover tag makes node always unhealthy
             return False

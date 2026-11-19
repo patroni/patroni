@@ -1,7 +1,8 @@
-from unittest.mock import call, Mock, mock_open, patch, PropertyMock
+from unittest.mock import ANY, call, Mock, mock_open, patch, PropertyMock
 
 from patroni.postgresql import Postgresql
 from patroni.postgresql.cancellable import CancellableSubprocess
+from patroni.postgresql.config import ConfigHandler
 from patroni.postgresql.rewind import Rewind
 
 from . import BaseTestPostgresql, MockCursor, psycopg_connect
@@ -106,6 +107,32 @@ class TestRewind(BaseTestPostgresql):
                 self.assertTrue(self.r.pg_rewind(r))
             with patch.object(CancellableSubprocess, 'call', mock_cancellable_call1):
                 self.assertFalse(self.r.pg_rewind(r))
+
+    @patch.object(Postgresql, 'is_running', Mock(return_value=False))
+    def test_execute_writes_restore_command(self):
+        calls = Mock()
+        with patch.object(ConfigHandler, 'write_restore_command', calls.write_restore_command), \
+                patch.object(Rewind, 'pg_rewind', calls.pg_rewind), \
+                patch.object(Rewind, 'check_leader_is_not_in_recovery', Mock(return_value=True)):
+            self.leader.member.data.update(version='4.1.5', role='primary')
+            self.r.execute(self.leader)
+        self.assertEqual(calls.mock_calls[:2], [call.write_restore_command(self.leader), call.pg_rewind(ANY)])
+
+    def test_pg_rewind_restore_target_wal(self):
+        r = {'user': '', 'host': '', 'port': '', 'database': '', 'password': ''}
+        for version in (140000, 150000, 180000):
+            with patch.object(Postgresql, 'major_version', PropertyMock(return_value=version)), \
+                    patch.object(ConfigHandler, 'config_dir', PropertyMock(return_value=self.p.data_dir)), \
+                    patch('subprocess.check_output', Mock(return_value=b'cp /archive/%f %p')), \
+                    patch.object(CancellableSubprocess, 'call', Mock(side_effect=mock_cancellable_call0)) as mock_call:
+                self.assertTrue(self.r.pg_rewind(r))
+                self.assertIn('--restore-target-wal', mock_call.call_args[0][0])
+
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=150000)), \
+                patch('subprocess.check_output', Mock(return_value=b'')), \
+                patch.object(CancellableSubprocess, 'call', Mock(side_effect=mock_cancellable_call)) as mock_call:
+            self.assertFalse(self.r.pg_rewind(r))
+            self.assertNotIn('--restore-target-wal', mock_call.call_args[0][0])
 
     def test_pg_rewind_user_options(self):
         """Test pg_rewind with custom user options."""

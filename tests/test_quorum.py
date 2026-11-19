@@ -536,3 +536,47 @@ class QuorumTest(unittest.TestCase):
             ('sync', 'c', 1, set('b')),    # remove a from sync as inactive
             ('quorum', 'c', 0, set('b')),  # remove a from voters and reduce quorum
         ])
+
+    def test_voters_gone_while_increasing_replication_factor(self):
+        leader = 'a'
+
+        # Node d was added to sync with replication factor increase, but before it was added to voters b is gone
+        self.check_state_transitions(leader=leader, quorum=1, voters=set('bc'),
+                                     numsync=2, sync=set('bcd'), numsync_confirmed=2, active=set('cd'),
+                                     sync_wanted=2, leader_wanted=leader, expected=[
+            ('quorum', leader, 1, set('bcd')),  # add d to voters, b must stay there until removed from sync
+            ('sync', leader, 2, set('cd')),     # remove b from sync
+            ('quorum', leader, 0, set('cd')),   # remove b from voters
+        ])
+
+        # Node b was added to sync with replication factor increase, but before it was added to voters b and c are gone
+        self.check_state_transitions(leader=leader, quorum=1, voters=set('cd'),
+                                     numsync=2, sync=set('bcd'), numsync_confirmed=1, active=set('d'),
+                                     sync_wanted=2, leader_wanted=leader, expected=[
+            ('sync', leader, 1, set('d')),    # remove b and c from sync
+            ('quorum', leader, 0, set('d')),  # remove c from voters
+        ])
+
+    def test_add_node_with_replication_factor_increase(self):
+        leader = 'a'
+
+        # synchronous_node_count was increased and node d joined, but there are not enough nodes to add
+        self.check_state_transitions(leader=leader, quorum=1, voters=set('bc'),
+                                     numsync=1, sync=set('bc'), numsync_confirmed=2, active=set('bcd'),
+                                     sync_wanted=3, leader_wanted=leader, expected=[
+            ('sync', leader, 2, set('bcd')),    # add d to sync with replication factor increase
+            ('quorum', leader, 1, set('bcd')),  # add d to voters without changing guarantees
+            ('sync', leader, 3, set('bcd')),    # increase replication factor to requested value
+        ])
+
+    def test_reduce_replication_factor_before_new_node_confirmed(self):
+        leader = 'a'
+
+        # With synchronous_node_count=3 node d joined and quorum was increased by 1, because d didn't yet
+        # confirm reaching the safe LSN. Before it happened, synchronous_node_count was reduced to 1.
+        self.check_state_transitions(leader=leader, quorum=1, voters=set('bcd'),
+                                     numsync=3, sync=set('bcd'), numsync_confirmed=2, active=set('bcd'),
+                                     sync_wanted=1, leader_wanted=leader, expected=[
+            ('quorum', leader, 2, set('bcd')),  # increase quorum before reducing replication factor
+            ('sync', leader, 1, set('bcd')),    # reduce replication factor
+        ])

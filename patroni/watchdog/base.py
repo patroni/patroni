@@ -97,8 +97,6 @@ class Watchdog(object):
         self.lock = RLock()
         self.active = False
         self._impl_pending = False
-        # Activation in required mode failed because of a too long timeout of the device, see is_healthy
-        self._unsafe_timeout = False
 
         if self.config.mode == MODE_OFF:
             self.impl = NullWatchdog()
@@ -107,6 +105,8 @@ class Watchdog(object):
             if self.config.mode == MODE_REQUIRED and self.impl.is_null:
                 logger.error("Configuration requires a watchdog, but watchdog is not supported on this platform.")
                 sys.exit(1)
+        # Activation in required mode failed because of a too long timeout of the device, see is_healthy
+        self._unsafe_timeout = False
 
         from patroni.watchdog.thread import ThreadWatchdog
         try:
@@ -150,6 +150,7 @@ class Watchdog(object):
         :returns False if a safe watchdog could not be configured, but is required.
         """
         self.active = True
+        # A configuration change might have been deferred to a keepalive that was never sent
         if self._impl_pending or self.config.mode != self.active_config.mode or \
                 self.config.fallback != self.active_config.fallback and self.impl.is_null:
             if not self._replace_impl():
@@ -191,6 +192,7 @@ class Watchdog(object):
         except WatchdogError as e:
             log = logger.warning if self.config.mode == MODE_REQUIRED else logger.debug
             log("Could not activate %s: %s", self.impl.describe(), e)
+            # The device is armed if open() succeeded, but _set_timeout() failed
             if not self._try_disable_impl():
                 return self.config.mode != MODE_REQUIRED
             self.impl = NullWatchdog()
