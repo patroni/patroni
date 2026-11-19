@@ -277,6 +277,19 @@ def mtime(filename: str) -> Optional[float]:
         return None
 
 
+def is_unix_socket_path(host: str) -> bool:
+    """Check whether *host* is a unix socket directory rather than a host name or an IP address.
+
+    ``libpq`` treats an absolute path as a unix socket directory. On Windows that includes a path that starts with a
+    drive letter, such as ``C:/pgsock``, which unix sockets support there since PostgreSQL 13.
+
+    :param host: value of the ``host`` connection parameter or one item of ``unix_socket_directories``.
+
+    :returns: ``True`` if *host* is an absolute path on this platform.
+    """
+    return host.startswith('/') or os.path.isabs(host)
+
+
 class ConfigWriter(object):
     """Write a configuration file atomically.
 
@@ -661,8 +674,9 @@ class ConfigHandler(object):
         # when we are doing custom bootstrap we assume that we don't know superuser password
         # and in order to be able to change it, we are opening trust access from a certain address
         if self._postgresql.bootstrap.running_custom_bootstrap:
-            addresses = {} if os.name == 'nt' else {'': 'local'}  # windows doesn't yet support unix-domain sockets
-            if 'host' in self.local_replication_address and not self.local_replication_address['host'].startswith('/'):
+            addresses = {'': 'local'} if self._unix_sockets_supported else {}
+            if 'host' in self.local_replication_address \
+                    and not is_unix_socket_path(self.local_replication_address['host']):
                 addresses.update({sa[0] + '/32': 'host' for _, _, _, _, sa in getaddrinfo(
                                   self.local_replication_address['host'], self.local_replication_address['port'],
                                   0, socket.SOCK_STREAM, socket.IPPROTO_TCP)})
@@ -1218,11 +1232,16 @@ class ConfigHandler(object):
                     for k in ('hba_file', 'ident_file', 'hosts_file') if k in ret})
         return ret
 
+    @property
+    def _unix_sockets_supported(self) -> bool:
+        """``False`` on Windows with PostgreSQL older than 13 (or a not yet known version): no unix sockets there."""
+        return os.name != 'nt' or self._postgresql.major_version >= 130000
+
     @staticmethod
     def _get_unix_local_address(unix_socket_directories: str) -> str:
         for d in unix_socket_directories.split(','):
             d = d.strip()
-            if d.startswith('/'):  # Only absolute path can be used to connect via unix-socket
+            if is_unix_socket_path(d):  # Only absolute path can be used to connect via unix-socket
                 return d
         return ''
 
@@ -1271,7 +1290,10 @@ class ConfigHandler(object):
         unix_socket_directories = self._server_parameters.get('unix_socket_directories')
         if unix_socket_directories is not None:
             # fallback to tcp if unix_socket_directories is set, but there are no suitable values
-            unix_local_address['host'] = self._get_unix_local_address(unix_socket_directories) or tcp_local_address
+            # or PostgreSQL doesn't support unix sockets on this platform
+            unix_local_address['host'] = (self._unix_sockets_supported
+                                          and self._get_unix_local_address(unix_socket_directories)
+                                          or tcp_local_address)
 
         tcp_local_address = {'host': tcp_local_address, 'port': port}
 
