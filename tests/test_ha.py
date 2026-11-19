@@ -1398,8 +1398,12 @@ class TestHa(PostgresInit):
             with patch('patroni.ha.logger.info') as mock_info:
                 self.assertTrue(self.ha._is_healthiest_node(members))
                 self.assertIn('Got quorum vote from %s', [c[0][0] for c in mock_info.call_args_list])
+            # diverged voter ahead of us still votes, but only if the divergence is proven by a known switchpoint
             self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=2, replay_lsn=9)
-            self.assertFalse(self.ha._is_healthiest_node(members))
+            self.assertTrue(self.ha._is_healthiest_node(members))
+            self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=2, replay_lsn=11)
+            with patch.object(Cluster, 'history', PropertyMock(return_value=None)):
+                self.assertFalse(self.ha._is_healthiest_node(members))
 
     @patch.object(global_config.__class__, 'is_synchronous_mode', PropertyMock(return_value=True))
     def test__is_healthiest_node_respects_quorum_in_sync_key(self):

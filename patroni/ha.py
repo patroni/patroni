@@ -1481,6 +1481,11 @@ class Ha(object):
                     if diverged:
                         logger.info('Ignoring %s being ahead of us: its timeline %s is behind '
                                     'last known cluster timeline %s', st.member.name, st.timeline, cluster_timeline)
+                        # it can't have acknowledged anything past the switchpoint, so its quorum vote is valid
+                        if st.timeline in switchpoints and st.member.name in voting_set:
+                            logger.info('Got quorum vote from %s', st.member.name)
+                            quorum_votes += 1
+
                         continue
                     nodes_ahead += 1
                     logger.info('Wal position of %s is ahead of my wal position', st.member.name)
