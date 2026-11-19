@@ -723,6 +723,9 @@ class Postgresql(ClusterSite):
     def set_role(self, value: PostgresqlRole) -> None:
         with self._role_lock:
             self._role = value
+        if value not in (PostgresqlRole.PRIMARY, PostgresqlRole.MASTER, PostgresqlRole.PROMOTED) \
+                and hasattr(self, 'sync_handler'):
+            self.sync_handler.reset_state()
 
     @property
     def state(self) -> PostgresqlState:

@@ -961,22 +961,43 @@ class Ha(object):
             return time.monotonic() - start_time + offset >= self.dcs.loop_wait
 
         while True:
-            transition = 'break'  # we need define transition value if `QuorumStateResolver` produced no changes
             sync_state = self.state_handler.sync_handler.current_state(self.cluster)
+            if sync_state is None:
+                if leader != self.state_handler.name:  # failover
+                    # Verification of synchronous_standby_names might take long after promote, while commits
+                    # could already be acknowledged by standbys. The former leader must immediately lose the
+                    # privilege to be promoted without votes. It takes the place of the new leader in voters,
+                    # therefore the set of nodes that could vote and the quorum don't change.
+                    voters = CaseInsensitiveSet((CaseInsensitiveSet(sync.voters)
+                                                 - CaseInsensitiveSet([self.state_handler.name]))
+                                                | CaseInsensitiveSet([leader]))
+                    logger.info("Setting leader to %s, quorum to %d of (%s)",
+                                self.state_handler.name, sync.quorum, ", ".join(sorted(voters)))
+                    sync = self.dcs.write_sync_state(self.state_handler.name, voters, sync.quorum,
+                                                     version=sync.version)
+                    if not sync:
+                        return logger.info('Synchronous replication key updated by someone else.')
+                    leader = self.state_handler.name
+                transition = 'restart'
+                transitions = []
+            else:
+                if leader == self.state_handler.name and \
+                        self._handle_synchronous_strict_mode(sync, sync_state):
+                    return
 
-            if leader == self.state_handler.name and \
-                    self._handle_synchronous_strict_mode(sync, sync_state):
-                return
+                transition = 'break'  # we need to define transition value if `QuorumStateResolver` produced no changes
+                transitions = list(QuorumStateResolver(leader=leader,
+                                                       quorum=sync.quorum,
+                                                       voters=sync.voters,
+                                                       numsync=sync_state.numsync,
+                                                       sync=sync_state.sync,
+                                                       numsync_confirmed=len(sync_state.sync_confirmed),
+                                                       active=sync_state.active,
+                                                       sync_wanted=global_config.synchronous_node_count,
+                                                       leader_wanted=self.state_handler.name,
+                                                       quorum_catchup=sync_state.quorum_catchup))
 
-            for transition, leader, num, nodes in QuorumStateResolver(leader=leader,
-                                                                      quorum=sync.quorum,
-                                                                      voters=sync.voters,
-                                                                      numsync=sync_state.numsync,
-                                                                      sync=sync_state.sync,
-                                                                      numsync_confirmed=len(sync_state.sync_confirmed),
-                                                                      active=sync_state.active,
-                                                                      sync_wanted=global_config.synchronous_node_count,
-                                                                      leader_wanted=self.state_handler.name):
+            for i, (transition, leader, num, nodes) in enumerate(transitions):
                 if _check_timeout():
                     return
 
@@ -986,20 +1007,30 @@ class Ha(object):
                     if not sync:
                         return logger.info('Synchronous replication key updated by someone else.')
                 elif transition == 'sync':
-                    self.state_handler.sync_handler.set_synchronous_standby_names(nodes, num)
+                    if self.state_handler.sync_handler.set_synchronous_standby_names(nodes, num) and \
+                            i < len(transitions) - 1:
+                        # If synchronous_standby_names change is not yet effective (or remaining nodes must catch up)
+                        # and this is not the last transition we need to wait and restart the state machine.
+                        transition = 'restart'
+                        break
 
-            if transition == 'break' and sync_state.sync_type != 'quorum':
+            if transition == 'break' and sync_state and sync_state.sync_type != 'quorum':
                 # FIRST -> ANY
                 self.state_handler.sync_handler.set_synchronous_standby_names(sync_state.sync, sync_state.numsync)
 
             if transition != 'restart' or _check_timeout(1):
                 # Check if manage_synchronized_standby_slots feature state changed even when no sync changes
-                if transition == 'break':
+                if transition == 'break' and sync_state:
                     self.state_handler.slots_handler.handle_manage_sync_slots_toggle(sync_state.active)
                 return
-            # synchronous_standby_names was transitioned from empty to non-empty and it may take
-            # some time for nodes to become synchronous. In this case we want to restart state machine
-            # hoping that we can update /sync key earlier than in loop_wait seconds.
+            # Here we consider three cases:
+            # 1. synchronous_standby_names was transitioned from empty to non-empty and it may take
+            #    some time for checkpointer to enforce it and for nodes to become synchronous.
+            # 2. some nodes were removed from synchronous_standby_names and we need to wait until
+            #    this change becomes effective after reload.
+            # 3. quorum became stricter and remaining nodes must catch up with the primary.
+            # In all cases we need to wait and restart state machine hoping that we can update
+            # /sync key earlier than in loop_wait seconds.
             time.sleep(1)
             self.state_handler.reset_cluster_info_state(None)
 
@@ -1017,6 +1048,9 @@ class Ha(object):
             return
 
         current_state = self.state_handler.sync_handler.current_state(self.cluster)
+        if current_state is None:
+            return
+
         picked = current_state.active
         allow_promote = current_state.sync_confirmed
         voters = CaseInsensitiveSet(sync.voters)
@@ -1028,6 +1062,16 @@ class Ha(object):
             if not sync:
                 return logger.warning("Updating sync state failed")
             voters = CaseInsensitiveSet()
+
+        if voters - allow_promote and voters <= picked and self.state_handler.sync_handler.checkpointer_pending:
+            # Members of /sync are healthy, but not confirmed, because it isn't verified yet that checkpointer enforces
+            # synchronous_standby_names. E.g., after Patroni restart it isn't possible until the configuration reload
+            # executed on startup settles. Give it a chance, instead of removing them from /sync needlessly.
+            time.sleep(2)
+            current_state = self.state_handler.sync_handler.current_state(self.cluster)
+            if current_state is None:
+                return
+            picked, allow_promote = current_state.active, current_state.sync_confirmed
 
         if picked == voters and voters != allow_promote:
             logger.warning('Inconsistent state between synchronous_standby_names = %s and /sync = %s key '
@@ -1063,7 +1107,10 @@ class Ha(object):
         if picked and allow_promote != picked:
             # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby
             time.sleep(2)
-            allow_promote = self.state_handler.sync_handler.current_state(self.cluster).sync_confirmed
+            current_state = self.state_handler.sync_handler.current_state(self.cluster)
+            if current_state is None:
+                return
+            allow_promote = current_state.sync_confirmed
 
         if allow_promote and allow_promote != sync_common:
             if self.dcs.write_sync_state(self.state_handler.name, allow_promote, 0, version=sync.version):
@@ -1269,11 +1316,18 @@ class Ha(object):
                     self._rewind.reset_state()  # make sure we will trigger checkpoint after promote
                     self.notify_mpp_coordinator('before_promote')
 
+                def promote() -> Optional[bool]:
+                    # Wait before promote() completes self._async_response, so it can still be cancelled
+                    if self.is_synchronous_mode() \
+                            and not self.state_handler.sync_handler.wait_for_checkpointer(self.dcs.loop_wait):
+                        logger.warning('Promoting although checkpointer might not enforce synchronous_standby_names'
+                                       ' yet, transactions committed right after promote might not be replicated')
+                    return self.state_handler.promote(self.dcs.loop_wait, self._async_response, before_promote)
+
                 with self._async_response:
                     self._async_response.reset()
 
-                self._async_executor.try_run_async('promote', self.state_handler.promote,
-                                                   args=(self.dcs.loop_wait, self._async_response, before_promote))
+                self._async_executor.try_run_async('promote', promote)
             return promote_message
 
     def fetch_node_status(self, member: Member) -> _MemberStatus:

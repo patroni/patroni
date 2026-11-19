@@ -1497,6 +1497,14 @@ class ConfigHandler(object):
         """
         return self._set_server_parameter('synchronous_standby_names', value, reload=True) or None
 
+    @property
+    def requested_synchronous_standby_names(self) -> str:
+        """Get ``synchronous_standby_names`` value that Patroni writes to ``postgresql.conf``.
+
+        :returns: the value, or an empty string if it is not set.
+        """
+        return self._server_parameters.get('synchronous_standby_names') or ''
+
     def set_synchronized_standby_slots(self, value: Optional[str], reload: bool = False) -> bool:
         """Update ``synchronized_standby_slots`` parameter.
 

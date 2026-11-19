@@ -1,13 +1,15 @@
 import os
 
+from concurrent.futures import Future
 from unittest.mock import Mock, patch, PropertyMock
 
 from patroni import global_config
 from patroni.collections import CaseInsensitiveSet
 from patroni.dcs import Cluster, ClusterConfig, Status, SyncState
-from patroni.postgresql import Postgresql, PostgresqlState
+from patroni.postgresql import Postgresql, PostgresqlRole, PostgresqlState
 from patroni.postgresql.config import ConfigHandler
 from patroni.postgresql.slots import SlotsHandler
+from patroni.postgresql.sync import CHECKPOINTER_RELOAD_GRACE, SYNC_STRICT_PLACEHOLDER
 
 from . import BaseTestPostgresql, mock_available_gucs, psycopg_connect
 
@@ -41,12 +43,12 @@ class TestSync(BaseTestPostgresql):
             {'pid': 102, 'application_name': self.other.name, 'sync_state': 'async', 'flush_lsn': 2}]
 
         # sync node is a bit behind of async, but we prefer it anyway
-        with patch.object(Postgresql, "_cluster_info_state_get", side_effect=[self.leadermem.name,
+        with patch.object(Postgresql, "_cluster_info_state_get", side_effect=[self.leadermem.name, pg_stat_replication,
                                                                               'on', pg_stat_replication]):
             self.assertEqual(self.s.current_state(self.cluster), ('priority', 1,
                                                                   CaseInsensitiveSet([self.leadermem.name]),
                                                                   CaseInsensitiveSet([self.leadermem.name]),
-                                                                  CaseInsensitiveSet([self.leadermem.name])))
+                                                                  CaseInsensitiveSet([self.leadermem.name]), False))
 
         # prefer node with sync_state='potential', even if it is slightly behind of async
         pg_stat_replication[0]['sync_state'] = 'potential'
@@ -54,7 +56,7 @@ class TestSync(BaseTestPostgresql):
             r['write_lsn'] = r.pop('flush_lsn')
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['', 'remote_write', pg_stat_replication]):
             self.assertEqual(self.s.current_state(self.cluster), ('off', 0, CaseInsensitiveSet(), CaseInsensitiveSet(),
-                                                                  CaseInsensitiveSet([self.leadermem.name])))
+                                                                  CaseInsensitiveSet([self.leadermem.name]), False))
 
         # when there are no sync or potential candidates we pick async with the minimal replication lag
         for i, r in enumerate(pg_stat_replication):
@@ -62,28 +64,28 @@ class TestSync(BaseTestPostgresql):
         missing = pg_stat_replication.pop(0)
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['', 'remote_apply', pg_stat_replication]):
             self.assertEqual(self.s.current_state(self.cluster), ('off', 0, CaseInsensitiveSet(), CaseInsensitiveSet(),
-                                                                  CaseInsensitiveSet([self.me.name])))
+                                                                  CaseInsensitiveSet([self.me.name]), False))
 
         # unknown sync node is ignored
         missing.update(application_name='missing', sync_state='sync')
         pg_stat_replication.insert(0, missing)
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['', 'remote_apply', pg_stat_replication]):
             self.assertEqual(self.s.current_state(self.cluster), ('off', 0, CaseInsensitiveSet(), CaseInsensitiveSet(),
-                                                                  CaseInsensitiveSet([self.me.name])))
+                                                                  CaseInsensitiveSet([self.me.name]), False))
 
         # invalid synchronous_standby_names and empty pg_stat_replication
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['a b', 'remote_apply', None]):
             self.p._major_version = 90400
             self.assertEqual(self.s.current_state(self.cluster), ('off', 0, CaseInsensitiveSet(), CaseInsensitiveSet(),
-                                                                  CaseInsensitiveSet()))
+                                                                  CaseInsensitiveSet(), False))
 
         # synchronous_standby_names contains '*'
-        with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['*', 'remote_apply', None]):
+        with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['*', None, 'remote_apply', None]):
             self.p._major_version = 90400
             self.assertEqual(self.s.current_state(self.cluster),
                              ('priority', 1,
                               CaseInsensitiveSet(['__patroni_strict_sync_replica_placeholder__']),
-                              CaseInsensitiveSet(), CaseInsensitiveSet()))
+                              CaseInsensitiveSet(), CaseInsensitiveSet(), False))
 
     @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
     def test_current_state_quorum(self):
@@ -97,11 +99,11 @@ class TestSync(BaseTestPostgresql):
         # sync node is a bit behind of async, but we prefer it anyway
         with patch.object(Postgresql, "_cluster_info_state_get",
                           side_effect=['ANY 1 ({0},"{1}")'.format(self.leadermem.name, self.me.name),
-                                       'on', pg_stat_replication]):
+                                       pg_stat_replication, 'on', pg_stat_replication]):
             self.assertEqual(self.s.current_state(self.cluster),
                              ('quorum', 1, CaseInsensitiveSet([self.me.name, self.leadermem.name]),
                               CaseInsensitiveSet([self.me.name, self.leadermem.name]),
-                              CaseInsensitiveSet([self.leadermem.name, self.me.name])))
+                              CaseInsensitiveSet([self.leadermem.name, self.me.name]), False))
 
     @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
     def test_current_state_cascading(self):
@@ -114,10 +116,450 @@ class TestSync(BaseTestPostgresql):
         self.leadermem.data['tags'] = {'replicatefrom': self.me.name}
         with patch.object(Postgresql, "_cluster_info_state_get",
                           side_effect=['2 ({0},"{1}")'.format(self.leadermem.name, self.other.name),
-                                       'on', pg_stat_replication]):
+                                       pg_stat_replication, 'on', pg_stat_replication]):
             self.assertEqual(self.s.current_state(self.cluster),
                              ('priority', 2, CaseInsensitiveSet([self.other.name, self.leadermem.name]),
-                              CaseInsensitiveSet(), CaseInsensitiveSet([self.me.name])))
+                              CaseInsensitiveSet(), CaseInsensitiveSet([self.me.name]), False))
+
+    def test_current_state_waiting(self):
+        pg_stat_replication = [
+            {'pid': 100, 'application_name': self.me.name, 'sync_state': 'sync', 'flush_lsn': 1},
+            {'pid': 101, 'application_name': self.other.name, 'sync_state': 'sync', 'flush_lsn': 2}]
+
+        # some nodes were removed from synchronous_standby_names
+        with patch.object(Postgresql, "_cluster_info_state_get",
+                          side_effect=['1 ("{0}")'.format(self.other.name), pg_stat_replication]):
+            self.assertIsNone(self.s.current_state(self.cluster))
+
+    @patch.object(Postgresql, 'last_operation', Mock(return_value=100))
+    def test_current_state_waiting_after_removal(self):
+        self.cluster.config.data['synchronous_mode'] = 'quorum'
+        global_config.update(self.cluster)
+        a, b = self.leadermem.name, self.me.name
+        replication = [
+            {'pid': 100, 'application_name': a, 'sync_state': 'quorum', 'flush_lsn': 100},
+            {'pid': 101, 'application_name': b, 'sync_state': 'quorum', 'flush_lsn': 100}]
+
+        with patch.object(Postgresql, 'synchronous_standby_names',
+                          return_value='ANY 1 ({0},{1})'.format(a, b)) as mock_ssn, \
+                patch.object(Postgresql, 'pg_stat_replication', return_value=replication):
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a, b]))
+
+            # SHOW changed, but b is still reported as quorum.
+            mock_ssn.return_value = 'ANY 1 ({0})'.format(a)
+            for _ in range(2):
+                self.assertIsNone(self.s.current_state(self.cluster))
+
+            replication[1]['sync_state'] = 'async'
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+    def test_current_state_overlapping_changes(self):
+        self.cluster.config.data['synchronous_node_count'] = 3
+        global_config.update(self.cluster)
+        self.other.data['tags'] = {}
+        a, b, c = self.leadermem.name, self.me.name, self.other.name
+        replication = [
+            {'pid': 100, 'application_name': a, 'sync_state': 'sync', 'flush_lsn': 100},
+            {'pid': 101, 'application_name': b, 'sync_state': 'async', 'flush_lsn': 100}]
+
+        with patch.object(Postgresql, 'synchronous_standby_names', return_value=a) as mock_ssn, \
+                patch.object(Postgresql, 'pg_stat_replication', return_value=replication), \
+                patch.object(Postgresql, 'last_operation', return_value=100) as mock_lsn:
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+            mock_ssn.return_value = '2 ({0},{1})'.format(a, b)
+            mock_lsn.return_value = 200
+            replication[0]['flush_lsn'] = 200
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+            # Add c before the previous configuration was verified.
+            mock_ssn.return_value = '3 ({0},{1},"{2}")'.format(a, b, c)
+            mock_lsn.return_value = 300
+            replication[0]['flush_lsn'] = 300
+            replication[1]['sync_state'] = 'sync'
+            replication.append({'pid': 102, 'application_name': c, 'sync_state': 'async', 'flush_lsn': 100})
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+            # All names now match, but b and c have not reached the new WAL boundary.
+            mock_lsn.return_value = 400
+            replication[0]['flush_lsn'] = 400
+            replication[2]['sync_state'] = 'sync'
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+            replication[1]['flush_lsn'] = 300
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+            # Catching up to that boundary is sufficient even if the primary advances.
+            mock_lsn.return_value = 500
+            replication[0]['flush_lsn'] = 500
+            replication[1]['flush_lsn'] = replication[2]['flush_lsn'] = 400
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a, b, c]))
+
+    @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
+    def test_current_state_wait_for_checkpointer(self):
+        a = self.leadermem.name
+        replication = [{'pid': 100, 'application_name': a, 'sync_state': 'sync', 'flush_lsn': 1}]
+        futures = [Future(), Future(), Future(), Future()]
+        executor = Mock()
+        executor.submit.side_effect = futures
+
+        def assert_waiting():
+            # state is returned, so that sync nodes could be removed/replaced, but nothing is confirmed
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet())
+
+        with patch.object(Postgresql, 'synchronous_standby_names', return_value=a) as mock_ssn, \
+                patch.object(Postgresql, 'pg_stat_replication', return_value=replication), \
+                patch.object(Postgresql, 'query', return_value=[(False, True)]) as mock_query, \
+                patch('patroni.thread_pool.get_executor', Mock(return_value=executor)):
+            # checkpointer might process the reload without help, don't force CHECKPOINT right after reload
+            mock_query.return_value = [(False, False)]
+            assert_waiting()
+            executor.submit.assert_not_called()
+
+            # walsender already reports sync_state=sync, but checkpointer is busy and might still not enforce it
+            mock_query.return_value = [(False, True)]
+            assert_waiting()
+            assert_waiting()
+            executor.submit.assert_called_once_with(self.p.checkpoint)
+
+            futures[0].set_result('not accessible or not healthy')
+            with patch('time.monotonic', Mock(return_value=1)) as mock_time:
+                assert_waiting()
+                assert_waiting()
+                self.assertEqual(executor.submit.call_count, 1)  # don't retry before loop_wait passed
+                mock_time.return_value = 11
+                assert_waiting()
+            self.assertEqual(executor.submit.call_count, 2)
+
+            futures[1].set_result(None)
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+            # synchronous_standby_names became empty and non-empty again, the last checkpoint started after reload
+            mock_ssn.return_value = ''
+            self.s.current_state(self.cluster)
+            mock_ssn.return_value = a
+            mock_query.return_value = [(True, True)]
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+            self.assertEqual(executor.submit.call_count, 2)
+
+            # requested checkpoint started (CheckpointDone), there is no need to wait for its completion
+            mock_ssn.return_value = ''
+            self.s.current_state(self.cluster)
+            mock_ssn.return_value = a
+            mock_query.return_value = [(False, True)]
+            assert_waiting()
+            self.assertEqual(executor.submit.call_count, 3)
+            mock_query.return_value = [(True, True)]
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+            self.assertFalse(futures[2].done())
+
+            # CHECKPOINT requested before the next change is still running: don't request another one,
+            # and don't trust its result, because it doesn't prove that the new value is enforced
+            mock_ssn.return_value = ''
+            self.s.current_state(self.cluster)
+            mock_ssn.return_value = a
+            mock_query.return_value = [(False, True)]
+            assert_waiting()
+            self.assertEqual(executor.submit.call_count, 3)
+            futures[2].set_result(None)
+            assert_waiting()
+            self.assertEqual(executor.submit.call_count, 4)
+            futures[3].set_result(None)
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+    @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
+    def test_current_state_releases_waiters_on_change(self):
+        a, b = self.leadermem.name, '"{0}"'.format(self.other.name)
+
+        def wal_generated():
+            return any('txid_current' in c[0][0] for c in mock_query.call_args_list)
+
+        with patch.object(Postgresql, 'synchronous_standby_names', return_value=a) as mock_ssn, \
+                patch.object(Postgresql, 'pg_stat_replication', side_effect=lambda: [
+                    {'pid': 100, 'application_name': mock_ssn.return_value.strip('"'), 'sync_state': 'sync',
+                     'flush_lsn': 1}]), \
+                patch.object(Postgresql, 'query', return_value=[(False, False)]) as mock_query:
+            # nothing waited for synchronous replication while synchronous_standby_names was empty
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet())
+            self.assertFalse(wal_generated())
+            # backends that were waiting for the old value must be released without waiting for verification
+            mock_ssn.return_value = b
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet())
+            self.assertTrue(wal_generated())
+
+    @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
+    @patch.object(Postgresql, 'major_version', PropertyMock(return_value=130000))
+    def test_current_state_wait_for_checkpointer_before_v14(self):
+        a = self.leadermem.name
+        replication = [{'pid': 100, 'application_name': a, 'sync_state': 'sync', 'flush_lsn': 1}]
+        executor = Mock()
+        executor.submit.return_value = Future()
+        with patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value=a)), \
+                patch.object(Postgresql, 'pg_stat_replication', Mock(return_value=replication)), \
+                patch.object(Postgresql, 'query', Mock(return_value=[(False, False)])), \
+                patch('patroni.thread_pool.get_executor', Mock(return_value=executor)):
+            # an idle checkpointer can't be detected, hence there is no reason to wait for the grace period
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet())
+            executor.submit.assert_called_once_with(self.p.checkpoint)
+            executor.submit.return_value.set_result(None)
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+    @patch('time.sleep')
+    @patch.object(Postgresql, 'state', PropertyMock(return_value=PostgresqlState.STOPPED))
+    def test_wait_for_checkpointer(self, mock_sleep):
+        a = self.leadermem.name
+        executor = Mock()
+        with patch.object(Postgresql, 'query') as mock_query, \
+                patch('patroni.thread_pool.get_executor', Mock(return_value=executor)):
+            # nothing to enforce
+            self.s.set_synchronous_standby_names([])
+            self.assertTrue(self.s.wait_for_checkpointer(5))
+            mock_query.assert_not_called()
+
+            # our backend has just loaded the new value, checkpointer waits for work after the grace period
+            self.s.set_synchronous_standby_names([a])
+            mock_query.side_effect = [[(False, False)], [(True, True)]]
+            self.assertTrue(self.s.wait_for_checkpointer(5))
+            self.assertEqual(mock_query.call_count, 2)
+            self.assertEqual(mock_query.call_args[0][1], a)
+            self.assertIn("'CheckpointerMain'", mock_query.call_args[0][0])
+            mock_sleep.assert_called_with(CHECKPOINTER_RELOAD_GRACE)
+            executor.submit.assert_not_called()
+
+            # checkpointer is busy, the new value isn't visible, or there is no time to wait for the grace period:
+            # the restartpoint requested after reload must complete in time
+            mock_query.side_effect = None
+            for rows, timeout in (([(False, True)], 5), ([], 5), ([(False, False)], 1)):
+                mock_query.reset_mock()
+                mock_query.return_value = rows
+                executor.submit.return_value = Future()
+                executor.submit.return_value.set_result(None)
+                self.assertTrue(self.s.wait_for_checkpointer(timeout))
+                mock_query.assert_called_once()
+            executor.submit.return_value = Future()
+            executor.submit.return_value.set_result('not accessible or not healthy')
+            self.assertFalse(self.s.wait_for_checkpointer(5))
+            executor.submit.return_value = Future()
+            self.assertFalse(self.s.wait_for_checkpointer(0))
+
+            # it is enough to see that the requested restartpoint has started, its completion isn't awaited
+            mock_query.reset_mock()
+            mock_query.side_effect = [[(False, True)], [(False, True)], [(True, True)]]
+            with patch('patroni.postgresql.sync.wait') as mock_wait:
+                self.assertTrue(self.s.wait_for_checkpointer(5))
+            self.assertEqual(mock_wait.call_count, 2)
+            self.assertEqual(mock_query.call_count, 3)
+            self.assertFalse(executor.submit.return_value.done())
+            mock_query.side_effect = None
+
+            # before v14 interrupts are not processed after a checkpoint, so a wait in the main loop proves nothing
+            mock_query.reset_mock()
+            with patch.object(Postgresql, 'major_version', PropertyMock(return_value=130000)):
+                self.assertFalse(self.s.wait_for_checkpointer(0))
+                mock_query.assert_called_once()
+                self.assertNotIn("'CheckpointerMain'", mock_query.call_args[0][0])
+
+            # before v12 CHECKPOINT doesn't report wait events, therefore its completion is awaited
+            mock_query.reset_mock()
+            executor.submit.return_value.set_result(None)
+            with patch.object(Postgresql, 'major_version', PropertyMock(return_value=110000)):
+                self.assertTrue(self.s.wait_for_checkpointer(5))
+                mock_query.assert_not_called()
+
+            mock_query.side_effect = Exception
+            self.assertFalse(self.s.wait_for_checkpointer(5))
+
+    @patch('time.sleep', Mock())
+    @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
+    @patch.object(Postgresql, 'state', PropertyMock(return_value=PostgresqlState.STOPPED))
+    def test_checkpointer_verified_before_promote(self):
+        a = self.leadermem.name
+        replication = [{'pid': 100, 'application_name': a, 'sync_state': 'sync', 'flush_lsn': 1}]
+        executor = Mock()
+        executor.submit.return_value = Future()
+        with patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value=a)) as mock_ssn, \
+                patch.object(Postgresql, 'pg_stat_replication', Mock(return_value=replication)), \
+                patch.object(Postgresql, 'query') as mock_query, \
+                patch('patroni.thread_pool.get_executor', Mock(return_value=executor)):
+            def promote(verified, sync_after_verification=None):
+                self.p.set_role(PostgresqlRole.REPLICA)
+                self.s.set_synchronous_standby_names([a])
+                mock_query.return_value = [(verified, True)]
+                self.assertEqual(self.s.wait_for_checkpointer(0), verified)
+                if sync_after_verification is not None:
+                    self.s.set_synchronous_standby_names(sync_after_verification)
+                    self.s.set_synchronous_standby_names([a])
+                self.p.set_role(PostgresqlRole.PROMOTED)
+                # checkpointer is busy with the restartpoint or with the checkpoint after promote
+                mock_query.return_value = [(False, True)]
+                return self.s.current_state(self.cluster).sync_confirmed
+
+            # checkpointer keeps enforcing the value that it was verified to enforce before promote
+            self.assertEqual(promote(True), CaseInsensitiveSet([a]))
+            self.assertFalse(self.s.checkpointer_pending)
+            executor.submit.assert_not_called()
+
+            # the verification is trusted only once, for the value observed right after promote
+            mock_ssn.return_value = ''
+            self.s.current_state(self.cluster)
+            mock_ssn.return_value = a
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet())
+            self.assertTrue(self.s.checkpointer_pending)
+
+            # the verification failed, or the value was changed after it and checkpointer might have processed that
+            for verified, sync_after_verification in ((False, None), (True, [])):
+                self.assertEqual(promote(verified, sync_after_verification), CaseInsensitiveSet())
+                self.assertTrue(self.s.checkpointer_pending)
+
+    @patch('time.sleep', Mock())
+    @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
+    @patch.object(Postgresql, 'get_primary_timeline', Mock(return_value=1))
+    @patch.object(Postgresql, 'state', PropertyMock(return_value=PostgresqlState.RUNNING))
+    def test_reset_state_on_demote(self):
+        a = self.leadermem.name
+        replication = [{'pid': 100, 'application_name': a, 'sync_state': 'sync', 'flush_lsn': 1}]
+        with patch.object(Postgresql, 'synchronous_standby_names', return_value=a) as mock_ssn, \
+                patch.object(Postgresql, 'pg_stat_replication', return_value=replication), \
+                patch.object(Postgresql, 'query', return_value=[(True, True)]) as mock_query, \
+                patch('patroni.thread_pool.get_executor', Mock()):
+            self.p.set_role(PostgresqlRole.PRIMARY)
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+            # demoted, strict mode placeholder is set before the next promote
+            self.p.set_role(PostgresqlRole.REPLICA)
+            self.p.set_role(PostgresqlRole.PROMOTED)
+            mock_query.return_value = [(False, True)]
+            mock_ssn.return_value = SYNC_STRICT_PLACEHOLDER
+            self.s.current_state(self.cluster)
+            # checkpointer must be verified again, the previous primary tenure must not be trusted
+            mock_ssn.return_value = a
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet())
+
+    @patch('time.sleep', Mock())
+    @patch.object(Postgresql, 'is_primary', Mock(return_value=True))
+    @patch.object(Postgresql, 'get_primary_timeline', Mock(return_value=1))
+    @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
+    @patch.object(Postgresql, 'state', PropertyMock(return_value=PostgresqlState.RUNNING))
+    def test_set_sync_standby_slow_reload(self):
+        a, b = self.leadermem.name, self.me.name
+        replication = [{'pid': 100, 'application_name': a, 'sync_state': 'sync', 'flush_lsn': 1},
+                       {'pid': 101, 'application_name': b, 'sync_state': 'async', 'flush_lsn': 1}]
+
+        with patch.object(Postgresql, 'synchronous_standby_names', return_value=a) as mock_ssn, \
+                patch.object(Postgresql, 'pg_stat_replication', return_value=replication), \
+                patch.object(ConfigHandler, 'set_synchronous_standby_names', Mock(return_value=True)) as mock_set:
+            self.assertFalse(self.s.set_synchronous_standby_names([a]))
+
+            # postgresql.conf was updated, but the new value is not yet visible
+            self.assertTrue(self.s.set_synchronous_standby_names([a, b]))
+            mock_set.return_value = None  # postgresql.conf already has the new value
+            self.assertTrue(self.s.set_synchronous_standby_names([a, b]))
+
+            mock_ssn.return_value = '2 ({0},{1})'.format(a, b)
+            replication[1]['sync_state'] = 'sync'
+            self.assertFalse(self.s.set_synchronous_standby_names([a, b]))
+            self.assertIsNone(self.s.set_synchronous_standby_names([a, b]))
+
+    @patch('time.sleep', Mock())
+    @patch.object(Postgresql, 'is_primary', Mock(return_value=True))
+    @patch.object(Postgresql, 'get_primary_timeline', Mock(return_value=1))
+    @patch.object(Postgresql, 'state', PropertyMock(return_value=PostgresqlState.RUNNING))
+    def test_current_state_quorum_catchup(self):
+        self.cluster.config.data['synchronous_mode'] = 'quorum'
+        global_config.update(self.cluster)
+        self.other.data['tags'] = {}
+        a, b, c = self.leadermem.name, self.me.name, self.other.name
+        replication = [{'pid': 100 + i, 'application_name': name, 'sync_state': 'quorum', 'flush_lsn': 100}
+                       for i, name in enumerate((a, b, c))]
+
+        with patch.object(Postgresql, 'synchronous_standby_names',
+                          return_value='ANY 1 ({0},{1},"{2}")'.format(a, b, c)) as mock_ssn, \
+                patch.object(Postgresql, 'pg_stat_replication', return_value=replication), \
+                patch.object(Postgresql, 'last_operation', return_value=100) as mock_lsn, \
+                patch.object(ConfigHandler, 'set_synchronous_standby_names', Mock(return_value=True)):
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a, b, c]))
+
+            # c was removed, transactions acknowledged only by c must reach one of remaining nodes
+            mock_ssn.return_value = 'ANY 1 ({0},{1})'.format(a, b)
+            mock_lsn.return_value = 200
+            replication[2]['sync_state'] = 'async'
+            self.assertTrue(self.s.set_synchronous_standby_names([a, b], 1))
+            self.assertTrue(self.s.current_state(self.cluster).quorum_catchup)
+            replication[1]['flush_lsn'] = 200
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([b]))
+
+            # num was increased, transactions acknowledged by one node must reach two nodes
+            self.cluster.config.data['synchronous_node_count'] = 2
+            global_config.update(self.cluster)
+            mock_ssn.return_value = 'ANY 2 ({0},{1})'.format(a, b)
+            mock_lsn.return_value = 300
+            replication[0]['flush_lsn'] = 300
+            self.assertTrue(self.s.current_state(self.cluster).quorum_catchup)
+
+            # don't wait when there are not enough eligible nodes and all of them caught up
+            self.cluster.config.data['maximum_lag_on_syncnode'] = 50
+            global_config.update(self.cluster)
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+            self.cluster.config.data['maximum_lag_on_syncnode'] = -1
+            global_config.update(self.cluster)
+            self.assertTrue(self.s.current_state(self.cluster).quorum_catchup)
+
+            # synchronous_node_count was reduced, don't wait for more nodes than needed
+            self.cluster.config.data['synchronous_node_count'] = 1
+            global_config.update(self.cluster)
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+            replication[1]['flush_lsn'] = 300
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a, b]))
+
+    def test_current_state_quorum_catchup_degraded(self):
+        self.cluster.config.data.update(synchronous_mode='quorum', synchronous_node_count=2)
+        global_config.update(self.cluster)
+        self.other.data['tags'] = {}
+        a, b, c = self.leadermem.name, self.me.name, self.other.name
+        replication = [{'pid': 100 + i, 'application_name': name, 'sync_state': 'quorum', 'flush_lsn': 100}
+                       for i, name in enumerate((a, b, c))]
+
+        with patch.object(Postgresql, 'synchronous_standby_names',
+                          return_value='ANY 2 ({0},{1},"{2}")'.format(a, b, c)) as mock_ssn, \
+                patch.object(Postgresql, 'pg_stat_replication', return_value=replication), \
+                patch.object(Postgresql, 'last_operation', return_value=100) as mock_lsn:
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a, b, c]))
+
+            # c was removed and b disconnected, transactions acknowledged by b and c must reach a
+            mock_ssn.return_value = 'ANY 2 ({0},{1})'.format(a, b)
+            mock_lsn.return_value = 200
+            replication[2].update(sync_state='async', flush_lsn=200)
+            del replication[1]
+            self.assertTrue(self.s.current_state(self.cluster).quorum_catchup)
+            replication[0]['flush_lsn'] = 200
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+            # b was replaced with c, but c is not yet reporting the new sync_state
+            mock_ssn.return_value = 'ANY 1 ({0},"{1}")'.format(a, c)
+            mock_lsn.return_value = 300
+            self.assertIsNone(self.s.current_state(self.cluster))
+            replication[1]['sync_state'] = 'quorum'
+            self.assertTrue(self.s.current_state(self.cluster).quorum_catchup)
+            replication[0]['flush_lsn'] = 300
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+    def test_quorum_catchup_after_reset(self):
+        self.cluster.config.data['synchronous_mode'] = 'quorum'
+        global_config.update(self.cluster)
+        a = self.leadermem.name
+        replication = [{'pid': 100, 'application_name': a, 'sync_state': 'quorum', 'flush_lsn': 100}]
+        with patch.object(Postgresql, 'synchronous_standby_names', return_value='ANY 1 ({0})'.format(a)), \
+                patch.object(Postgresql, 'pg_stat_replication', return_value=replication), \
+                patch.object(Postgresql, 'last_operation', return_value=200) as mock_lsn:
+            for target in (200, 300):
+                mock_lsn.return_value = target
+                self.s.reset_state()
+                state = self.s.current_state(self.cluster)
+                self.assertTrue(state.quorum_catchup)
+                self.assertFalse(state.sync_confirmed)
+                replication[0]['flush_lsn'] = target
+                state = self.s.current_state(self.cluster)
+                self.assertFalse(state.quorum_catchup)
+                self.assertEqual(state.sync_confirmed, CaseInsensitiveSet([a]))
 
     @patch('time.sleep', Mock())
     def test_set_sync_standby(self):
@@ -288,7 +730,8 @@ class TestSync(BaseTestPostgresql):
 
         # Faulty case, application_name of the current primary is in synchronous_standby_names and in
         # the pg_stat_replication. We need to check that primary is not selected as the synchronous node.
-        with patch.object(Postgresql, "_cluster_info_state_get", side_effect=[self.leadermem.name,
+        with patch.object(Postgresql, "_cluster_info_state_get", side_effect=[self.leadermem.name, pg_stat_replication,
                                                                               'on', pg_stat_replication]):
             self.assertEqual(self.s.current_state(cluster), ('priority', 1, CaseInsensitiveSet([self.leadermem.name]),
-                                                             CaseInsensitiveSet(), CaseInsensitiveSet([self.me.name])))
+                                                             CaseInsensitiveSet(), CaseInsensitiveSet([self.me.name]),
+                                                             False))
