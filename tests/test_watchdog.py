@@ -191,9 +191,12 @@ class TestWatchdog(unittest.TestCase):
         self.assertFalse(watchdog.is_healthy)
 
         self.assertFalse(watchdog.activate())
+        # the HA loop gives up the leader key, so the next activation picks up the reloaded configuration
         watchdog.reload_config({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'required'}})
         self.assertFalse(watchdog.is_running)
         watchdog.keepalive()
+        self.assertFalse(watchdog.is_running)
+        self.assertTrue(watchdog.activate())
         self.assertTrue(watchdog.is_running)
 
         watchdog.reload_config({'ttl': 60, 'loop_wait': 15, 'watchdog': {'mode': 'required'}})
@@ -205,6 +208,62 @@ class TestWatchdog(unittest.TestCase):
         watchdog.keepalive()
         self.assertTrue(watchdog.is_running)
         self.assertEqual(watchdog.config.timeout, 60 // 2)
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'is_healthy', PropertyMock(return_value=True))
+    def test_reacquire_after_unsafe_timing(self):
+        config = {'ttl': 20, 'loop_wait': 10, 'watchdog': {'safety_margin': 12}}
+        for mode in ('automatic', 'required'):
+            with self.subTest(mode=mode):
+                config['watchdog']['mode'] = mode
+                watchdog = Watchdog(config)
+                self.assertEqual(watchdog.activate(), mode == 'automatic')
+                self.assertFalse(watchdog.is_running)
+                self.assertEqual(watchdog.is_healthy, mode == 'automatic')
+                # automatic mode keeps the leader key, required mode gives it up
+                watchdog.reload_config(dict(config, ttl=30))
+                if mode == 'automatic':
+                    watchdog.keepalive()
+                else:
+                    self.assertTrue(watchdog.is_healthy)
+                    self.assertTrue(watchdog.activate())
+                self.assertTrue(watchdog.is_running)
+                watchdog.disable()
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    def test_mode_off_after_unsafe_timing(self):
+        config = {'ttl': 20, 'loop_wait': 10, 'watchdog': {'mode': 'automatic', 'safety_margin': 12}}
+        for leader in (True, False):
+            with self.subTest(leader=leader):
+                watchdog = Watchdog(config)
+                self.assertTrue(watchdog.activate())
+                if not leader:
+                    watchdog.disable()
+                # the device must not be acquired anymore once the watchdog is turned off
+                watchdog.reload_config({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'off'}})
+                self.assertTrue(watchdog.activate())
+                self.assertFalse(watchdog.is_running)
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'is_healthy', PropertyMock(return_value=True))
+    def test_reacquire_after_mode_change(self):
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'off'}})
+        self.assertTrue(watchdog.activate())
+        watchdog.disable()
+        watchdog.reload_config({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}})
+        self.assertTrue(watchdog.is_healthy)
+        self.assertTrue(watchdog.activate())
+        self.assertTrue(watchdog.is_running)
+        watchdog.disable()
+
+        # the change was deferred to a keepalive, but the watchdog was disabled first
+        watchdog.reload_config({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'off'}})
+        self.assertTrue(watchdog.activate())
+        watchdog.reload_config({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}})
+        watchdog.disable()
+        self.assertTrue(watchdog.activate())
+        self.assertTrue(watchdog.is_running)
+        watchdog.disable()
 
 
 class TestNullWatchdog(unittest.TestCase):
