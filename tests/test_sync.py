@@ -49,7 +49,7 @@ class TestSync(BaseTestPostgresql):
             self.assertEqual(self.s.current_state(self.cluster), ('priority', 1,
                                                                   CaseInsensitiveSet([self.leadermem.name]),
                                                                   CaseInsensitiveSet([self.leadermem.name]),
-                                                                  CaseInsensitiveSet([self.leadermem.name])))
+                                                                  CaseInsensitiveSet([self.leadermem.name]), False))
 
         # prefer node with sync_state='potential', even if it is slightly behind of async
         pg_stat_replication[0]['sync_state'] = 'potential'
@@ -57,7 +57,7 @@ class TestSync(BaseTestPostgresql):
             r['write_lsn'] = r.pop('flush_lsn')
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['', 'remote_write', pg_stat_replication]):
             self.assertEqual(self.s.current_state(self.cluster), ('off', 0, CaseInsensitiveSet(), CaseInsensitiveSet(),
-                                                                  CaseInsensitiveSet([self.leadermem.name])))
+                                                                  CaseInsensitiveSet([self.leadermem.name]), False))
 
         # when there are no sync or potential candidates we pick async with the minimal replication lag
         for i, r in enumerate(pg_stat_replication):
@@ -65,20 +65,20 @@ class TestSync(BaseTestPostgresql):
         missing = pg_stat_replication.pop(0)
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['', 'remote_apply', pg_stat_replication]):
             self.assertEqual(self.s.current_state(self.cluster), ('off', 0, CaseInsensitiveSet(), CaseInsensitiveSet(),
-                                                                  CaseInsensitiveSet([self.me.name])))
+                                                                  CaseInsensitiveSet([self.me.name]), False))
 
         # unknown sync node is ignored
         missing.update(application_name='missing', sync_state='sync')
         pg_stat_replication.insert(0, missing)
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['', 'remote_apply', pg_stat_replication]):
             self.assertEqual(self.s.current_state(self.cluster), ('off', 0, CaseInsensitiveSet(), CaseInsensitiveSet(),
-                                                                  CaseInsensitiveSet([self.me.name])))
+                                                                  CaseInsensitiveSet([self.me.name]), False))
 
         # invalid synchronous_standby_names and empty pg_stat_replication
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['a b', 'remote_apply', None]):
             self.p._major_version = 90400
             self.assertEqual(self.s.current_state(self.cluster), ('off', 0, CaseInsensitiveSet(), CaseInsensitiveSet(),
-                                                                  CaseInsensitiveSet()))
+                                                                  CaseInsensitiveSet(), False))
 
         # synchronous_standby_names contains '*'
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['*', None, 'remote_apply', None]):
@@ -86,7 +86,7 @@ class TestSync(BaseTestPostgresql):
             self.assertEqual(self.s.current_state(self.cluster),
                              ('priority', 1,
                               CaseInsensitiveSet(['__patroni_strict_sync_replica_placeholder__']),
-                              CaseInsensitiveSet(), CaseInsensitiveSet()))
+                              CaseInsensitiveSet(), CaseInsensitiveSet(), False))
 
     @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
     def test_current_state_quorum(self):
@@ -104,7 +104,7 @@ class TestSync(BaseTestPostgresql):
             self.assertEqual(self.s.current_state(self.cluster),
                              ('quorum', 1, CaseInsensitiveSet([self.me.name, self.leadermem.name]),
                               CaseInsensitiveSet([self.me.name, self.leadermem.name]),
-                              CaseInsensitiveSet([self.leadermem.name, self.me.name])))
+                              CaseInsensitiveSet([self.leadermem.name, self.me.name]), False))
 
     @patch('time.sleep', Mock())
     def test_current_state_after_repromote(self):
@@ -142,7 +142,7 @@ class TestSync(BaseTestPostgresql):
                                        pg_stat_replication, 'on', pg_stat_replication]):
             self.assertEqual(self.s.current_state(self.cluster),
                              ('priority', 2, CaseInsensitiveSet([self.other.name, self.leadermem.name]),
-                              CaseInsensitiveSet(), CaseInsensitiveSet([self.me.name])))
+                              CaseInsensitiveSet(), CaseInsensitiveSet([self.me.name]), False))
 
     def test_current_state_waiting(self):
         pg_stat_replication = [
@@ -483,6 +483,108 @@ class TestSync(BaseTestPostgresql):
             self.assertIsNone(self.s.set_synchronous_standby_names([a, b]))
 
     @patch('time.sleep', Mock())
+    @patch.object(Postgresql, 'is_primary', Mock(return_value=True))
+    @patch.object(Postgresql, 'get_primary_timeline', Mock(return_value=1))
+    @patch.object(Postgresql, 'state', PropertyMock(return_value=PostgresqlState.RUNNING))
+    def test_current_state_quorum_catchup(self):
+        self.cluster.config.data['synchronous_mode'] = 'quorum'
+        global_config.update(self.cluster)
+        self.other.data['tags'] = {}
+        a, b, c = self.leadermem.name, self.me.name, self.other.name
+        replication = [{'pid': 100 + i, 'application_name': name, 'sync_state': 'quorum', 'flush_lsn': 100}
+                       for i, name in enumerate((a, b, c))]
+
+        with patch.object(Postgresql, 'synchronous_standby_names',
+                          return_value='ANY 1 ({0},{1},"{2}")'.format(a, b, c)) as mock_ssn, \
+                patch.object(Postgresql, 'pg_stat_replication', return_value=replication), \
+                patch.object(Postgresql, 'last_operation', return_value=100) as mock_lsn, \
+                patch.object(ConfigHandler, 'set_synchronous_standby_names', Mock(return_value=True)):
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a, b, c]))
+
+            # c was removed, transactions acknowledged only by c must reach one of remaining nodes
+            mock_ssn.return_value = 'ANY 1 ({0},{1})'.format(a, b)
+            mock_lsn.return_value = 200
+            replication[2]['sync_state'] = 'async'
+            self.assertTrue(self.s.set_synchronous_standby_names([a, b], 1))
+            self.assertTrue(self.s.current_state(self.cluster).quorum_catchup)
+            replication[1]['flush_lsn'] = 200
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([b]))
+
+            # num was increased, transactions acknowledged by one node must reach two nodes
+            self.cluster.config.data['synchronous_node_count'] = 2
+            global_config.update(self.cluster)
+            mock_ssn.return_value = 'ANY 2 ({0},{1})'.format(a, b)
+            mock_lsn.return_value = 300
+            replication[0]['flush_lsn'] = 300
+            self.assertTrue(self.s.current_state(self.cluster).quorum_catchup)
+
+            # don't wait when there are not enough eligible nodes and all of them caught up
+            self.cluster.config.data['maximum_lag_on_syncnode'] = 50
+            global_config.update(self.cluster)
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+            self.cluster.config.data['maximum_lag_on_syncnode'] = -1
+            global_config.update(self.cluster)
+            self.assertTrue(self.s.current_state(self.cluster).quorum_catchup)
+
+            # synchronous_node_count was reduced, don't wait for more nodes than needed
+            self.cluster.config.data['synchronous_node_count'] = 1
+            global_config.update(self.cluster)
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+            replication[1]['flush_lsn'] = 300
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a, b]))
+
+    def test_current_state_quorum_catchup_degraded(self):
+        self.cluster.config.data.update(synchronous_mode='quorum', synchronous_node_count=2)
+        global_config.update(self.cluster)
+        self.other.data['tags'] = {}
+        a, b, c = self.leadermem.name, self.me.name, self.other.name
+        replication = [{'pid': 100 + i, 'application_name': name, 'sync_state': 'quorum', 'flush_lsn': 100}
+                       for i, name in enumerate((a, b, c))]
+
+        with patch.object(Postgresql, 'synchronous_standby_names',
+                          return_value='ANY 2 ({0},{1},"{2}")'.format(a, b, c)) as mock_ssn, \
+                patch.object(Postgresql, 'pg_stat_replication', return_value=replication), \
+                patch.object(Postgresql, 'last_operation', return_value=100) as mock_lsn:
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a, b, c]))
+
+            # c was removed and b disconnected, transactions acknowledged by b and c must reach a
+            mock_ssn.return_value = 'ANY 2 ({0},{1})'.format(a, b)
+            mock_lsn.return_value = 200
+            replication[2].update(sync_state='async', flush_lsn=200)
+            del replication[1]
+            self.assertTrue(self.s.current_state(self.cluster).quorum_catchup)
+            replication[0]['flush_lsn'] = 200
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+            # b was replaced with c, but c is not yet reporting the new sync_state
+            mock_ssn.return_value = 'ANY 1 ({0},"{1}")'.format(a, c)
+            mock_lsn.return_value = 300
+            self.assertIsNone(self.s.current_state(self.cluster))
+            replication[1]['sync_state'] = 'quorum'
+            self.assertTrue(self.s.current_state(self.cluster).quorum_catchup)
+            replication[0]['flush_lsn'] = 300
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+    def test_quorum_catchup_after_reset(self):
+        self.cluster.config.data['synchronous_mode'] = 'quorum'
+        global_config.update(self.cluster)
+        a = self.leadermem.name
+        replication = [{'pid': 100, 'application_name': a, 'sync_state': 'quorum', 'flush_lsn': 100}]
+        with patch.object(Postgresql, 'synchronous_standby_names', return_value='ANY 1 ({0})'.format(a)), \
+                patch.object(Postgresql, 'pg_stat_replication', return_value=replication), \
+                patch.object(Postgresql, 'last_operation', return_value=200) as mock_lsn:
+            for target in (200, 300):
+                mock_lsn.return_value = target
+                self.s.reset_state()
+                state = self.s.current_state(self.cluster)
+                self.assertTrue(state.quorum_catchup)
+                self.assertFalse(state.sync_confirmed)
+                replication[0]['flush_lsn'] = target
+                state = self.s.current_state(self.cluster)
+                self.assertFalse(state.quorum_catchup)
+                self.assertEqual(state.sync_confirmed, CaseInsensitiveSet([a]))
+
+    @patch('time.sleep', Mock())
     def test_set_sync_standby(self):
         def value_in_conf():
             with open(os.path.join(self.p.data_dir, 'postgresql.conf')) as f:
@@ -654,4 +756,5 @@ class TestSync(BaseTestPostgresql):
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=[self.leadermem.name, pg_stat_replication,
                                                                               'on', pg_stat_replication]):
             self.assertEqual(self.s.current_state(cluster), ('priority', 1, CaseInsensitiveSet([self.leadermem.name]),
-                                                             CaseInsensitiveSet(), CaseInsensitiveSet([self.me.name])))
+                                                             CaseInsensitiveSet(), CaseInsensitiveSet([self.me.name]),
+                                                             False))
