@@ -170,11 +170,11 @@ class TestKVCache(BaseTestEtcd3):
             return prefix(*args, **kwargs)
 
         with patch.object(self.client, 'watchprefix', side_effect=WatchInterrupted) as watch:
-            with patch.object(self.kv_cache._condition, 'notify', side_effect=self.kv_cache.kill_stream):
+            with patch.object(self.kv_cache._condition, 'notify_all', side_effect=self.kv_cache.kill_stream):
                 self.kv_cache._build_cache()
             watch.assert_not_called()
             with patch.object(self.client, 'prefix', kill_while_listing), \
-                    patch.object(self.kv_cache._condition, 'notify') as notify:
+                    patch.object(self.kv_cache._condition, 'notify_all') as notify:
                 self.kv_cache._build_cache()
             notify.assert_not_called()
             watch.assert_not_called()
@@ -185,16 +185,16 @@ class TestKVCache(BaseTestEtcd3):
     def test_kill_stream_while_publishing(self):
         cache = self.kv_cache
         previous = cache._object_cache
-        with patch.object(cache, '_object_cache_lock') as lock, patch.object(cache._condition, 'notify') as notify:
+        with patch.object(cache, '_object_cache_lock') as lock, patch.object(cache._condition, 'notify_all') as notify:
             lock.__enter__.side_effect = cache.kill_stream
             cache._build_cache()
         notify.assert_not_called()
         self.assertIs(cache._object_cache, previous)
 
     @patch.object(urllib3.PoolManager, 'urlopen', mock_urlopen)
-    def test_reader_waits_after_kill_stream(self):
-        cluster = read_after_kill_stream(self.kv_cache, self.etcd3.get_cluster)
-        self.assertEqual(cluster.leader_name, 'foo')
+    def test_readers_wait_after_kill_stream(self):
+        for cluster in read_after_kill_stream(self.kv_cache, self.etcd3.get_cluster):
+            self.assertEqual(cluster.leader_name, 'foo')
 
     def test_snapshot_timeout(self):
         self.assertRaises(RetryFailedError, self.kv_cache.snapshot, 0)
@@ -212,7 +212,7 @@ class TestKVCache(BaseTestEtcd3):
                     patch.object(self.client.http, 'urlopen', side_effect=[socket.timeout(), old, fresh]) as request, \
                     patch.object(self.client, '_get_machines_list', return_value=[selected]), \
                     patch.object(self.client, 'watchprefix', side_effect=WatchInterrupted) as watch, \
-                    patch.object(self.kv_cache._condition, 'notify') as notify:
+                    patch.object(self.kv_cache._condition, 'notify_all') as notify:
                 self.kv_cache._build_cache()
                 self.assertEqual(self.client._base_uri, selected)
                 if selected != responder:

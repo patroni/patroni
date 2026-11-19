@@ -5,7 +5,7 @@ import socketserver
 import unittest
 
 from concurrent.futures import ThreadPoolExecutor
-from threading import Event, Thread
+from threading import Event, Semaphore, Thread
 from unittest.mock import Mock, patch, PropertyMock
 
 import urllib3
@@ -57,23 +57,25 @@ class HangingHTTPServer(socketserver.ThreadingTCPServer):
 
 
 def read_after_kill_stream(cache, get_cluster):
-    waiting = Event()
+    waiting = Semaphore(0)
     wait = cache._condition.wait
 
     def wait_for_snapshot(timeout):
-        waiting.set()
+        waiting.release()
         return wait(timeout)
 
     with cache._condition:
         cache._is_ready = True
         cache.kill_stream()
-    with patch.object(cache._condition, 'wait', wait_for_snapshot), ThreadPoolExecutor(1) as pool:
-        reader = pool.submit(get_cluster)
-        if not waiting.wait(5):
-            raise AssertionError('get_cluster() did not wait for a fresh snapshot')
-        with patch.object(cache, '_do_watch', lambda _: reader.result(5)):
+    # The HA loop and REST API threads can wait for the same snapshot at once, and all of them must be woken up
+    with patch.object(cache._condition, 'wait', wait_for_snapshot), ThreadPoolExecutor(2) as pool:
+        readers = [pool.submit(get_cluster) for _ in range(2)]
+        for _ in readers:
+            if not waiting.acquire(timeout=5):
+                raise AssertionError('get_cluster() did not wait for a fresh snapshot')
+        with patch.object(cache, '_do_watch', lambda _: [reader.result(5) for reader in readers]):
             cache._build_cache()
-        return reader.result(5)
+        return [reader.result(5) for reader in readers]
 
 
 mock_available_gucs = PropertyMock(return_value={

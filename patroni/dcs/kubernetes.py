@@ -695,7 +695,7 @@ class ObjectCache(WatchStreamThread):
                 return
             self._object_cache = {item.metadata.name: item for item in objects.items}
             self._is_ready = True
-            self._condition.notify()
+            self._condition.notify_all()
 
         try:
             self._do_watch(objects.metadata.resource_version)

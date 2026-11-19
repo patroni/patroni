@@ -612,10 +612,11 @@ class TestCacheBuilder(BaseTestKubernetes):
             return list_objects()
 
         with patch.object(cache, '_watch', side_effect=WatchInterrupted) as watch:
-            with patch.object(cache._condition, 'notify', side_effect=cache.kill_stream):
+            with patch.object(cache._condition, 'notify_all', side_effect=cache.kill_stream):
                 cache._build_cache()
             watch.assert_not_called()
-            with patch.object(cache, '_list', kill_while_listing), patch.object(cache._condition, 'notify') as notify:
+            with patch.object(cache, '_list', kill_while_listing), \
+                    patch.object(cache._condition, 'notify_all') as notify:
                 cache._build_cache()
             notify.assert_not_called()
             watch.assert_not_called()
@@ -626,13 +627,13 @@ class TestCacheBuilder(BaseTestKubernetes):
     def test_kill_stream_while_publishing(self):
         cache = self.k._kinds
         previous = cache._object_cache
-        with patch.object(cache, '_object_cache_lock') as lock, patch.object(self.k._condition, 'notify') as notify:
+        with patch.object(cache, '_object_cache_lock') as lock, patch.object(self.k._condition, 'notify_all') as notify:
             lock.__enter__.side_effect = cache.kill_stream
             cache._build_cache()
         notify.assert_not_called()
         self.assertIs(cache._object_cache, previous)
 
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', mock_list_namespaced_config_map, create=True)
-    def test_reader_waits_after_kill_stream(self):
-        cluster = read_after_kill_stream(self.k._kinds, self.k.get_cluster)
-        self.assertEqual(cluster.leader_name, 'p-0')
+    def test_readers_wait_after_kill_stream(self):
+        for cluster in read_after_kill_stream(self.k._kinds, self.k.get_cluster):
+            self.assertEqual(cluster.leader_name, 'p-0')

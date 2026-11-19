@@ -624,7 +624,7 @@ class KVCache(StaleEtcdNodeGuard, WatchStreamThread):
             self._object_cache = {node['key']: node for node in result.get('kvs', [])}
             self._check_cluster_raft_term(header.get('cluster_id'), header.get('raft_term'))
             self._is_ready = True
-            self._condition.notify()
+            self._condition.notify_all()
 
         try:
             self._do_watch(result['header']['revision'])
