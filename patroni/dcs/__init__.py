@@ -19,6 +19,7 @@ import dateutil.parser
 from .. import global_config
 from ..dynamic_loader import iter_classes, iter_modules
 from ..exceptions import PatroniAssertionError, PatroniFatalException
+from ..interrupt import Interrupter
 from ..site import ClusterSite
 from ..tags import Tags
 from ..utils import deep_compare, parse_int, uri
@@ -2232,8 +2233,6 @@ class AbstractLongPollingDCS(AbstractDCS):
     """Base class for DCS backends that long-poll the leader key in the HA loop."""
 
     def __init__(self, config: Dict[str, Any], mpp: 'AbstractMPP') -> None:
-        from ..interrupt import Interrupter
-
         super(AbstractLongPollingDCS, self).__init__(config, mpp)
         self._watch_interrupter = Interrupter()
 
