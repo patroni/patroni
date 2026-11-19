@@ -67,6 +67,7 @@ class Interrupter:
 
     def __init__(self) -> None:
         """Create a new interrupter, which is not interrupted."""
+        self._interrupted = False
         self._rsock, self._wsock = socket.socketpair()
         self._rsock.setblocking(False)
         self._wsock.setblocking(False)
@@ -90,6 +91,7 @@ class Interrupter:
         .. note::
             Safe to call from other threads and signal handlers: it doesn't block, acquire locks or raise exceptions.
         """
+        self._interrupted = True
         try:
             self._wsock.send(b'\0')
         except OSError:  # the buffer is full, i.e. it was already interrupted
@@ -97,6 +99,7 @@ class Interrupter:
 
     def clear(self) -> None:
         """Clear the interruption."""
+        self._interrupted = False
         try:
             while self._rsock.recv(4096):
                 pass
@@ -108,7 +111,7 @@ class Interrupter:
 
         :returns: ``True`` if it was interrupted and not cleared since then.
         """
-        return bool(_wait([self.fileno()], [], 0))
+        return self._interrupted
 
     @contextmanager
     def armed(self) -> Generator[None, None, None]:

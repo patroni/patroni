@@ -62,6 +62,14 @@ class TestInterrupter(unittest.TestCase):
         self.interrupter._wsock.close()
         self.interrupter.interrupt()  # doesn't raise
 
+    def test_interrupt_before_wakeup_is_readable(self):
+        # Windows emulates socketpair() over TCP loopback, where the wakeup byte could become readable later
+        with patch.object(self.interrupter, '_wsock', Mock()):
+            self.interrupter.interrupt()
+            self.assertTrue(self.interrupter.is_set())
+            self.interrupter.clear()
+            self.assertFalse(self.interrupter.is_set())
+
     def test_read_timeout(self):
         with HangingHTTPServer() as server, self.interrupter.armed():
             self.assertRaises(ReadTimeoutError, self.request, server, read_timeout=0.1)
