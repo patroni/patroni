@@ -16,6 +16,8 @@ Feature: priority replication
     And I configure and start postgres-3 with a tag failover_priority 2
     Then replication works from postgres-0 to postgres-2 after 20 seconds
     And replication works from postgres-0 to postgres-3 after 20 seconds
+    And Response on GET http://127.0.0.1:8010/patroni contains replication_state=streaming after 10 seconds
+    And Response on GET http://127.0.0.1:8011/patroni contains replication_state=streaming after 10 seconds
     And postgres-2 and postgres-3 have the same wal position after 10 seconds
     When I shut down postgres-0
     Then postgres-3 role is the primary after 10 seconds
