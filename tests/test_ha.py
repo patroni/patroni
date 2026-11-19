@@ -556,8 +556,11 @@ class TestHa(PostgresInit):
             self.p.set_role(PostgresqlRole.PROMOTED)
             self.ha.run_cycle()
             mock_disable.assert_called_once_with()
-            # e.g. pg_ctl stop failed during demote
+            # e.g. pg_ctl stop failed during demote and is_primary() fell back to the cached role
             self.p.set_role(PostgresqlRole.DEMOTED)
+            self.ha._disable_watchdog_unless_primary()
+            mock_disable.assert_called_once_with()
+            self.p.set_role(PostgresqlRole.REPLICA)
             self.p.is_primary = true
             self.ha._disable_watchdog_unless_primary()
             mock_disable.assert_called_once_with()
@@ -899,6 +902,25 @@ class TestHa(PostgresInit):
 
             self.ha.is_paused = true
             self.assertEqual(self.ha.run_cycle(), 'PAUSE: restart in progress')
+
+    @patch.object(Watchdog, 'is_running', PropertyMock(return_value=True))
+    def test_disable_watchdog_during_long_action_without_lock(self):
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.p.is_primary = false
+        with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)), \
+                patch.object(Watchdog, 'disable') as mock_disable:
+            # e.g. a forced reinitialize cancelled the promotion before the HA loop noticed the lost leader key
+            self.ha._async_executor.schedule('reinitialize')
+            self.assertEqual(self.ha.run_cycle(), 'reinitialize in progress')
+            mock_disable.assert_called_once_with()
+
+            # too late to cancel, the watchdog must stay armed
+            self.ha._async_executor.reset_scheduled_action()
+            self.ha._async_executor.schedule('promote')
+            with self.ha._async_response:
+                self.ha._async_response.complete(True)
+            self.assertEqual(self.ha.run_cycle(), 'promote in progress')
+            mock_disable.assert_called_once_with()
 
     @patch('patroni.postgresql.mpp.AbstractMPPHandler.is_coordinator', Mock(return_value=False))
     def test_manual_failover_from_leader(self):

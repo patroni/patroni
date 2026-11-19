@@ -437,9 +437,13 @@ class Ha(object):
         .. note::
             Only the leader key holder feeds the watchdog. Without the leader key the watchdog is needed only to
             fence a primary, otherwise it would eventually reset a healthy replica.
+
+            The ``demoted`` role is treated as a primary, because :meth:`demote` sets it even if it failed to stop
+            PostgreSQL, while :meth:`Postgresql.is_primary` falls back to the cached role if it can't connect.
         """
         if self.watchdog.is_running and self._async_executor.scheduled_action != 'promote' \
-                and self.state_handler.role not in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED) \
+                and self.state_handler.role not in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED,
+                                                    PostgresqlRole.DEMOTED) \
                 and not self.state_handler.is_primary():
             self.watchdog.disable()
 
@@ -2278,6 +2282,9 @@ class Ha(object):
                             self.state_handler.terminate_starting_postmaster(postmaster=task.result)
                 self.demote('immediate-nolock')
                 return 'lost leader lock during {0}'.format(self._async_executor.scheduled_action)
+            # The task might have been started before we noticed that the leader key was lost, e.g. a forced
+            # reinitialize cancelled the promotion, and _run_cycle() doesn't disable the watchdog while it runs
+            self._disable_watchdog_unless_primary()
         if self.cluster.is_unlocked():
             logger.info('not healthy enough for leader race')
 
