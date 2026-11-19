@@ -146,6 +146,9 @@ Most of the parameters are optional, but you have to specify one of the **host**
 -  **cacert**: (optional) The ca certificate. If present it will enable validation.
 -  **cert**: (optional) file with the client certificate.
 -  **key**: (optional) file with the client key. Can be empty if the key is part of **cert**.
+-  **verify**: (optional) whether to verify the etcd server's TLS certificate. Defaults to ``true``. Set to ``false`` to disable certificate and hostname verification entirely (insecure; intended only as a temporary measure, e.g. for etcd running with ``--auto-tls``).
+-  **verify_hostname**: (optional) whether to verify that the certificate matches the host/IP being connected to. Defaults to ``true``. Set to ``false`` to keep CA-chain validation but skip the hostname/SAN identity check.
+-  **hostname_checks_common_name**: (optional) whether to allow matching the certificate Common Name when it has no Subject Alternative Name. If unset, the installed urllib3's default behavior is preserved. Set to ``true`` to enable Common Name fallback where the TLS backend supports it, or ``false`` to enforce SAN-only verification.
 
 Etcdv3
 ------
