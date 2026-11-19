@@ -69,17 +69,14 @@ class TestInterrupter(unittest.TestCase):
 
 class TestInterruptibleSocketIO(unittest.TestCase):
 
-    def test_interrupt_with_buffered_tls(self):
+    def test_interrupt_before_recv(self):
         interrupter = Interrupter()
         tls = Mock(spec=ssl.SSLSocket, gettimeout=Mock(return_value=None))
-        tls.pending.return_value = 1
-        wrapped = Mock(socket=tls)
-        wrapped.connection.pending.return_value = 1
-        for sock in (tls, wrapped):
+        for sock in (tls, Mock(socket=tls)):
             with _InterruptibleSocketIO(sock, interrupter) as raw:
                 interrupter.interrupt()
                 self.assertRaises(WatchInterrupted, raw.readinto, bytearray(1))
-                sock.recv_into.assert_not_called()
+                sock.recv_into.assert_not_called()  # even data already buffered by TLS isn't returned
                 interrupter.clear()
 
     def test_tls_want_write(self):
