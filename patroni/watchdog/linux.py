@@ -1,5 +1,6 @@
 # pyright: reportConstantRedefinition=false
 import ctypes
+import errno
 import os
 import platform
 
@@ -157,6 +158,32 @@ class LinuxWatchdogDevice(WatchdogBase):
             except OSError as e:
                 raise WatchdogError("Error while closing {0}: {1}".format(self.describe(), e))
 
+    def disable(self) -> None:
+        if self._fd is not None:
+            try:
+                self._ioctl(WDIOC_SETOPTIONS, ctypes.c_int(WDIOS['DISABLECARD']))
+            except (WatchdogError, OSError, IOError) as e:
+                if getattr(e, 'errno', None) == errno.ENODEV:
+                    # The device was unregistered (driver unbound or device unplugged). The kernel fails every
+                    # operation on this descriptor with ENODEV, so it can no longer be used to ping or stop it.
+                    fd, self._fd = self._fd, None
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
+                    raise WatchdogError("Watchdog device is no longer available: {0}".format(e))
+                raise WatchdogError("Could not disable watchdog device: {}".format(e))
+            # On Linux close() releases the descriptor even when it reports an error.
+            fd, self._fd = self._fd, None
+            try:
+                try:
+                    # Some legacy drivers rearm the timer on close unless the magic character was written.
+                    os.write(fd, b'V')
+                finally:
+                    os.close(fd)
+            except OSError as e:
+                raise WatchdogError("Error while closing {0}: {1}".format(self.describe(), e))
+
     @property
     def can_be_disabled(self) -> bool:
         return self.get_support().has_MAGICCLOSE
@@ -230,6 +257,9 @@ class LinuxWatchdogDevice(WatchdogBase):
 class TestingWatchdogDevice(LinuxWatchdogDevice):  # pragma: no cover
     """Converts timeout ioctls to regular writes that can be intercepted from a named pipe."""
     timeout = 60
+
+    def disable(self) -> None:
+        self.close()
 
     def get_support(self) -> WatchdogInfo:
         return WatchdogInfo(WDIOF['MAGICCLOSE'] | WDIOF['SETTIMEOUT'], 0, "Watchdog test harness")
