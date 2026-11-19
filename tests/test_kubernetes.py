@@ -5,9 +5,9 @@ import socket
 import time
 import unittest
 
-from threading import Thread
+from threading import Thread, Timer
 from unittest import mock
-from unittest.mock import Mock, mock_open, patch, PropertyMock
+from unittest.mock import Mock, mock_open, patch
 
 import urllib3
 
@@ -15,10 +15,11 @@ from patroni.dcs import get_dcs
 from patroni.dcs.kubernetes import Cluster, k8s_client, k8s_config, K8sConfig, K8sConnectionFailed, \
     K8sException, K8sObject, Kubernetes, KubernetesError, KubernetesRetriableException, Retry, \
     RetryFailedError, SERVICE_HOST_ENV_NAME, SERVICE_PORT_ENV_NAME
+from patroni.interrupt import WatchInterrupted
 from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 from patroni.postgresql.mpp import get_mpp
 
-from . import MockResponse, SleepException
+from . import HangingHTTPServer, MockResponse, SleepException
 
 
 def mock_list_namespaced_config_map(*args, **kwargs):
@@ -574,6 +575,10 @@ class TestCacheBuilder(BaseTestKubernetes):
             {'type': 'MDIFIED', 'object': {'metadata': {'name': self.k.config_path}}}
         ) + '\n').encode('utf-8'), b'{"object":{', b'"code":410}}\n']
         self.k._kinds._build_cache()
+        mock_read_chunked.side_effect = WatchInterrupted
+        with patch('patroni.dcs.kubernetes.logger.debug') as mock_debug:
+            self.k._kinds._build_cache()
+            mock_debug.assert_called_once_with('Watch request interrupted')
 
     @patch('patroni.dcs.kubernetes.logger.error', Mock(side_effect=SleepException))
     @patch('patroni.dcs.kubernetes.ObjectCache._build_cache', Mock(side_effect=Exception))
@@ -585,18 +590,11 @@ class TestCacheBuilder(BaseTestKubernetes):
         self.k._pods._func = Mock(side_effect=Exception)
         self.assertRaises(Exception, self.k._pods._list)
 
-    @patch('patroni.dcs.kubernetes.ObjectCache._watch', Mock(return_value=None))
-    def test__do_watch(self):
-        self.assertRaises(AttributeError, self.k._kinds._do_watch, '1')
-
-    @patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', mock_list_namespaced_config_map, create=True)
-    @patch('patroni.dcs.kubernetes.ObjectCache._watch', mock_watch)
-    @patch.object(urllib3.HTTPResponse, 'read_chunked', Mock(return_value=[]))
     def test_kill_stream(self):
-        self.k._kinds.kill_stream()
-        with patch.object(urllib3.HTTPResponse, 'connection') as mock_connection:
-            mock_connection.sock.close.side_effect = Exception
-            self.k._kinds._do_watch('1')
-            self.k._kinds.kill_stream()
-        with patch.object(urllib3.HTTPResponse, 'connection', PropertyMock(side_effect=Exception)):
-            self.k._kinds.kill_stream()
+        pool_manager = self.k._api._api_client.pool_manager
+        timeout = urllib3.Timeout(connect=5, read=10)
+        with HangingHTTPServer(b'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n') as server, \
+                patch('patroni.dcs.kubernetes.ObjectCache._watch', Mock(side_effect=lambda *_: pool_manager.urlopen(
+                    'GET', server.url, preload_content=False, retries=False, timeout=timeout))):
+            Timer(0.1, self.k._kinds.kill_stream).start()
+            self.assertRaises(WatchInterrupted, self.k._kinds._do_watch, '1')

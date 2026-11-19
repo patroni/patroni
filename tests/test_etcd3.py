@@ -2,8 +2,8 @@ import json
 import socket
 import unittest
 
-from threading import Thread
-from unittest.mock import Mock, patch, PropertyMock
+from threading import Thread, Timer
+from unittest.mock import Mock, patch
 
 import etcd
 import urllib3
@@ -13,9 +13,10 @@ from patroni.dcs.etcd import DnsCachingResolver
 from patroni.dcs.etcd3 import AuthFailed, AuthOldRevision, base64_encode, Cluster, Etcd3, \
     Etcd3Client, Etcd3ClientError, Etcd3Error, InvalidAuthToken, PatroniEtcd3Client, \
     RetryFailedError, Unavailable, Unknown, UnsupportedEtcdVersion, UserEmpty
+from patroni.interrupt import WatchInterrupted
 from patroni.postgresql.mpp import get_mpp
 
-from . import MockResponse, SleepException
+from . import HangingHTTPServer, MockResponse, SleepException
 
 
 def mock_urlopen(self, method, url, **kwargs):
@@ -136,10 +137,10 @@ class TestKVCache(BaseTestEtcd3):
         with patch('patroni.dcs.etcd3.logger') as mock_logger:
             self.kv_cache._build_cache()
             mock_logger.info.assert_called_once_with('Watch request canceled')
-
-    def test__do_watch(self):
-        self.client.watchprefix = Mock(return_value=False)
-        self.assertRaises(AttributeError, self.kv_cache._do_watch, '1')
+        with patch('patroni.dcs.etcd3.logger') as mock_logger, \
+                patch.object(urllib3.response.HTTPResponse, 'read_chunked', Mock(side_effect=WatchInterrupted)):
+            self.kv_cache._build_cache()
+            mock_logger.debug.assert_called_once_with('Watch request interrupted')
 
     @patch('time.sleep', Mock(side_effect=SleepException))
     @patch('patroni.dcs.etcd3.KVCache._build_cache', Mock(side_effect=Exception))
@@ -149,14 +150,16 @@ class TestKVCache(BaseTestEtcd3):
     @patch.object(urllib3.response.HTTPResponse, 'read_chunked',
                   Mock(return_value=[b'{"error":{"grpc_code":14,"message":"","http_code":503}}']))
     @patch.object(Etcd3Client, 'watchprefix', Mock(return_value=urllib3.response.HTTPResponse()))
-    def test_kill_stream(self):
+    def test__do_watch(self):
         self.assertRaises(Unavailable, self.kv_cache._do_watch, '1')
-        with patch.object(urllib3.response.HTTPResponse, 'connection') as mock_conn:
-            self.kv_cache.kill_stream()
-            mock_conn.sock.close.side_effect = Exception
-            self.kv_cache.kill_stream()
-            type(mock_conn).sock = PropertyMock(side_effect=Exception)
-            self.kv_cache.kill_stream()
+
+    def test_kill_stream(self):
+        timeout = urllib3.Timeout(connect=5, read=10)
+        with HangingHTTPServer(b'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n') as server, \
+                patch.object(Etcd3Client, 'watchprefix', Mock(side_effect=lambda *_: self.client.http.urlopen(
+                    'POST', server.url, preload_content=False, retries=False, timeout=timeout))):
+            Timer(0.1, self.kv_cache.kill_stream).start()
+            self.assertRaises(WatchInterrupted, self.kv_cache._do_watch, '1')
 
     @patch.object(urllib3.PoolManager, 'urlopen', mock_urlopen)
     def test_is_ready(self):

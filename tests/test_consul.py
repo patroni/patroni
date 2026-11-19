@@ -236,6 +236,10 @@ class TestConsul(unittest.TestCase):
         self.c.watch(6429, 1)
         with patch.object(KV, 'get', Mock(side_effect=ConsulException)):
             self.c.watch(6429, 1)
+        self.c.interrupt_watch()
+        with patch.object(KV, 'get') as mock_get:
+            self.assertTrue(self.c.watch(6429, 1))
+            mock_get.assert_not_called()
 
     def test_set_retry_timeout(self):
         self.c.set_retry_timeout(10)

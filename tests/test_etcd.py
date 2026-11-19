@@ -365,6 +365,10 @@ class TestEtcd(unittest.TestCase):
         with patch.object(AbstractDCS, 'watch', Mock()):
             self.assertTrue(self.etcd.watch(20729, 19.5))
             self.assertRaises(SleepException, self.etcd.watch, 20729, 9.5)
+        self.etcd.interrupt_watch()
+        with patch.object(EtcdClient, 'watch') as mock_watch:
+            self.assertTrue(self.etcd.watch(20729, 9.5))
+            mock_watch.assert_not_called()
 
     def test_other_exceptions(self):
         self.etcd.retry = Mock(side_effect=AttributeError('foo'))

@@ -15,10 +15,9 @@ from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Tu
 import etcd
 import urllib3
 
-from urllib3.exceptions import ProtocolError, ReadTimeoutError
-
 from ..collections import EMPTY_DICT
 from ..exceptions import DCSError, PatroniException
+from ..interrupt import Interrupter, WatchInterrupted
 from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare, enable_keepalive, iter_response_objects, \
     parse_bool, RetryFailedError, USER_AGENT, WHITESPACE_RE
@@ -537,8 +536,7 @@ class KVCache(StaleEtcdNodeGuard, Thread):
         self._status_key = base64_encode(dcs.status_path)
         self._name = base64_encode(getattr(dcs, '_name'))  # pyright
         self._is_ready = False
-        self._response = None
-        self._response_lock = Lock()
+        self._interrupter = Interrupter()  # interrupts the watch request, see `kill_stream`
         self._object_cache = {}
         self._object_cache_lock = Lock()
         self.start()
@@ -613,25 +611,14 @@ class KVCache(StaleEtcdNodeGuard, Thread):
             response.release_conn()
 
     def _do_watch(self, revision: str) -> None:
-        with self._response_lock:
-            self._response = None
-        # We do most of requests with timeouts. The only exception /watch requests to Etcd v3.
-        # In order to interrupt the /watch request we do socket.shutdown() from the main thread,
-        # which doesn't work on Windows. Therefore we want to use the last resort, `read_timeout`.
-        # Setting it to TTL will help to partially mitigate the problem.
-        # Setting it to lower value is not nice because for idling clusters it will increase
-        # the numbers of interrupts and reconnects.
-        read_timeout = self._dcs.ttl if os.name == 'nt' else None
-        response = self._client.watchprefix(self._dcs.cluster_prefix, revision, read_timeout=read_timeout)
-        with self._response_lock:
-            if self._response is None:
-                self._response = response
-
-        if not self._response:
-            return self._finish_response(response)
-
-        for message in iter_response_objects(response):
-            self._process_message(message)
+        self._interrupter.clear()
+        with self._interrupter.armed():
+            response = self._client.watchprefix(self._dcs.cluster_prefix, revision)
+        try:
+            for message in iter_response_objects(response):
+                self._process_message(message)
+        finally:
+            self._finish_response(response)
 
     def _build_cache(self) -> None:
         result = self._dcs.retry(self._client.prefix, self._dcs.cluster_prefix)
@@ -648,17 +635,13 @@ class KVCache(StaleEtcdNodeGuard, Thread):
             self._do_watch(result['header']['revision'])
         except Etcd3WatchCanceled:
             logger.info('Watch request canceled')
+        except WatchInterrupted:
+            logger.debug('Watch request interrupted')
         except Exception as e:
-            # Following exceptions are expected on Windows because the /watch request is done with `read_timeout`
-            if not (os.name == 'nt' and isinstance(e, (ReadTimeoutError, ProtocolError))):
-                logger.error('watchprefix failed: %r', e)
+            logger.error('watchprefix failed: %r', e)
         finally:
             with self.condition:
                 self._is_ready = False
-            with self._response_lock:
-                response, self._response = self._response, None
-            if isinstance(response, urllib3.response.HTTPResponse):
-                self._finish_response(response)
 
     def run(self) -> None:
         while True:
@@ -669,26 +652,7 @@ class KVCache(StaleEtcdNodeGuard, Thread):
                 time.sleep(1)
 
     def kill_stream(self) -> None:
-        conn_sock: Any = None
-        with self._response_lock:
-            if isinstance(self._response, urllib3.response.HTTPResponse):
-                try:
-                    conn_sock = self._response.connection.sock if self._response.connection else None
-                except Exception:
-                    conn_sock = None
-            else:
-                self._response = False
-        if conn_sock:
-            # python-etcd forces usage of pyopenssl if the last one is available.
-            # In this case HTTPConnection.socket is not inherited from socket.socket, but urllib3 uses custom
-            # class `WrappedSocket`, which shutdown() method could be incompatible with socket.shutdown().
-            # Therefore we use WrappedSocket.socket, which points to original `socket` object.
-            sock: socket.socket = conn_sock.socket if conn_sock.__class__.__name__ == 'WrappedSocket' else conn_sock
-            try:
-                sock.shutdown(socket.SHUT_RDWR)
-                sock.close()
-            except Exception as e:
-                logger.debug('Error on socket.shutdown: %r', e)
+        self._interrupter.interrupt()
 
     def is_ready(self) -> bool:
         """Must be called only when holding the lock on `condition`"""

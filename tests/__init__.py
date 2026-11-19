@@ -1,8 +1,10 @@
 import datetime
 import os
 import shutil
+import socketserver
 import unittest
 
+from threading import Event, Thread
 from unittest.mock import Mock, patch, PropertyMock
 
 import urllib3
@@ -19,6 +21,35 @@ from patroni.utils import RetryFailedError, tzutc
 
 class SleepException(Exception):
     pass
+
+
+class HangingHTTPRequestHandler(socketserver.BaseRequestHandler):
+
+    def handle(self):
+        self.request.recv(65536)
+        self.request.sendall(self.server.response)
+        self.server.stopped.wait(30)
+
+
+class HangingHTTPServer(socketserver.ThreadingTCPServer):
+    """Sends *response* to every HTTP request and keeps the connection open, like a long-poll or a watch stream."""
+
+    daemon_threads = True
+
+    def __init__(self, response=b''):
+        super(HangingHTTPServer, self).__init__(('127.0.0.1', 0), HangingHTTPRequestHandler)
+        self.response = response
+        self.stopped = Event()
+        self.url = 'http://127.0.0.1:{0}'.format(self.server_address[1])
+
+    def __enter__(self):
+        Thread(target=self.serve_forever, args=(0.05,), daemon=True).start()
+        return self
+
+    def __exit__(self, *args):
+        self.stopped.set()
+        self.shutdown()
+        self.server_close()
 
 
 mock_available_gucs = PropertyMock(return_value={

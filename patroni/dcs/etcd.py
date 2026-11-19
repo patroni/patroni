@@ -23,6 +23,7 @@ from urllib3 import Timeout
 from urllib3.exceptions import HTTPError, ProtocolError, ReadTimeoutError
 
 from ..exceptions import DCSError
+from ..interrupt import Interrupter, make_interruptible, WatchInterrupted
 from ..postgresql.mpp import AbstractMPP
 from ..request import get as requests_get
 from ..utils import AddrInfo, getaddrinfo, Retry, RetryFailedError, split_host_port, uri, USER_AGENT
@@ -146,6 +147,7 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
         kwargs = {p: config.get(p) for p in ('host', 'port', 'protocol', 'use_proxies', 'version_prefix',
                                              'username', 'password', 'cert', 'ca_cert') if config.get(p)}
         super(AbstractEtcdClientWithFailover, self).__init__(read_timeout=config['retry_timeout'], **kwargs)
+        make_interruptible(self.http)
         # For some reason python3-etcd on debian and ubuntu are not based on the latest version
         # Workaround for the case when https://github.com/jplana/python-etcd/pull/196 is not applied
         self.http.connection_pool_kw.pop('ssl_version', None)
@@ -700,6 +702,7 @@ class Etcd(AbstractEtcd):
     def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
         super(Etcd, self).__init__(config, mpp, EtcdClient, (etcd.EtcdLeaderElectionInProgress, EtcdRaftInternal))
         self.__do_not_watch = False
+        self._watch_interrupter = Interrupter()
 
     @property
     def _client(self) -> EtcdClient:
@@ -886,6 +889,9 @@ class Etcd(AbstractEtcd):
     def delete_sync_state(self, version: Optional[int] = None) -> bool:
         return bool(self.retry(self._client.delete, self.sync_path, prevIndex=version or 0))
 
+    def interrupt_watch(self) -> None:
+        self._watch_interrupter.interrupt()
+
     def watch(self, leader_version: Optional[int], timeout: float) -> bool:
         if self.__do_not_watch:
             self.__do_not_watch = False
@@ -896,12 +902,15 @@ class Etcd(AbstractEtcd):
 
             while timeout >= 1:  # when timeout is too small urllib3 doesn't have enough time to connect
                 try:
-                    result = self._client.watch(self.leader_path, index=leader_version, timeout=timeout + 0.5)
+                    with self._watch_interrupter.armed():
+                        result = self._client.watch(self.leader_path, index=leader_version, timeout=timeout + 0.5)
                     self._has_failed = False
                     if result.action == 'compareAndSwap':
                         time.sleep(0.01)
                     # Synchronous work of all cluster members with etcd is less expensive
                     # than reestablishing http connection every time from every replica.
+                    return True
+                except WatchInterrupted:
                     return True
                 except etcd.EtcdWatchTimedOut:
                     self._has_failed = False

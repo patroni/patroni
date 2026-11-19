@@ -2205,6 +2205,16 @@ class AbstractDCS(ClusterSite, abc.ABC):
         :returns: ``True`` if delete successful.
         """
 
+    def interrupt_watch(self) -> None:
+        """Interrupt :func:`watch`, if it waits for changes of the leader key with a long-poll request.
+
+        :func:`watch` returns ``True`` right away, also if it starts waiting after the call.
+
+        .. note::
+            Must be safe to call from a signal handler, therefore it must not block, acquire locks or raise
+            exceptions. Does nothing by default, because :func:`watch` waits for :attr:`event`.
+        """
+
     def watch(self, leader_version: Optional[Any], timeout: float) -> bool:
         """Sleep if the current node is a leader, otherwise, watch for changes of leader key with a given *timeout*.
 
