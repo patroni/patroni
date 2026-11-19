@@ -503,8 +503,8 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         return self.deleterange(key, prefix_range_end(key), retry=retry)
 
     def watchrange(self, key: str, range_end: Union[bytes, str, None] = None,
-                   start_revision: Optional[str] = None, filters: Optional[List[Dict[str, Any]]] = None,
-                   read_timeout: Optional[float] = None) -> urllib3.response.HTTPResponse:
+                   start_revision: Optional[str] = None,
+                   filters: Optional[List[Dict[str, Any]]] = None) -> urllib3.response.HTTPResponse:
         """returns: response object"""
         params = build_range_request(key, range_end)
         if start_revision is not None:
@@ -512,13 +512,12 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         params['filters'] = filters or []
         kwargs = self._prepare_common_parameters(1, self.read_timeout)
         request_executor = self._prepare_request(kwargs, {'create_request': params})
-        kwargs.update(timeout=urllib3.Timeout(connect=kwargs['timeout'], read=read_timeout), retries=0)
+        kwargs.update(timeout=urllib3.Timeout(connect=kwargs['timeout'], read=None), retries=0)
         return request_executor(self._MPOST, self._base_uri + self.version_prefix + '/watch', **kwargs)
 
     def watchprefix(self, key: str, start_revision: Optional[str] = None,
-                    filters: Optional[List[Dict[str, Any]]] = None,
-                    read_timeout: Optional[float] = None) -> urllib3.response.HTTPResponse:
-        return self.watchrange(key, prefix_range_end(key), start_revision, filters, read_timeout)
+                    filters: Optional[List[Dict[str, Any]]] = None) -> urllib3.response.HTTPResponse:
+        return self.watchrange(key, prefix_range_end(key), start_revision, filters)
 
 
 class KVCache(StaleEtcdNodeGuard, WatchStreamThread):
