@@ -331,6 +331,17 @@ class TestWatchdog(unittest.TestCase):
         self.assertFalse(mock_devices[-1].armed)
 
     @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'get_timeout', Mock(return_value=5))
+    def test_unsafe_timeout_device_cannot_be_disabled(self):
+        # the mock device does not support magic close, so it stays armed
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'automatic'}})
+        with self.assertLogs('patroni.watchdog.base', 'ERROR'):
+            self.assertTrue(watchdog.activate())
+        self.assertIsInstance(watchdog.impl, LinuxWatchdogDevice)
+        self.assertTrue(mock_devices[-1].open)
+        self.assertTrue(mock_devices[-1].armed)
+
+    @patch('platform.system', Mock(return_value='Linux'))
     def test_timeout_change_without_device(self):
         config = {'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'automatic', 'driver': 'none'}}
         watchdog = Watchdog(config)
