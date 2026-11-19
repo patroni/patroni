@@ -7,6 +7,7 @@ from patroni.collections import CaseInsensitiveSet
 from patroni.dcs import Cluster, ClusterConfig, Status, SyncState
 from patroni.postgresql import Postgresql, PostgresqlState
 from patroni.postgresql.config import ConfigHandler
+from patroni.postgresql.misc import PostgresqlRole
 from patroni.postgresql.slots import SlotsHandler
 
 from . import BaseTestPostgresql, mock_available_gucs, psycopg_connect
@@ -102,6 +103,28 @@ class TestSync(BaseTestPostgresql):
                              ('quorum', 1, CaseInsensitiveSet([self.me.name, self.leadermem.name]),
                               CaseInsensitiveSet([self.me.name, self.leadermem.name]),
                               CaseInsensitiveSet([self.leadermem.name, self.me.name])))
+
+    @patch('time.sleep', Mock())
+    def test_current_state_after_repromote(self):
+        self.cluster.config.data['synchronous_mode'] = 'quorum'
+        global_config.update(self.cluster)
+        a, b = self.leadermem.name, self.me.name
+        state = {'synchronous_standby_names': 'ANY 1 ({0},"{1}")'.format(a, b), 'synchronous_commit': 'on'}
+        with patch.object(Postgresql, '_cluster_info_state_get', side_effect=lambda name: state[name]), \
+                patch.object(Postgresql, 'last_operation', Mock(return_value=1)) as mock_last_operation:
+            state['pg_stat_replication'] = [
+                {'pid': 100, 'application_name': a, 'sync_state': 'quorum', 'flush_lsn': 1},
+                {'pid': 101, 'application_name': b, 'sync_state': 'quorum', 'flush_lsn': 1}]
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a, b]))
+
+            # demoted and promoted again, synchronous_standby_names set before promote has the same value
+            self.p.set_role(PostgresqlRole.REPLICA)
+            self.p.set_role(PostgresqlRole.PROMOTED)
+            mock_last_operation.return_value = 3
+            state['pg_stat_replication'] = [
+                {'pid': 200, 'application_name': a, 'sync_state': 'quorum', 'flush_lsn': 2},
+                {'pid': 201, 'application_name': b, 'sync_state': 'quorum', 'flush_lsn': 3}]
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([b]))
 
     @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
     def test_current_state_cascading(self):
