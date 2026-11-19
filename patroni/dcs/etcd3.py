@@ -536,7 +536,7 @@ class KVCache(StaleEtcdNodeGuard, Thread):
         self._status_key = base64_encode(dcs.status_path)
         self._name = base64_encode(getattr(dcs, '_name'))  # pyright
         self._is_ready = False
-        self._interrupter = Interrupter()  # interrupts the watch request, see `kill_stream`
+        self._watch_interrupter = Interrupter()
         self._object_cache = {}
         self._object_cache_lock = Lock()
         self.start()
@@ -611,8 +611,8 @@ class KVCache(StaleEtcdNodeGuard, Thread):
             response.release_conn()
 
     def _do_watch(self, revision: str) -> None:
-        self._interrupter.clear()
-        with self._interrupter.armed():
+        self._watch_interrupter.clear()
+        with self._watch_interrupter.armed():
             response = self._client.watchprefix(self._dcs.cluster_prefix, revision)
         try:
             for message in iter_response_objects(response):
@@ -652,7 +652,7 @@ class KVCache(StaleEtcdNodeGuard, Thread):
                 time.sleep(1)
 
     def kill_stream(self) -> None:
-        self._interrupter.interrupt()
+        self._watch_interrupter.interrupt()
 
     def is_ready(self) -> bool:
         """Must be called only when holding the lock on `condition`"""

@@ -608,7 +608,7 @@ class ObjectCache(Thread):
         self._condition = condition
         self._name = name  # name of this pod
         self._is_ready = False
-        self._interrupter = Interrupter()  # interrupts the watch request, see `kill_stream`
+        self._watch_interrupter = Interrupter()
         self._object_cache: Dict[str, K8sObject] = {}
         self._object_cache_lock = Lock()
         self._annotations_map = {self._dcs.leader_path: getattr(self._dcs, '_LEADER'),
@@ -688,8 +688,8 @@ class ObjectCache(Thread):
             response.release_conn()
 
     def _do_watch(self, resource_version: str) -> None:
-        self._interrupter.clear()
-        with self._interrupter.armed():
+        self._watch_interrupter.clear()
+        with self._watch_interrupter.armed():
             response = self._watch(resource_version)
         try:
             for event in iter_response_objects(response):
@@ -716,7 +716,7 @@ class ObjectCache(Thread):
                 self._is_ready = False
 
     def kill_stream(self) -> None:
-        self._interrupter.interrupt()
+        self._watch_interrupter.interrupt()
 
     def run(self) -> None:
         while True:
