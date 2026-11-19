@@ -1,5 +1,6 @@
 import datetime
 import logging
+import ntpath
 import os
 import re
 import stat
@@ -25,7 +26,7 @@ from patroni.file_perm import pg_perm
 from patroni.postgresql import PgIsReadyStatus, Postgresql
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
-from patroni.postgresql.config import _false_validator, ConfigWriter, get_param_diff
+from patroni.postgresql.config import _false_validator, ConfigHandler, ConfigWriter, get_param_diff
 from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.validator import _get_postgres_guc_validators, _load_postgres_gucs_validators, \
@@ -421,6 +422,37 @@ class TestPostgresql(BaseTestPostgresql):
             self.p.config.write_postgresql_conf()
         self.p.config.write_recovery_conf({'foo': 'bar'})
         self.p.config.write_postgresql_conf()
+
+    def test_write_restore_command(self):
+        def postgresql_conf():
+            with open(self.p.config.postgresql_conf) as f:
+                return f.read()
+
+        self.p.config.remove_recovery_conf()
+        self.p.config._config['recovery_conf'] = {'restore_command': 'cp /archive/%f %p'}
+        self.p.config.write_restore_command(self.leader)
+        self.assertIn("restore_command = 'cp /archive/%f %p'", postgresql_conf())
+
+        # the standby cluster leader uses restore_command of the remote member
+        self.p.config.write_restore_command(RemoteMember('remote', {'restore_command': 'cp /remote/%f %p'}))
+        content = postgresql_conf()
+        self.assertIn("restore_command = 'cp /remote/%f %p'", content)
+        self.assertNotIn('/archive/', content)
+        self.p.config.write_restore_command(RemoteMember('remote', {}))
+        self.assertIn("restore_command = 'cp /archive/%f %p'", postgresql_conf())
+
+        # nothing configured: postgresql.conf is not rewritten
+        self.p.config._config['recovery_conf'] = {}
+        with patch.object(ConfigHandler, 'write_postgresql_conf') as mock_write:
+            self.p.config.write_restore_command(self.leader)
+            mock_write.assert_not_called()
+
+        # before 12 restore_command lives in recovery.conf: postgresql.conf is not rewritten
+        self.p.config._config['recovery_conf'] = {'restore_command': 'cp /archive/%f %p'}
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=110000)), \
+                patch.object(ConfigHandler, 'write_postgresql_conf') as mock_write:
+            self.p.config.write_restore_command(self.leader)
+            mock_write.assert_not_called()
 
     def test_config_writer(self):
         config_dir = os.path.join(self.p.data_dir, 'config_writer')
@@ -916,12 +948,58 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.config._config['use_unix_socket'] = self.p.config._config['use_unix_socket_repl'] = True
         self.p.config.resolve_connection_addresses()
         self.assertEqual(self.p.config.local_replication_address, {'host': '/tmp', 'port': '5432'})
+        # a Windows socket directory with a drive letter, as libpq accepts it there
+        with patch('os.path.isabs', ntpath.isabs):
+            self.p.config._server_parameters['unix_socket_directories'] = 'C:/pgsock'
+            self.p.config.resolve_connection_addresses()
+            self.assertEqual(self.p.config.local_replication_address, {'host': 'C:/pgsock', 'port': '5432'})
+            # but not with PostgreSQL 12 and older on Windows, which have no unix sockets there: fall back to TCP
+            with patch('os.name', 'nt'), patch.object(Postgresql, 'major_version', PropertyMock(return_value=120000)):
+                self.p.config.resolve_connection_addresses()
+                tcp_local_address = self.p.config._get_tcp_local_address()
+            self.assertEqual(self.p.config.local_replication_address, {'host': tcp_local_address, 'port': '5432'})
+        # the same for a directory without a drive letter
+        self.p.config._server_parameters['unix_socket_directories'] = '/pgsock'
+        with patch('os.name', 'nt'), patch.object(Postgresql, 'major_version', PropertyMock(return_value=120000)):
+            self.p.config.resolve_connection_addresses()
+        self.assertEqual(self.p.config.local_replication_address, {'host': tcp_local_address, 'port': '5432'})
         self.p.config._server_parameters.pop('unix_socket_directories')
         self.p.config.resolve_connection_addresses()
         self.assertEqual(self.p.connection_pool.conn_kwargs,
                          {'connect_timeout': 3, 'dbname': 'postgres', 'fallback_application_name': 'Patroni',
                           'options': '-c statement_timeout=2000 -c pg_stat_statements.track=none',
                           'password': 'test', 'port': '5432', 'user': 'foo'})
+
+    def test__get_unix_local_address(self):
+        get = self.p.config._get_unix_local_address
+        self.assertEqual(get('/tmp'), '/tmp')
+        self.assertEqual(get('relative, /var/run/postgresql'), '/var/run/postgresql')
+        self.assertEqual(get('relative'), '')  # only an absolute path can be used, so fall back to TCP
+        with patch('os.path.isabs', ntpath.isabs):  # what Windows accepts as an absolute path
+            self.assertEqual(get('C:/pgsock'), 'C:/pgsock')
+            self.assertEqual(get('relative, C:\\pgsock'), 'C:\\pgsock')
+            self.assertEqual(get('/tmp'), '/tmp')
+            self.assertEqual(get('C:pgsock'), '')  # relative to the current directory of drive C:
+
+    @patch.object(Bootstrap, 'running_custom_bootstrap', PropertyMock(return_value=True))
+    def test_replace_pg_hba_custom_bootstrap_on_windows(self):
+        with patch('os.name', 'nt'), patch('os.path.isabs', ntpath.isabs), \
+                patch.object(ConfigWriter, 'writeline') as mock_writeline, \
+                patch('patroni.postgresql.config.getaddrinfo',
+                      Mock(return_value=[(0, 0, 0, '', ('127.0.0.1', 5432))])) as mock_getaddrinfo:
+            # PostgreSQL 13+ on Windows: a socket directory gets local rules, and isn't resolved as a host name
+            self.p.config.local_replication_address = {'host': 'C:/pgsock', 'port': '5432'}
+            with patch.object(Postgresql, 'major_version', PropertyMock(return_value=130000)):
+                self.p.config.replace_pg_hba()
+            mock_getaddrinfo.assert_not_called()
+            self.assertTrue(mock_writeline.call_args[0][0].startswith('local\t'))
+            # PostgreSQL 12 and older on Windows: no unix sockets, so only the TCP address gets rules
+            mock_writeline.reset_mock()
+            self.p.config.local_replication_address = {'host': '127.0.0.1', 'port': '5432'}
+            with patch.object(Postgresql, 'major_version', PropertyMock(return_value=120000)):
+                self.p.config.replace_pg_hba()
+            self.assertEqual([c[0][0].split('\t')[0] for c in mock_writeline.call_args_list
+                              if not c[0][0].startswith('#')], ['host'])  # the header aside
 
     @patch.object(Postgresql, '_version_file_exists', Mock(return_value=True))
     def test_get_major_version(self):
