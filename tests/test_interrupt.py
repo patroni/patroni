@@ -64,11 +64,31 @@ class TestInterrupter(unittest.TestCase):
 
     def test_interrupt_before_wakeup_is_readable(self):
         # Windows emulates socketpair() over TCP loopback, where the wakeup byte could become readable later
-        with patch.object(self.interrupter, '_wsock', Mock()):
+        with patch.object(self.interrupter, '_wsock') as delayed:
             self.interrupter.interrupt()
             self.assertTrue(self.interrupter.is_set())
             self.interrupter.clear()
             self.assertFalse(self.interrupter.is_set())
+        self.interrupter._wsock.send(*delayed.send.call_args[0])
+        with HangingHTTPServer() as server, self.interrupter.armed():
+            self.assertRaises(ReadTimeoutError, self.request, server, read_timeout=0.1)
+        self.assertFalse(select.select([self.interrupter], [], [], 0)[0])
+
+    def test_interrupt_while_draining_stale_wakeup(self):
+        rsock = self.interrupter._rsock
+        self.interrupter._wsock.send(b'\0')
+
+        def recv(size):
+            if not self.interrupter.is_set():
+                self.interrupter.interrupt()
+            return rsock.recv(size)
+
+        with HangingHTTPServer() as server, self.interrupter.armed(), \
+                patch.object(self.interrupter, '_rsock', wraps=rsock) as reader:
+            reader.recv.side_effect = recv
+            self.assertRaises(WatchInterrupted, self.request, server, read_timeout=1)
+        self.assertTrue(self.interrupter.is_set())
+        self.assertTrue(select.select([self.interrupter], [], [], 1)[0])
 
     def test_read_timeout(self):
         with HangingHTTPServer() as server, self.interrupter.armed():

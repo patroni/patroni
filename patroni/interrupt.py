@@ -79,11 +79,18 @@ class Interrupter:
                 sock.close()
 
     def fileno(self) -> int:
-        """Get the file descriptor that becomes readable when interrupted.
+        """Get the wakeup file descriptor. A delayed byte can make it readable even after :func:`clear`.
 
         :returns: the file descriptor.
         """
         return self._rsock.fileno()
+
+    def _wakeup(self) -> None:
+        """Wake blocked readers without changing the interrupt flag."""
+        try:
+            self._wsock.send(b'\0')
+        except OSError:  # the buffer is full, i.e. a wakeup is already pending
+            pass
 
     def interrupt(self) -> None:
         """Interrupt reads of HTTP responses received while it was :func:`armed`.
@@ -92,17 +99,20 @@ class Interrupter:
             Safe to call from other threads and signal handlers: it doesn't block, acquire locks or raise exceptions.
         """
         self._interrupted = True
-        try:
-            self._wsock.send(b'\0')
-        except OSError:  # the buffer is full, i.e. it was already interrupted
-            pass
+        self._wakeup()
 
     def clear(self) -> None:
         """Clear the interruption."""
         self._interrupted = False
+        self.drain_stale_wakeups()
+
+    def drain_stale_wakeups(self) -> None:
+        """Discard old wakeup bytes, leaving the socket readable for other waiters if recv() consumes a new one."""
         try:
-            while self._rsock.recv(4096):
-                pass
+            while not self._interrupted and self._rsock.recv(4096):
+                if self._interrupted:
+                    self._wakeup()
+                    break
         except OSError:  # nothing left to read
             pass
 
@@ -256,6 +266,8 @@ class _InterruptibleSocketIO(io.RawIOBase):
                 remaining = None if deadline is None else max(0, deadline - time.monotonic())
                 ready = _wait([interrupter_fd] if write else [interrupter_fd, fd], [fd] if write else [], remaining)
                 if interrupter_fd in ready:
+                    self._interrupter.drain_stale_wakeups()
+                if self._interrupter.is_set():
                     raise WatchInterrupted
                 if not ready or remaining == 0:
                     raise socket.timeout('timed out')
