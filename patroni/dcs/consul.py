@@ -17,11 +17,11 @@ from consul import base, Check, ConsulException, NotFound
 from urllib3.exceptions import HTTPError
 
 from ..exceptions import DCSError
-from ..interrupt import Interrupter, make_interruptible, WatchInterrupted
+from ..interrupt import make_interruptible, WatchInterrupted
 from ..postgresql.misc import PostgresqlRole, PostgresqlState
 from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare, parse_bool, Retry, RetryFailedError, split_host_port, uri, USER_AGENT
-from . import AbstractDCS, catch_return_false_exception, Cluster, ClusterConfig, \
+from . import AbstractLongPollingDCS, catch_return_false_exception, Cluster, ClusterConfig, \
     Failover, Leader, Member, ReturnFalseException, Status, SyncState, TimelineHistory
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -235,11 +235,10 @@ def service_name_from_scope_name(scope_name: str) -> str:
     return service_name[0:230]
 
 
-class Consul(AbstractDCS):
+class Consul(AbstractLongPollingDCS):
 
     def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
         super(Consul, self).__init__(config, mpp)
-        self._watch_interrupter = Interrupter()
         self._base_path = self._base_path[1:]
         self._scope = config['scope']
         self._session = None
@@ -694,10 +693,6 @@ class Consul(AbstractDCS):
     def delete_sync_state(self, version: Optional[int] = None) -> bool:
         return self.retry(self._client.kv.delete, self.sync_path, cas=version)
 
-    def wakeup(self) -> None:
-        super(Consul, self).wakeup()
-        self._watch_interrupter.interrupt()
-
     def watch(self, leader_version: Optional[int], timeout: float) -> bool:
         self._last_session_refresh = float('-inf')
         if self.__do_not_watch:
@@ -713,8 +708,9 @@ class Consul(AbstractDCS):
                     with self._watch_interrupter.armed():
                         idx, _ = self._client.kv.get(self.leader_path, index=leader_version, wait=str(timeout) + 's')
                     return str(idx) != str(leader_version)
-                except WatchInterrupted:  # by wakeup(), which has set the event
-                    break
+                except WatchInterrupted:
+                    self.event.clear()
+                    return True
                 except (ConsulException, HTTPException, HTTPError, socket.error, socket.timeout):
                     logger.exception('watch')
 

@@ -23,12 +23,12 @@ from urllib3 import Timeout
 from urllib3.exceptions import HTTPError, ProtocolError, ReadTimeoutError
 
 from ..exceptions import DCSError
-from ..interrupt import Interrupter, make_interruptible, WatchInterrupted
+from ..interrupt import make_interruptible, WatchInterrupted
 from ..postgresql.mpp import AbstractMPP
 from ..request import get as requests_get
 from ..utils import AddrInfo, getaddrinfo, Retry, RetryFailedError, split_host_port, uri, USER_AGENT
-from . import AbstractDCS, catch_return_false_exception, Cluster, ClusterConfig, \
-    Failover, Leader, Member, ReturnFalseException, Status, SyncState, TimelineHistory
+from . import AbstractDCS, AbstractLongPollingDCS, catch_return_false_exception, Cluster, \
+    ClusterConfig, Failover, Leader, Member, ReturnFalseException, Status, SyncState, TimelineHistory
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
@@ -697,12 +697,11 @@ def catch_etcd_errors(func: Callable[..., Any]) -> Any:
     return wrapper
 
 
-class Etcd(AbstractEtcd):
+class Etcd(AbstractEtcd, AbstractLongPollingDCS):
 
     def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
         super(Etcd, self).__init__(config, mpp, EtcdClient, (etcd.EtcdLeaderElectionInProgress, EtcdRaftInternal))
         self.__do_not_watch = False
-        self._watch_interrupter = Interrupter()
 
     @property
     def _client(self) -> EtcdClient:
@@ -889,10 +888,6 @@ class Etcd(AbstractEtcd):
     def delete_sync_state(self, version: Optional[int] = None) -> bool:
         return bool(self.retry(self._client.delete, self.sync_path, prevIndex=version or 0))
 
-    def wakeup(self) -> None:
-        super(Etcd, self).wakeup()
-        self._watch_interrupter.interrupt()
-
     def watch(self, leader_version: Optional[int], timeout: float) -> bool:
         if self.__do_not_watch:
             self.__do_not_watch = False
@@ -913,8 +908,9 @@ class Etcd(AbstractEtcd):
                     # Synchronous work of all cluster members with etcd is less expensive
                     # than reestablishing http connection every time from every replica.
                     return True
-                except WatchInterrupted:  # by wakeup(), which has set the event
-                    break
+                except WatchInterrupted:
+                    self.event.clear()
+                    return True
                 except etcd.EtcdWatchTimedOut:
                     self._has_failed = False
                     return False

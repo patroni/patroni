@@ -600,3 +600,13 @@ class TestCacheBuilder(BaseTestKubernetes):
                     'GET', server.url, preload_content=False, retries=False, timeout=timeout))):
             Timer(0.1, self.k._kinds.kill_stream).start()
             self.assertRaises(WatchInterrupted, self.k._kinds._do_watch, '1')
+
+    @patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', mock_list_namespaced_config_map, create=True)
+    def test_kill_stream_before_watch(self):
+        cache = self.k._kinds
+        with patch.object(cache, '_watch', side_effect=WatchInterrupted) as watch:
+            with patch.object(cache._condition, 'notify', side_effect=cache.kill_stream):
+                cache._build_cache()
+            watch.assert_not_called()
+            cache._build_cache()
+            watch.assert_called_once()

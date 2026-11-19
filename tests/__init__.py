@@ -28,6 +28,8 @@ class HangingHTTPRequestHandler(socketserver.BaseRequestHandler):
     def handle(self):
         self.request.recv(65536)
         self.request.sendall(self.server.response)
+        if self.server.on_request:
+            self.server.on_request()
         self.server.stopped.wait(30)
 
 
@@ -36,9 +38,10 @@ class HangingHTTPServer(socketserver.ThreadingTCPServer):
 
     daemon_threads = True
 
-    def __init__(self, response=b''):
+    def __init__(self, response=b'', on_request=None):
         super(HangingHTTPServer, self).__init__(('127.0.0.1', 0), HangingHTTPRequestHandler)
         self.response = response
+        self.on_request = on_request
         self.stopped = Event()
         self.url = 'http://127.0.0.1:{0}'.format(self.server_address[1])
 

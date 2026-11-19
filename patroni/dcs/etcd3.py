@@ -9,7 +9,7 @@ import time
 
 from collections import defaultdict
 from enum import IntEnum
-from threading import Condition, Lock, Thread
+from threading import Condition, Lock
 from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Tuple, Type, TYPE_CHECKING, Union
 
 import etcd
@@ -17,7 +17,7 @@ import urllib3
 
 from ..collections import EMPTY_DICT
 from ..exceptions import DCSError, PatroniException
-from ..interrupt import Interrupter, WatchInterrupted
+from ..interrupt import WatchInterrupted, WatchStreamThread
 from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare, enable_keepalive, iter_response_objects, \
     parse_bool, RetryFailedError, USER_AGENT, WHITESPACE_RE
@@ -521,12 +521,11 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         return self.watchrange(key, prefix_range_end(key), start_revision, filters, read_timeout)
 
 
-class KVCache(StaleEtcdNodeGuard, Thread):
+class KVCache(StaleEtcdNodeGuard, WatchStreamThread):
 
     def __init__(self, dcs: 'Etcd3', client: 'PatroniEtcd3Client') -> None:
-        Thread.__init__(self)
+        WatchStreamThread.__init__(self)
         StaleEtcdNodeGuard.__init__(self)
-        self.daemon = True
         self._dcs = dcs
         self._client = client
         self.condition = Condition()
@@ -536,7 +535,6 @@ class KVCache(StaleEtcdNodeGuard, Thread):
         self._status_key = base64_encode(dcs.status_path)
         self._name = base64_encode(getattr(dcs, '_name'))  # pyright
         self._is_ready = False
-        self._watch_interrupter = Interrupter()
         self._object_cache = {}
         self._object_cache_lock = Lock()
         self.start()
@@ -603,15 +601,7 @@ class KVCache(StaleEtcdNodeGuard, Thread):
         for event in events:
             self._process_event(event)
 
-    @staticmethod
-    def _finish_response(response: urllib3.response.HTTPResponse) -> None:
-        try:
-            response.close()
-        finally:
-            response.release_conn()
-
     def _do_watch(self, revision: str) -> None:
-        self._watch_interrupter.clear()
         with self._watch_interrupter.armed():
             response = self._client.watchprefix(self._dcs.cluster_prefix, revision)
         try:
@@ -621,6 +611,7 @@ class KVCache(StaleEtcdNodeGuard, Thread):
             self._finish_response(response)
 
     def _build_cache(self) -> None:
+        self._watch_interrupter.clear()
         result = self._dcs.retry(self._client.prefix, self._dcs.cluster_prefix)
         header = result.get('header', EMPTY_DICT)
         with self._object_cache_lock:
@@ -650,9 +641,6 @@ class KVCache(StaleEtcdNodeGuard, Thread):
             except Exception as e:
                 logger.error('KVCache.run %r', e)
                 time.sleep(1)
-
-    def kill_stream(self) -> None:
-        self._watch_interrupter.interrupt()
 
     def is_ready(self) -> bool:
         """Must be called only when holding the lock on `condition`"""

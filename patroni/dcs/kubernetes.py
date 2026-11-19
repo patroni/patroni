@@ -13,7 +13,7 @@ import time
 from collections import defaultdict
 from copy import deepcopy
 from http.client import HTTPException
-from threading import Condition, Lock, Thread
+from threading import Condition, Lock
 from typing import Any, Callable, cast, Collection, Dict, List, Optional, Tuple, Type, TYPE_CHECKING, Union
 
 import urllib3
@@ -23,7 +23,7 @@ from urllib3.exceptions import HTTPError
 
 from ..collections import EMPTY_DICT
 from ..exceptions import DCSError
-from ..interrupt import Interrupter, make_interruptible, WatchInterrupted
+from ..interrupt import make_interruptible, WatchInterrupted, WatchStreamThread
 from ..postgresql.misc import PostgresqlRole, PostgresqlState
 from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare, iter_response_objects, \
@@ -596,19 +596,17 @@ def catch_kubernetes_errors(func: Callable[..., Any]) -> Callable[..., Any]:
     return wrapper
 
 
-class ObjectCache(Thread):
+class ObjectCache(WatchStreamThread):
 
     def __init__(self, dcs: 'Kubernetes', func: Callable[..., Any], retry: Retry,
                  condition: Condition, name: Optional[str] = None) -> None:
         super(ObjectCache, self).__init__()
-        self.daemon = True
         self._dcs = dcs
         self._func = func
         self._retry = retry
         self._condition = condition
         self._name = name  # name of this pod
         self._is_ready = False
-        self._watch_interrupter = Interrupter()
         self._object_cache: Dict[str, K8sObject] = {}
         self._object_cache_lock = Lock()
         self._annotations_map = {self._dcs.leader_path: getattr(self._dcs, '_LEADER'),
@@ -680,15 +678,7 @@ class ObjectCache(Thread):
             if value_changed or name == self._dcs.leader_path and self._name != new_value:
                 self._dcs.event.set()
 
-    @staticmethod
-    def _finish_response(response: urllib3.HTTPResponse) -> None:
-        try:
-            response.close()
-        finally:
-            response.release_conn()
-
     def _do_watch(self, resource_version: str) -> None:
-        self._watch_interrupter.clear()
         with self._watch_interrupter.armed():
             response = self._watch(resource_version)
         try:
@@ -700,6 +690,7 @@ class ObjectCache(Thread):
             self._finish_response(response)
 
     def _build_cache(self) -> None:
+        self._watch_interrupter.clear()
         objects = self._list()
         with self._object_cache_lock:
             self._object_cache = {item.metadata.name: item for item in objects.items}
@@ -714,9 +705,6 @@ class ObjectCache(Thread):
         finally:
             with self._condition:
                 self._is_ready = False
-
-    def kill_stream(self) -> None:
-        self._watch_interrupter.interrupt()
 
     def run(self) -> None:
         while True:

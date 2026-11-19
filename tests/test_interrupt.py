@@ -1,10 +1,11 @@
 import errno
+import select
 import socket
 import ssl
 import unittest
 
 from threading import Timer
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import urllib3
 
@@ -68,13 +69,67 @@ class TestInterrupter(unittest.TestCase):
 
 class TestInterruptibleSocketIO(unittest.TestCase):
 
+    def test_interrupt_with_buffered_tls(self):
+        interrupter = Interrupter()
+        tls = Mock(spec=ssl.SSLSocket, gettimeout=Mock(return_value=None))
+        tls.pending.return_value = 1
+        wrapped = Mock(socket=tls)
+        wrapped.connection.pending.return_value = 1
+        for sock in (tls, wrapped):
+            with _InterruptibleSocketIO(sock, interrupter) as raw:
+                interrupter.interrupt()
+                self.assertRaises(WatchInterrupted, raw.readinto, bytearray(1))
+                sock.recv_into.assert_not_called()
+                interrupter.clear()
+
+    def test_tls_want_write(self):
+        rsock, wsock = socket.socketpair()
+        with rsock, wsock:
+            interrupter = Interrupter()
+            tls = Mock(spec=ssl.SSLSocket, fileno=rsock.fileno, gettimeout=rsock.gettimeout,
+                       settimeout=rsock.settimeout)
+            rsock.settimeout(1)
+            results = Mock(side_effect=[ssl.SSLWantWriteError, 1])
+
+            def recv_into(buffer):
+                self.assertEqual(rsock.gettimeout(), 0)
+                return results(buffer)
+
+            def interrupt_on_write(buffer):
+                interrupter.interrupt()
+                raise ssl.SSLWantWriteError
+
+            with _InterruptibleSocketIO(tls, interrupter) as raw:
+                tls.recv_into.side_effect = recv_into
+                self.assertEqual(raw.readinto(bytearray(1)), 1)
+                self.assertEqual(rsock.gettimeout(), 1)
+                rsock.settimeout(None)
+                tls.recv_into.side_effect = interrupt_on_write
+                self.assertRaises(WatchInterrupted, raw.readinto, bytearray(1))
+                self.assertIsNone(rsock.gettimeout())
+
+    def test_wrapped_tls_want_write(self):
+        class WantWriteError(Exception):
+            pass
+
+        rsock, wsock = socket.socketpair()
+        with rsock, wsock, patch.dict('sys.modules', {'OpenSSL.SSL': Mock(WantWriteError=WantWriteError)}), \
+                patch('patroni.interrupt.select', Mock(spec=['select'], select=select.select)):
+            rsock.settimeout(1)
+            sock = Mock(socket=rsock)
+            wrapped = ssl.SSLError('read error')
+            wrapped.__context__ = WantWriteError()
+            sock.recv_into.side_effect = [WantWriteError, wrapped, 1, ssl.SSLError('other TLS error')]
+            with _InterruptibleSocketIO(sock, Interrupter()) as raw:
+                self.assertEqual(raw.readinto(bytearray(1)), 1)
+                self.assertRaises(ssl.SSLError, raw.readinto, bytearray(1))
+            self.assertEqual(rsock.gettimeout(), 1)
+
     def test_readinto(self):
         rsock, wsock = socket.socketpair()
         wsock.send(b'1')
         tls = Mock(spec=ssl.SSLSocket, fileno=rsock.fileno, gettimeout=Mock(return_value=None))
-        tls.pending.side_effect = [1, 0, 0]
         pyopenssl = Mock(socket=rsock)
-        pyopenssl.connection.pending.side_effect = [1, 0, 0]
         for sock, error in ((tls, ssl.SSLWantReadError), (pyopenssl, TimeoutError)):
             # decrypted data could be buffered, or application data could be unavailable even if the socket is readable
             sock.recv_into.side_effect = [1, error, 2]
@@ -86,8 +141,6 @@ class TestInterruptibleSocketIO(unittest.TestCase):
         self.assertIsNone(rsock.gettimeout())
         rsock.close()
         wsock.close()
-        pyopenssl.connection.pending.side_effect = None
-        pyopenssl.connection.pending.return_value = 0
         with _InterruptibleSocketIO(pyopenssl, Interrupter()) as raw:
             with self.assertRaises(OSError) as e:
                 raw.readinto(bytearray(1))

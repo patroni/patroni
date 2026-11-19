@@ -5,10 +5,10 @@ Watching for changes in DCS involves HTTP requests, which block in a socket read
 could leave a lock held by the interrupted code locked forever, while shutting the socket down from another thread
 doesn't wake the reader up on all platforms, for example on Windows.
 
-Instead, HTTP responses received while an :class:`Interrupter` is :func:`~Interrupter.armed` wait for their socket and
-for the interrupter at the same time before every read, and raise :exc:`WatchInterrupted` once
-:func:`~Interrupter.interrupt` was called. The latter only writes to a socket, which is safe to do from other threads
-and signal handlers on all platforms.
+Instead, HTTP responses received while an :class:`Interrupter` is :func:`~Interrupter.armed` use nonblocking socket
+reads. If a read would block, they wait for both the socket and the interrupter. Calling :func:`~Interrupter.interrupt`
+wakes a blocked raw read or makes the next one raise :exc:`WatchInterrupted`; it does not discard already buffered HTTP
+data. It only writes to a socket, which is safe to do from other threads and signal handlers on all platforms.
 
 Connection pools of the HTTP client must be made interruptible with :func:`make_interruptible`.
 """
@@ -18,10 +18,11 @@ import io
 import select
 import socket
 import ssl
+import sys
 import time
 
 from contextlib import contextmanager
-from threading import local
+from threading import local, Thread
 from typing import Any, Generator, List, Optional
 
 import urllib3
@@ -37,35 +38,30 @@ class WatchInterrupted(BaseException):
     """
 
 
-if hasattr(select, 'poll'):
-    def _wait_readable(fds: List[int], timeout: Optional[float]) -> List[int]:
-        """Wait until any of file descriptors *fds* is readable.
+def _wait(read: List[int], write: List[int], timeout: Optional[float]) -> List[int]:
+    """Wait for sockets to become readable or writable.
 
-        :param fds: file descriptors to wait for.
-        :param timeout: timeout in seconds, ``None`` means to wait forever.
+    :param read: file descriptors to wait for readability.
+    :param write: file descriptors to wait for writability.
+    :param timeout: timeout in seconds, ``None`` means to wait forever.
 
-        :returns: readable file descriptors, empty if *timeout* has expired.
-        """
+    :returns: ready file descriptors, empty if *timeout* has expired.
+    """
+    if hasattr(select, 'poll'):
         poller = select.poll()
-        for fd in fds:
+        for fd in read:
             poller.register(fd, select.POLLIN)
+        for fd in write:
+            poller.register(fd, select.POLLOUT)
         return [fd for fd, _ in poller.poll(None if timeout is None else timeout * 1000)]
-else:  # pragma: no cover
-    def _wait_readable(fds: List[int], timeout: Optional[float]) -> List[int]:
-        """Wait until any of sockets *fds* is readable.
-
-        :param fds: file descriptors of sockets to wait for.
-        :param timeout: timeout in seconds, ``None`` means to wait forever.
-
-        :returns: readable file descriptors, empty if *timeout* has expired.
-        """
-        return select.select(fds, [], [], timeout)[0]
+    readable, writable, _ = select.select(read, write, [], timeout)
+    return readable + writable
 
 
 class Interrupter:
     """Interrupts reads of HTTP responses received while it was :func:`armed`.
 
-    The interruption is sticky: until :func:`clear` is called, reads of such responses and :func:`armed` raise
+    The interruption is sticky: until :func:`clear` is called, raw reads of such responses and :func:`armed` raise
     :exc:`WatchInterrupted` right away.
     """
 
@@ -112,7 +108,7 @@ class Interrupter:
 
         :returns: ``True`` if it was interrupted and not cleared since then.
         """
-        return bool(_wait_readable([self.fileno()], 0))
+        return bool(_wait([self.fileno()], [], 0))
 
     @contextmanager
     def armed(self) -> Generator[None, None, None]:
@@ -143,8 +139,28 @@ class _Armed(local):
 _armed = _Armed()
 
 
+class WatchStreamThread(Thread):
+    """Daemon thread with an independently interruptible HTTP watch stream."""
+
+    def __init__(self) -> None:
+        super().__init__(daemon=True)
+        self._watch_interrupter = Interrupter()
+
+    def kill_stream(self) -> None:
+        """Interrupt this thread's watch so it can rebuild its cache."""
+        self._watch_interrupter.interrupt()
+
+    @staticmethod
+    def _finish_response(response: urllib3.response.HTTPResponse) -> None:
+        """Close the watch response and release its connection back to the pool."""
+        try:
+            response.close()
+        finally:
+            response.release_conn()
+
+
 class _InterruptibleSocketIO(io.RawIOBase):
-    """Raw binary stream of a socket, which waits for the socket and for the :class:`Interrupter` before every read."""
+    """Raw socket stream whose reads can be interrupted while waiting for socket I/O."""
 
     def __init__(self, sock: Any, interrupter: Interrupter) -> None:
         """Create a new stream.
@@ -182,15 +198,17 @@ class _InterruptibleSocketIO(io.RawIOBase):
             finally:
                 super().close()
 
-    def _pending(self) -> int:
-        """Get the number of decrypted bytes that could be read without waiting for the socket.
+    @staticmethod
+    def _want_write(exc: Exception) -> bool:
+        """Check whether a nonblocking TLS read needs to wait for writability.
 
-        :returns: number of bytes buffered by TLS.
+        urllib3 can re-raise pyOpenSSL's ``WantWriteError`` as :exc:`ssl.SSLError`.
         """
-        if isinstance(self._sock, ssl.SSLSocket):
-            return self._sock.pending()
-        connection = getattr(self._sock, 'connection', None)  # pyOpenSSL
-        return connection.pending() if connection is not None else 0
+        if isinstance(exc, ssl.SSLWantWriteError):
+            return True
+        want_write = getattr(sys.modules.get('OpenSSL.SSL'), 'WantWriteError', ())
+        return isinstance(exc, want_write) or isinstance(exc, ssl.SSLError) and \
+            isinstance(exc.__cause__ or exc.__context__, want_write)
 
     def readinto(self, buffer: Any) -> int:
         """Read from the socket into *buffer*.
@@ -205,32 +223,34 @@ class _InterruptibleSocketIO(io.RawIOBase):
             :exc:`WatchInterrupted`: if the :class:`Interrupter` was interrupted.
             :exc:`socket.timeout`: if the timeout of the socket has expired.
         """
+        if self._interrupter.is_set():
+            raise WatchInterrupted
+        interrupter_fd = self._interrupter.fileno()
+        fd = self._raw.fileno()
+        if fd < 0:
+            raise OSError(errno.EBADF, 'Bad file descriptor')
         timeout = self._raw.gettimeout()
         deadline = None if timeout is None else time.monotonic() + timeout
-        interrupter_fd = self._interrupter.fileno()
-        while True:
-            if not self._pending():
-                fd = self._raw.fileno()
-                if fd < 0:
-                    raise OSError(errno.EBADF, 'Bad file descriptor')
-                ready = _wait_readable([fd, interrupter_fd],
-                                       None if deadline is None else max(deadline - time.monotonic(), 0))
+        self._raw.settimeout(0)
+        try:
+            while True:
+                try:
+                    return self._sock.recv_into(buffer)
+                except (BlockingIOError, ssl.SSLWantReadError, socket.timeout, TimeoutError):
+                    write = False
+                except Exception as exc:
+                    if not self._want_write(exc):
+                        raise
+                    write = True
+
+                remaining = None if deadline is None else max(0, deadline - time.monotonic())
+                ready = _wait([interrupter_fd] if write else [interrupter_fd, fd], [fd] if write else [], remaining)
                 if interrupter_fd in ready:
                     raise WatchInterrupted
-                if not ready:
+                if not ready or remaining == 0:
                     raise socket.timeout('timed out')
-            # A readable socket doesn't guarantee that TLS can decrypt application data, the socket could have received
-            # only a part of the record, or a TLS 1.3 session ticket. Therefore we don't block in the read.
-            self._raw.settimeout(0)
-            try:
-                return self._sock.recv_into(buffer)
-            except (BlockingIOError, ssl.SSLWantReadError, socket.timeout, TimeoutError):  # pyOpenSSL raises timeout
-                pass
-            except ssl.SSLWantWriteError:  # pragma: no cover
-                self._raw.settimeout(timeout)  # TLS renegotiation, rare enough to block for it as usual
-                return self._sock.recv_into(buffer)
-            finally:
-                self._raw.settimeout(timeout)
+        finally:
+            self._raw.settimeout(timeout)
 
 
 class _SocketWithInterruptibleFile:

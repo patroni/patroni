@@ -2206,13 +2206,12 @@ class AbstractDCS(ClusterSite, abc.ABC):
         """
 
     def wakeup(self) -> None:
-        """Wake up the HA loop by making :func:`watch` return ``True`` right away.
+        """Request an early HA cycle by waking :func:`watch`.
 
-        If :func:`watch` isn't waiting at the moment, the next call returns right away.
+        Sets :attr:`event` so a watch waiting on it returns ``True``. If no watch is running, the next one observes it.
 
-        .. note::
-            Sets :attr:`event`. DCS implementations whose :func:`watch` could wait for something else, for example, for
-            a long-poll request, must interrupt it as well.
+        Backends that long-poll also interrupt blocked HTTP response reads. DNS resolution, connection setup and TLS
+        negotiation are not interrupted, and the HTTP client may still consume data it has already buffered.
         """
         self.event.set()
 
@@ -2227,3 +2226,18 @@ class AbstractDCS(ClusterSite, abc.ABC):
         _ = leader_version
         self.event.wait(timeout)
         return self.event.is_set()
+
+
+class AbstractLongPollingDCS(AbstractDCS):
+    """Base class for DCS backends that long-poll the leader key in the HA loop."""
+
+    def __init__(self, config: Dict[str, Any], mpp: 'AbstractMPP') -> None:
+        from ..interrupt import Interrupter
+
+        super(AbstractLongPollingDCS, self).__init__(config, mpp)
+        self._watch_interrupter = Interrupter()
+
+    def wakeup(self) -> None:
+        """Set the HA event before interrupting an active leader watch."""
+        super(AbstractLongPollingDCS, self).wakeup()
+        self._watch_interrupter.interrupt()

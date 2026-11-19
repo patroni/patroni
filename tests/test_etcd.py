@@ -1,7 +1,6 @@
 import socket
 import unittest
 
-from threading import Timer
 from unittest.mock import Mock, patch, PropertyMock
 
 import etcd
@@ -374,13 +373,21 @@ class TestEtcd(unittest.TestCase):
 
     def test_wakeup(self):
         timeout = urllib3.Timeout(connect=5, read=5)
-        with HangingHTTPServer() as server, \
+        with HangingHTTPServer(on_request=self.etcd.wakeup) as server, \
                 patch('socket.getaddrinfo', Mock(return_value=[(socket.AF_INET, 1, 6, '', server.server_address)])), \
                 patch.object(EtcdClient, 'watch', Mock(side_effect=lambda *_, **__: self.etcd._client.http.urlopen(
                     'GET', server.url, retries=False, timeout=timeout))) as mock_watch:
-            Timer(0.1, self.etcd.wakeup).start()
             self.assertTrue(self.etcd.watch(20729, 10))
             mock_watch.assert_called_once()
+            server.on_request = self.etcd._watch_interrupter.interrupt
+            with patch.object(self.etcd._watch_interrupter, 'interrupt'):
+                self.etcd.wakeup()
+            self.assertTrue(self.etcd.watch(20729, 10))
+            self.assertFalse(self.etcd.event.is_set())
+            with patch.object(self.etcd.event, 'wait') as wait:
+                self.assertTrue(self.etcd.watch(20729, 10))
+                wait.assert_not_called()
+            self.assertEqual(mock_watch.call_count, 2)
         self.assertFalse(self.etcd.event.is_set())
         # the wakeup was consumed, the next watch waits for the leader key again
         with patch.object(EtcdClient, 'watch', Mock(side_effect=etcd.EtcdWatchTimedOut)) as mock_watch:
