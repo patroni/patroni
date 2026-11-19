@@ -1,6 +1,7 @@
 import socket
 import unittest
 
+from threading import Timer
 from unittest.mock import Mock, patch, PropertyMock
 
 import etcd
@@ -15,7 +16,7 @@ from patroni.exceptions import DCSError
 from patroni.postgresql.mpp import get_mpp
 from patroni.utils import Retry
 
-from . import MockResponse, requests_get, SleepException
+from . import HangingHTTPServer, MockResponse, requests_get, SleepException
 
 
 def etcd_watch(self, key, index=None, timeout=None, recursive=None):
@@ -365,10 +366,26 @@ class TestEtcd(unittest.TestCase):
         with patch.object(AbstractDCS, 'watch', Mock()):
             self.assertTrue(self.etcd.watch(20729, 19.5))
             self.assertRaises(SleepException, self.etcd.watch, 20729, 9.5)
-        self.etcd.interrupt_watch()
+        self.etcd.wakeup()
         with patch.object(EtcdClient, 'watch') as mock_watch:
             self.assertTrue(self.etcd.watch(20729, 9.5))
             mock_watch.assert_not_called()
+        self.assertFalse(self.etcd.event.is_set())
+
+    def test_wakeup(self):
+        timeout = urllib3.Timeout(connect=5, read=5)
+        with HangingHTTPServer() as server, \
+                patch('socket.getaddrinfo', Mock(return_value=[(socket.AF_INET, 1, 6, '', server.server_address)])), \
+                patch.object(EtcdClient, 'watch', Mock(side_effect=lambda *_, **__: self.etcd._client.http.urlopen(
+                    'GET', server.url, retries=False, timeout=timeout))) as mock_watch:
+            Timer(0.1, self.etcd.wakeup).start()
+            self.assertTrue(self.etcd.watch(20729, 10))
+            mock_watch.assert_called_once()
+        self.assertFalse(self.etcd.event.is_set())
+        # the wakeup was consumed, the next watch waits for the leader key again
+        with patch.object(EtcdClient, 'watch', Mock(side_effect=etcd.EtcdWatchTimedOut)) as mock_watch:
+            self.assertFalse(self.etcd.watch(20729, 10))
+            mock_watch.assert_called_once()
 
     def test_other_exceptions(self):
         self.etcd.retry = Mock(side_effect=AttributeError('foo'))

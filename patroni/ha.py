@@ -2639,10 +2639,8 @@ class Ha(object):
         return self.dcs.watch(leader_version, timeout)
 
     def wakeup(self) -> None:
-        """Trigger the next run of HA loop if there is no "active" leader watch request in progress.
-
-        This usually happens on the leader or if the node is running async action"""
-        self.dcs.event.set()
+        """Trigger the next run of HA loop, see :func:`~patroni.dcs.AbstractDCS.wakeup`."""
+        self.dcs.wakeup()
 
     def get_remote_member(self, member: Union[Leader, Member, None] = None) -> RemoteMember:
         """Get remote member node to stream from.

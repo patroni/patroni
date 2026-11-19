@@ -889,7 +889,8 @@ class Etcd(AbstractEtcd):
     def delete_sync_state(self, version: Optional[int] = None) -> bool:
         return bool(self.retry(self._client.delete, self.sync_path, prevIndex=version or 0))
 
-    def interrupt_watch(self) -> None:
+    def wakeup(self) -> None:
+        super(Etcd, self).wakeup()
         self._watch_interrupter.interrupt()
 
     def watch(self, leader_version: Optional[int], timeout: float) -> bool:
@@ -897,7 +898,9 @@ class Etcd(AbstractEtcd):
             self.__do_not_watch = False
             return True
 
-        if leader_version:
+        # wakeup() sets the event before it interrupts, so dropping old interruptions can't miss a new wakeup
+        self._watch_interrupter.clear()
+        if leader_version and not self.event.is_set():
             end_time = time.monotonic() + timeout
 
             while timeout >= 1:  # when timeout is too small urllib3 doesn't have enough time to connect
@@ -910,8 +913,8 @@ class Etcd(AbstractEtcd):
                     # Synchronous work of all cluster members with etcd is less expensive
                     # than reestablishing http connection every time from every replica.
                     return True
-                except WatchInterrupted:
-                    return True
+                except WatchInterrupted:  # by wakeup(), which has set the event
+                    break
                 except etcd.EtcdWatchTimedOut:
                     self._has_failed = False
                     return False

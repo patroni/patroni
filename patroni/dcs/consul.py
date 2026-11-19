@@ -694,7 +694,8 @@ class Consul(AbstractDCS):
     def delete_sync_state(self, version: Optional[int] = None) -> bool:
         return self.retry(self._client.kv.delete, self.sync_path, cas=version)
 
-    def interrupt_watch(self) -> None:
+    def wakeup(self) -> None:
+        super(Consul, self).wakeup()
         self._watch_interrupter.interrupt()
 
     def watch(self, leader_version: Optional[int], timeout: float) -> bool:
@@ -703,15 +704,17 @@ class Consul(AbstractDCS):
             self.__do_not_watch = False
             return True
 
-        if leader_version:
+        # wakeup() sets the event before it interrupts, so dropping old interruptions can't miss a new wakeup
+        self._watch_interrupter.clear()
+        if leader_version and not self.event.is_set():
             end_time = time.monotonic() + timeout
             while timeout >= 1:
                 try:
                     with self._watch_interrupter.armed():
                         idx, _ = self._client.kv.get(self.leader_path, index=leader_version, wait=str(timeout) + 's')
                     return str(idx) != str(leader_version)
-                except WatchInterrupted:
-                    return True
+                except WatchInterrupted:  # by wakeup(), which has set the event
+                    break
                 except (ConsulException, HTTPException, HTTPError, socket.error, socket.timeout):
                     logger.exception('watch')
 
