@@ -209,6 +209,15 @@ class TestWatchdog(unittest.TestCase):
         self.assertTrue(watchdog.is_running)
         self.assertEqual(watchdog.config.timeout, 60 // 2)
 
+        impl = watchdog.impl
+        watchdog.reload_config({'ttl': 60, 'loop_wait': 15, 'watchdog': {'mode': 'required', 'driver': 'unknown'}})
+        self.assertIs(watchdog.impl, impl)
+        watchdog.keepalive()
+        self.assertFalse(impl.is_running)
+        self.assertIsInstance(watchdog.impl, NullWatchdog)
+        self.assertFalse(watchdog.is_running)
+        self.assertFalse(watchdog.needs_immediate_keepalive)
+
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'is_healthy', PropertyMock(return_value=True))
     def test_reacquire_after_unsafe_timing(self):
