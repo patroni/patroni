@@ -92,6 +92,7 @@ class Watchdog(object):
         self.active_config: WatchdogConfig = self.config
         self.lock = RLock()
         self.active = False
+        self._impl_pending = False
 
         if self.config.mode == MODE_OFF:
             self.impl = NullWatchdog()
@@ -113,12 +114,15 @@ class Watchdog(object):
                 self._disable()
             self.active_config = self.config
             self.impl = NullWatchdog()
+            self._impl_pending = False
         # If watchdog is not active we can apply config immediately to show any warnings early. Otherwise we need to
         # delay until next time a keepalive is sent so timeout matches up with leader key update.
         if not self.active:
-            if self.config.driver != self.active_config.driver or \
-               self.config.driver_config != self.active_config.driver_config:
+            if self._impl_pending or self.config.mode != self.active_config.mode or \
+                    self.config.driver != self.active_config.driver or \
+                    self.config.driver_config != self.active_config.driver_config:
                 self.impl = self.config.get_impl()
+                self._impl_pending = False
             self.active_config = self.config
 
     @synchronized
@@ -129,7 +133,16 @@ class Watchdog(object):
         :returns False if a safe watchdog could not be configured, but is required.
         """
         self.active = True
-        return self._activate()
+        # A configuration change might have been deferred to a keepalive that was never sent
+        if not self.impl.is_running and (self._impl_pending or self.config.mode != self.active_config.mode):
+            self.impl = self.config.get_impl()
+            self._impl_pending = False
+        if self._activate():
+            return True
+        # The HA loop gives up the leader key, so keepalive() won't apply configuration changes anymore. Unless a
+        # running watchdog has to be disabled on demotion, reload_config() must apply them, or the node stays unhealthy.
+        self.active = self.impl.is_running
+        return False
 
     def _activate(self) -> bool:
         self.active_config = self.config
@@ -138,6 +151,8 @@ class Watchdog(object):
             logger.warning('Watchdog not supported because leader TTL %s is less than 2x loop_wait %s',
                            self.config.ttl, self.config.loop_wait)
             self.impl = NullWatchdog()
+            # Reacquire the configured device once a configuration change fixes the timing.
+            self._impl_pending = True
 
         try:
             self.impl.open()
@@ -221,8 +236,9 @@ class Watchdog(object):
                 self.impl.keepalive()
             # In case there are any pending configuration changes apply them now.
             if self.active and self.config != self.active_config:
-                if self.config.mode != MODE_OFF and self.active_config.mode == MODE_OFF:
+                if not self.impl.is_running and (self._impl_pending or self.config.mode != self.active_config.mode):
                     self.impl = self.config.get_impl()
+                    self._impl_pending = False
                     self._activate()
                 if self.config.driver != self.active_config.driver \
                    or self.config.driver_config != self.active_config.driver_config:
