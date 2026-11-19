@@ -604,9 +604,19 @@ class TestCacheBuilder(BaseTestKubernetes):
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', mock_list_namespaced_config_map, create=True)
     def test_kill_stream_before_watch(self):
         cache = self.k._kinds
+        list_objects = cache._list
+
+        def kill_while_listing():
+            cache.kill_stream()
+            return list_objects()
+
         with patch.object(cache, '_watch', side_effect=WatchInterrupted) as watch:
             with patch.object(cache._condition, 'notify', side_effect=cache.kill_stream):
                 cache._build_cache()
+            watch.assert_not_called()
+            with patch.object(cache, '_list', kill_while_listing), patch.object(cache._condition, 'notify') as notify:
+                cache._build_cache()
+            notify.assert_not_called()
             watch.assert_not_called()
             cache._build_cache()
             watch.assert_called_once()

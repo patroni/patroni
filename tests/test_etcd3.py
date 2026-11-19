@@ -163,9 +163,20 @@ class TestKVCache(BaseTestEtcd3):
 
     @patch.object(urllib3.PoolManager, 'urlopen', mock_urlopen)
     def test_kill_stream_before_watch(self):
+        prefix = self.client.prefix
+
+        def kill_while_listing(*args, **kwargs):
+            self.kv_cache.kill_stream()
+            return prefix(*args, **kwargs)
+
         with patch.object(self.client, 'watchprefix', side_effect=WatchInterrupted) as watch:
             with patch.object(self.kv_cache.condition, 'notify', side_effect=self.kv_cache.kill_stream):
                 self.kv_cache._build_cache()
+            watch.assert_not_called()
+            with patch.object(self.client, 'prefix', kill_while_listing), \
+                    patch.object(self.kv_cache.condition, 'notify') as notify:
+                self.kv_cache._build_cache()
+            notify.assert_not_called()
             watch.assert_not_called()
             self.kv_cache._build_cache()
             watch.assert_called_once()

@@ -612,6 +612,8 @@ class KVCache(StaleEtcdNodeGuard, WatchStreamThread):
     def _build_cache(self) -> None:
         self._watch_interrupter.clear()
         result = self._dcs.retry(self._client.prefix, self._dcs.cluster_prefix)
+        if self._watch_interrupter.is_set():  # kill_stream() while listing, the result could be stale already
+            return
         header = result.get('header', EMPTY_DICT)
         with self._object_cache_lock:
             self._reset_cluster_raft_term()

@@ -692,6 +692,8 @@ class ObjectCache(WatchStreamThread):
     def _build_cache(self) -> None:
         self._watch_interrupter.clear()
         objects = self._list()
+        if self._watch_interrupter.is_set():  # kill_stream() while listing, the result could be stale already
+            return
         with self._object_cache_lock:
             self._object_cache = {item.metadata.name: item for item in objects.items}
         with self._condition:
