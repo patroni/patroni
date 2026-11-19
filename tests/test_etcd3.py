@@ -212,6 +212,15 @@ class TestPatroniEtcd3Client(BaseTestEtcd3):
         mock_urlopen.return_value.content = '{"code":9,"error":"etcdserver: authentication is not enabled"}'
         self.client.authenticate()
 
+    def test__restart_watcher_from_kv_cache(self):
+        self.kv_cache.run = lambda: self.client.set_base_uri('http://localhost:2380')
+        Thread.start(self.kv_cache)
+        self.kv_cache.join()
+        self.assertEqual(self.client._base_uri, 'http://localhost:2380')
+        self.assertFalse(self.kv_cache._watch_interrupter.is_set())
+        self.client.set_base_uri('http://localhost:2381')
+        self.assertTrue(self.kv_cache._watch_interrupter.is_set())
+
     @patch.object(urllib3.PoolManager, 'urlopen')
     def test__handle_auth_errors(self, mock_urlopen):
         mock_urlopen.return_value = MockResponse()

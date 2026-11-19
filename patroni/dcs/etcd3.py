@@ -9,7 +9,7 @@ import time
 
 from collections import defaultdict
 from enum import IntEnum
-from threading import Condition, Lock
+from threading import Condition, current_thread, Lock
 from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Tuple, Type, TYPE_CHECKING, Union
 
 import etcd
@@ -666,7 +666,9 @@ class PatroniEtcd3Client(Etcd3Client):
             self._kv_cache = KVCache(self._etcd3, self)
 
     def _restart_watcher(self) -> None:
-        if self._kv_cache:
+        # The KVCache thread switches the node only while doing its own request, i.e. not while watching. Its next watch
+        # request goes to the new node anyway, and interrupting itself would only make it list the keys once again.
+        if self._kv_cache and self._kv_cache is not current_thread():
             self._kv_cache.kill_stream()
 
     def set_base_uri(self, value: str) -> None:
