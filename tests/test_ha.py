@@ -275,6 +275,11 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_not_initialized_without_leader(
             cluster_config=ClusterConfig(1, {"standby_cluster": {"port": 5432, 'primary_slot_name': None}}, 1))
         self.assertEqual(self.ha.run_cycle(), 'trying to bootstrap a new standby leader')
+        with self.ha._async_response:
+            self.ha._async_response.complete(True)
+        with patch.object(Watchdog, 'activate') as mock_activate:
+            self.assertEqual(self.ha.run_cycle(), 'initialized a new cluster')
+        mock_activate.assert_not_called()
 
     def test_bootstrap_waiting_for_standby_leader(self):
         self.p.data_directory_empty = true
@@ -409,7 +414,9 @@ class TestHa(PostgresInit):
 
     @patch('patroni.psycopg.connect', psycopg_connect)
     def test_acquire_lock_as_primary(self):
-        self.assertEqual(self.ha.run_cycle(), 'acquired session lock as a leader')
+        with patch.object(Watchdog, 'keepalive') as mock_keepalive:
+            self.assertEqual(self.ha.run_cycle(), 'acquired session lock as a leader')
+        mock_keepalive.assert_called_once_with()
 
     def test_leader_race_stale_primary(self):
         with patch.object(Postgresql, 'get_primary_timeline', Mock(return_value=1)), \
@@ -445,9 +452,16 @@ class TestHa(PostgresInit):
             mock_disable.assert_not_called()
 
     def test_lost_leader_lock_during_promote(self):
-        with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)):
+        with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)), \
+                patch.object(Watchdog, 'disable') as mock_disable:
             self.ha._async_executor.schedule('promote')
             self.assertEqual(self.ha.run_cycle(), 'lost leader before promote')
+            mock_disable.assert_called_once_with()
+            # too late to cancel, the watchdog must stay armed
+            with self.ha._async_response:
+                self.ha._async_response.complete(True)
+            self.assertEqual(self.ha.run_cycle(), 'promote in progress')
+            mock_disable.assert_called_once_with()
 
     @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
     def test_long_promote(self):
@@ -517,6 +531,36 @@ class TestHa(PostgresInit):
             self.assertEqual(self.ha.run_cycle(), 'demoted self because failed to update leader lock in DCS')
         self.p.is_primary = false
         self.assertEqual(self.ha.run_cycle(), 'not promoting because failed to update leader lock in DCS')
+
+    @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
+    @patch.object(Watchdog, 'is_running', PropertyMock(return_value=True))
+    def test_disable_watchdog_when_not_promoting_because_update_lock_failed(self):
+        self.ha.has_lock = true
+        self.ha.update_lock = false
+        self.p.is_primary = false
+        with patch.object(Watchdog, 'disable') as mock_disable:
+            self.assertEqual(self.ha.run_cycle(), 'not promoting because failed to update leader lock in DCS')
+            mock_disable.assert_called_once_with()
+            self.p.set_role(PostgresqlRole.PROMOTED)
+            self.assertEqual(self.ha.run_cycle(), 'not promoting because failed to update leader lock in DCS')
+            mock_disable.assert_called_once_with()
+
+    @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
+    @patch.object(Watchdog, 'is_running', PropertyMock(return_value=True))
+    def test_disable_watchdog_without_lock(self):
+        self.p.is_primary = false
+        with patch.object(Watchdog, 'disable') as mock_disable:
+            self.assertEqual(self.ha.run_cycle(),
+                             'no action. I am (postgresql0), a secondary, and following a leader ()')
+            mock_disable.assert_called_once_with()
+            self.p.set_role(PostgresqlRole.PROMOTED)
+            self.ha.run_cycle()
+            mock_disable.assert_called_once_with()
+            # e.g. pg_ctl stop failed during demote
+            self.p.set_role(PostgresqlRole.DEMOTED)
+            self.p.is_primary = true
+            self.ha._disable_watchdog_unless_primary()
+            mock_disable.assert_called_once_with()
 
     def test_get_node_to_follow_nostream(self):
         self.ha.patroni.nostream = True
@@ -624,6 +668,18 @@ class TestHa(PostgresInit):
                                  'conn_url': 'postgres://127.0.0.1:5432/postgres', 'slots': {'foo': 1000}})
         self.p.is_primary = false
         self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
+
+    @patch.object(Watchdog, 'is_running', PropertyMock(return_value=True))
+    def test_no_dcs_connection_replica_disables_watchdog(self):
+        self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
+        self.p.is_primary = false
+        with patch.object(Watchdog, 'disable') as mock_disable:
+            self.ha._async_executor.schedule('promote')
+            self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
+            mock_disable.assert_not_called()
+            self.ha._async_executor.reset_scheduled_action()
+            self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
+            mock_disable.assert_called_once_with()
 
     def test_update_failsafe(self):
         self.assertRaises(Exception, self.ha.update_failsafe, {})

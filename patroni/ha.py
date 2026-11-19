@@ -382,6 +382,9 @@ class Ha(object):
             logger.exception('Unexpected exception raised from acquire_leader_lock, please report it as a BUG')
             ret = False
         self.set_is_leader(ret)
+        if ret:
+            # The watchdog is still armed if we were running as a primary while the leader key was missing
+            self.watchdog.keepalive()
         return ret
 
     def _failsafe_config(self) -> Optional[Dict[str, str]]:
@@ -427,6 +430,18 @@ class Ha(object):
         if ret:
             self.watchdog.keepalive()
         return ret
+
+    def _disable_watchdog_unless_primary(self) -> None:
+        """Disable the watchdog unless PostgreSQL is running as a primary or is being promoted.
+
+        .. note::
+            Only the leader key holder feeds the watchdog. Without the leader key the watchdog is needed only to
+            fence a primary, otherwise it would eventually reset a healthy replica.
+        """
+        if self.watchdog.is_running and self._async_executor.scheduled_action != 'promote' \
+                and self.state_handler.role not in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED) \
+                and not self.state_handler.is_primary():
+            self.watchdog.disable()
 
     def has_lock(self, info: bool = True) -> bool:
         lock_owner = self.cluster.leader and self.cluster.leader.name
@@ -2063,6 +2078,7 @@ class Ha(object):
                     self.demote('immediate-nolock')
                     return 'demoted self because failed to update leader lock in DCS'
                 else:
+                    self._disable_watchdog_unless_primary()
                     return 'not promoting because failed to update leader lock in DCS'
         else:
             logger.debug('does not have lock')
@@ -2248,6 +2264,8 @@ class Ha(object):
                     cancel = self._async_response.cancel()
                 if cancel:
                     self.state_handler.cancellable.cancel()
+                    # The cancelled task won't promote PostgreSQL, and nobody will feed the watchdog anymore
+                    self.watchdog.disable()
                     return 'lost leader before promote'
 
             if self.state_handler.role == PostgresqlRole.PRIMARY:
@@ -2308,7 +2326,8 @@ class Ha(object):
             return ret or 'running post_bootstrap'
 
         self.state_handler.bootstrapping = False
-        if not self.watchdog.activate():
+        # A standby leader isn't a primary, enforce_follow_remote_member() doesn't activate the watchdog either
+        if not self.is_standby_cluster() and not self.watchdog.activate():
             logger.error('Cancelling bootstrap because watchdog activation failed')
             self.cancel_initialization()
 
@@ -2517,6 +2536,10 @@ class Ha(object):
                 # try to start dead postgres
                 return self.recover()
 
+            # The watchdog might be still armed after losing the leader key before PostgreSQL was promoted
+            if not self.has_lock(False):
+                self._disable_watchdog_unless_primary()
+
             if self.cluster.is_unlocked():
                 ret = self.process_unhealthy_cluster()
             else:
@@ -2570,6 +2593,7 @@ class Ha(object):
                 self.demote('offline')
                 return 'demoted self because DCS is not accessible and I was a leader'
             else:
+                self._disable_watchdog_unless_primary()
                 self._sync_replication_slots(True)
         return 'DCS is not accessible'
 
