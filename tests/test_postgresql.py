@@ -978,6 +978,50 @@ class TestPostgresql(BaseTestPostgresql):
                           'options': '-c statement_timeout=2000 -c pg_stat_statements.track=none',
                           'password': 'test', 'port': '5432', 'user': 'foo'})
 
+    def test_resolve_connection_addresses_sslmode(self):
+        self.p.config._config['use_unix_socket'] = False
+        self.p.config._superuser = {'username': 'postgres', 'sslmode': 'verify-full'}
+        for os_name, listen, expected_host in (('posix', '*', 'localhost'),
+                                               ('nt', '127.0.0.1', '127.0.0.1'),
+                                               ('posix', '::1', '::1')):
+            self.p.config._server_parameters['listen_addresses'] = listen
+            with patch('os.name', os_name):
+                self.p.config.resolve_connection_addresses()
+            self.assertEqual(self.p.connection_pool.conn_kwargs['host'], expected_host)
+            self.assertEqual(self.p.connection_pool.conn_kwargs['sslmode'], 'verify-ca')
+
+        # Non-localhost TCP address keeps verify-full
+        self.p.config._server_parameters['listen_addresses'] = '10.0.0.1'
+        self.p.config.resolve_connection_addresses()
+        self.assertEqual(self.p.connection_pool.conn_kwargs['sslmode'], 'verify-full')
+
+        # Other sslmodes on localhost are left unchanged
+        self.p.config._server_parameters['listen_addresses'] = '127.0.0.1'
+        self.p.config._superuser['sslmode'] = 'require'
+        self.p.config.resolve_connection_addresses()
+        self.assertEqual(self.p.connection_pool.conn_kwargs['sslmode'], 'require')
+
+        # Unix socket keeps verify-full, but fallback to TCP localhost relaxes it
+        self.p.config._config['use_unix_socket'] = True
+        self.p.config._superuser['sslmode'] = 'verify-full'
+        self.p.config._server_parameters['unix_socket_directories'] = '/tmp'
+        self.p.config.resolve_connection_addresses()
+        self.assertEqual(self.p.connection_pool.conn_kwargs['sslmode'], 'verify-full')
+
+        self.p.config._server_parameters['unix_socket_directories'] = 'relative'
+        self.p.config.resolve_connection_addresses()
+        self.assertEqual(self.p.connection_pool.conn_kwargs['sslmode'], 'verify-ca')
+
+    @patch('patroni.postgresql.get_connection_cursor')
+    def test_get_replication_connection_cursor_sslmode(self, mock_cursor):
+        self.p.config.replication['sslmode'] = 'verify-full'
+        for host, expected_sslmode in (('localhost', 'verify-ca'), ('127.0.0.1', 'verify-ca'),
+                                       ('::1', 'verify-ca'), ('pg1', 'verify-full'), ('/tmp', 'verify-full')):
+            mock_cursor.reset_mock()
+            with self.p.get_replication_connection_cursor(host=host, port='5432'):
+                pass
+            self.assertEqual(mock_cursor.call_args[1]['sslmode'], expected_sslmode)
+
     def test__get_unix_local_address(self):
         get = self.p.config._get_unix_local_address
         self.assertEqual(get('/tmp'), '/tmp')

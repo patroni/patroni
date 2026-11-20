@@ -21,6 +21,7 @@ from ..psycopg import parse_conninfo
 from ..utils import compare_values, get_postgres_version, getaddrinfo, is_subpath, \
     maybe_convert_from_base_unit, parse_bool, parse_int, split_host_port, uri, validate_directory
 from ..validator import EnumValidator, IntValidator
+from .connection import relax_localhost_sslmode
 from .misc import fsync_dir, get_major_from_minor_version, postgres_version_to_int, PostgresqlRole, PostgresqlState
 from .sync import SYNC_STRICT_PLACEHOLDER
 from .validator import recovery_parameters, transform_postgresql_parameter_value, transform_recovery_parameter_value
@@ -1311,6 +1312,7 @@ class ConfigHandler(object):
         # if the "username" parameter is present, it actually needs to be "user" for connecting to PostgreSQL
         if 'username' in local_conn_kwargs:
             local_conn_kwargs['user'] = local_conn_kwargs.pop('username')
+        relax_localhost_sslmode(local_conn_kwargs)
         # "notify" connection_pool about the "new" local connection address
         self._postgresql.connection_pool.conn_kwargs = local_conn_kwargs
 
