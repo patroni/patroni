@@ -382,9 +382,8 @@ class Ha(object):
             logger.exception('Unexpected exception raised from acquire_leader_lock, please report it as a BUG')
             ret = False
         self.set_is_leader(ret)
-        # The watchdog is still armed if we were running as a primary while the leader key was missing. Don't call
-        # keepalive() otherwise, it would apply deferred config changes ignoring activation failures. A device left
-        # armed with an unsafe timeout would make enforce_primary_role() skip the activation and promote.
+        # The watchdog is still armed if we were running as a primary while the leader key was missing. Otherwise
+        # enforce_primary_role() activates it.
         if ret and self.watchdog.is_running:
             self.watchdog.keepalive()
         return ret
@@ -1262,13 +1261,13 @@ class Ha(object):
         for promoting its PG server to the 'primary' role.
         """
         if not self.is_paused():
-            if not self.watchdog.is_running and not self.watchdog.activate():
+            # A running watchdog isn't necessarily safe, e.g. if a device that could not be disabled was retained
+            if not self.watchdog.is_activated and not self.watchdog.activate():
                 if self.state_handler.is_primary():
                     self.demote('immediate')
                     return 'Demoting self because watchdog could not be activated'
                 else:
-                    # A failed activation might leave the device armed with a too long timeout. Then the next leader
-                    # race would skip the activation because the watchdog is running, and promote.
+                    # A failed activation might leave the device armed, but nobody feeds it without the leader key
                     self.watchdog.disable()
                     self.release_leader_key_voluntarily()
                     return 'Not promoting self because watchdog could not be activated'

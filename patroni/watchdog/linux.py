@@ -6,7 +6,7 @@ import platform
 
 from typing import Any, Dict, NamedTuple
 
-from .base import WatchdogBase, WatchdogError
+from .base import WatchdogBase, WatchdogDisableUnsupported, WatchdogError
 
 # Pythonification of linux/ioctl.h
 IOC_NONE = 0
@@ -105,6 +105,10 @@ WDIOS = {
     "TEMPPANIC": 0x0004,      # Kernel panic on temperature trip
 }
 
+# The driver doesn't implement WDIOC_SETOPTIONS. Other errors mean that it refused to stop the timer, e.g. EBUSY if
+# the watchdog core was configured with nowayout.
+DISABLE_UNSUPPORTED_ERRNOS = (errno.ENOTTY, errno.EOPNOTSUPP, errno.ENOSYS)
+
 # Implementation
 
 
@@ -149,40 +153,67 @@ class LinuxWatchdogDevice(WatchdogBase):
         except OSError as e:
             raise WatchdogError("Can't open watchdog device: {0}".format(e))
 
+    def _close_fd(self) -> None:
+        # On Linux close() releases the descriptor even when it reports an error.
+        fd, self._fd = self._fd, None
+        if fd is not None:
+            os.close(fd)
+
+    def _check_removed(self, e: OSError) -> bool:
+        """Release the descriptor if the device was unregistered, e.g. the driver was unbound or the device unplugged.
+
+        The kernel fails every further operation on such a descriptor with ENODEV, so it can neither ping nor stop the
+        timer anymore.
+
+        :returns: ``True`` if the device was removed.
+        """
+        if e.errno != errno.ENODEV:
+            return False
+        try:
+            self._close_fd()
+        except OSError:
+            pass
+        return True
+
     def close(self) -> None:
         if self._fd is not None:  # self.is_running
             try:
                 os.write(self._fd, b'V')
-                os.close(self._fd)
-                self._fd = None
+                self._close_fd()
             except OSError as e:
+                self._check_removed(e)
                 raise WatchdogError("Error while closing {0}: {1}".format(self.describe(), e))
 
     def disable(self) -> None:
-        if self._fd is not None:
+        """Stop the timer and close the device, or keep the device open if the timer could not be stopped.
+
+        The magic character is written before the timer is stopped, because some legacy drivers restart the timer on
+        every write, and also on close unless the magic character was written before. Nothing is written afterwards.
+
+        .. note::
+            Some legacy drivers stop the timer even with ``nowayout``, but ignore the magic character and restart the
+            timer on close. This can't be detected.
+        """
+        if self._fd is None:
+            return
+        try:
+            os.write(self._fd, b'V')
+            self._ioctl(WDIOC_SETOPTIONS, ctypes.c_int(WDIOS['DISABLECARD']))
+        except OSError as e:
+            if self._check_removed(e):
+                raise WatchdogError("Watchdog device is no longer available: {0}".format(e))
             try:
-                self._ioctl(WDIOC_SETOPTIONS, ctypes.c_int(WDIOS['DISABLECARD']))
-            except (WatchdogError, OSError, IOError) as e:
-                if getattr(e, 'errno', None) == errno.ENODEV:
-                    # The device was unregistered (driver unbound or device unplugged). The kernel fails every
-                    # operation on this descriptor with ENODEV, so it can no longer be used to ping or stop it.
-                    fd, self._fd = self._fd, None
-                    try:
-                        os.close(fd)
-                    except OSError:
-                        pass
-                    raise WatchdogError("Watchdog device is no longer available: {0}".format(e))
-                raise WatchdogError("Could not disable watchdog device: {}".format(e))
-            # On Linux close() releases the descriptor even when it reports an error.
-            fd, self._fd = self._fd, None
-            try:
-                try:
-                    # Some legacy drivers rearm the timer on close unless the magic character was written.
-                    os.write(fd, b'V')
-                finally:
-                    os.close(fd)
-            except OSError as e:
-                raise WatchdogError("Error while closing {0}: {1}".format(self.describe(), e))
+                # Revoke the magic character, otherwise the kernel would stop the timer if Patroni exits unexpectedly
+                os.write(self._fd, b'1')
+            except OSError as e2:
+                self._check_removed(e2)
+            if e.errno in DISABLE_UNSUPPORTED_ERRNOS:
+                raise WatchdogDisableUnsupported("Watchdog device doesn't support disabling: {0}".format(e))
+            raise WatchdogError("Could not disable watchdog device: {0}".format(e))
+        try:
+            self._close_fd()
+        except OSError as e:
+            raise WatchdogError("Error while closing {0}: {1}".format(self.describe(), e))
 
     @property
     def can_be_disabled(self) -> bool:
@@ -197,7 +228,11 @@ class LinuxWatchdogDevice(WatchdogBase):
             raise WatchdogError("Watchdog device is closed")
         if os.name != 'nt':
             import fcntl
-            fcntl.ioctl(self._fd, func, arg, True)
+            try:
+                fcntl.ioctl(self._fd, func, arg, True)
+            except OSError as e:
+                self._check_removed(e)
+                raise
 
     def get_support(self) -> WatchdogInfo:
         if self._support_cache is None:
@@ -230,6 +265,7 @@ class LinuxWatchdogDevice(WatchdogBase):
         try:
             os.write(self._fd, b'1')
         except OSError as e:
+            self._check_removed(e)
             raise WatchdogError("Could not send watchdog keepalive: {0}".format(e))
 
     def has_set_timeout(self) -> bool:

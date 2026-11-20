@@ -26,7 +26,7 @@ from patroni.postgresql.slots import SlotsHandler
 from patroni.postgresql.sync import _SyncState
 from patroni.thread_pool import PatroniThreadPoolExecutor
 from patroni.utils import tzutc
-from patroni.watchdog import Watchdog
+from patroni.watchdog import Watchdog, WatchdogError
 
 from . import MockPostmaster, PostgresInit, psycopg_connect, requests_get
 from .test_etcd import etcd_read, etcd_write, socket_getaddrinfo
@@ -441,6 +441,15 @@ class TestHa(PostgresInit):
             self.assertEqual(self.ha.run_cycle(), 'Not promoting self because watchdog could not be activated')
         self.assertFalse(device.is_running)
 
+    @patch.object(Watchdog, 'is_running', PropertyMock(return_value=True))
+    def test_promotion_activates_watchdog_left_open(self):
+        # e.g. closing it failed on demotion, nobody fed it since then
+        self.ha.is_healthiest_node = true
+        self.p.is_primary = false
+        with patch.object(Watchdog, 'activate', Mock(return_value=False)) as mock_activate:
+            self.assertEqual(self.ha.run_cycle(), 'Not promoting self because watchdog could not be activated')
+        mock_activate.assert_called_once_with()
+
     def test_leader_race_stale_primary(self):
         with patch.object(Postgresql, 'get_primary_timeline', Mock(return_value=1)), \
                 patch('patroni.ha.logger.warning') as mock_logger:
@@ -535,8 +544,28 @@ class TestHa(PostgresInit):
             self.p.is_primary = false
             with patch.object(Watchdog, 'disable') as mock_disable:
                 self.assertEqual(self.ha.run_cycle(), 'Not promoting self because watchdog could not be activated')
-            # a device with a too long timeout stays armed after a failed activation, and the next cycle would promote
+            # a device with a too long timeout stays armed after a failed activation, but nobody feeds it anymore
             mock_disable.assert_called_once_with()
+
+    @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
+    def test_demote_after_failed_watchdog_replacement(self):
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.ha.has_lock = true
+        old, new = Mock(is_null=False, is_running=False, can_be_disabled=True), \
+            Mock(is_null=False, is_running=False, can_be_disabled=True)
+        old.get_timeout.return_value = 25
+        old.open.side_effect = lambda: setattr(old, 'is_running', True)
+        old.disable.side_effect = lambda: setattr(old, 'is_running', False)
+        new.open.side_effect = lambda: setattr(new, 'is_running', True)
+        # the new device rejects the timeout, and it can't be stopped
+        new.set_timeout.side_effect = new.disable.side_effect = WatchdogError('')
+        config = {'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}}
+        with patch('patroni.watchdog.base.WatchdogConfig.get_impl', Mock(side_effect=[old, new])):
+            self.ha.watchdog.reload_config(config)
+            self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
+            self.ha.watchdog.reload_config(dict(config, watchdog={'mode': 'required', 'device': '/dev/other'}))
+            self.assertEqual(self.ha.run_cycle(), 'Demoting self because watchdog could not be activated')
+        self.assertFalse(old.is_running)
 
     def test_leader_with_lock(self):
         self.ha.cluster = get_cluster_initialized_with_leader()

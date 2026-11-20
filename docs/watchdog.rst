@@ -21,6 +21,8 @@ Safety margin is the amount of time that Patroni reserves for time between leade
 
 During demotion, once PostgreSQL has started shutting down, Patroni can disable the watchdog as soon as all user backends have exited. If there are no user backends, it can disable the watchdog without waiting for the remaining PostgreSQL shutdown work to finish.
 
+On the primary, changes of the watchdog configuration are applied with the next leader key update. A watchdog device that can't be stopped, for example because its driver was loaded with ``nowayout``, is kept and fed instead of being replaced or disabled. If watchdog mode is ``required`` and the new configuration doesn't result in a safe watchdog, Patroni demotes the primary. The watchdog is still fed until it is disabled during demotion.
+
 Currently watchdogs are only supported using Linux watchdog device interface.
 
 Setting up software watchdog on Linux
