@@ -28,7 +28,7 @@ from . import global_config, psycopg
 from .__main__ import Patroni
 from .dcs import Cluster
 from .exceptions import PostgresConnectionException, PostgresException
-from .interrupt import Interrupter, interruptible_call, interruptible_reader, WatchInterrupted
+from .interrupt import Interrupter, interruptible_call, interruptible_reader, RequestInterrupted
 from .postgresql.misc import postgres_version_to_int, PostgresqlRole, PostgresqlState
 from .thread_pool import PatroniThreadPoolExecutor
 from .utils import cluster_as_json, deep_compare, enable_keepalive, getaddrinfo, parse_bool, \
@@ -1916,7 +1916,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
                     # to make the REST API stop answering until Patroni is restarted.
                     request.settimeout(self.__handshake_timeout)
                     interruptible_call(request, request.do_handshake, self.interrupter)
-                except (OSError, WatchInterrupted) as e:
+                except (OSError, RequestInterrupted) as e:
                     # The client may reset the connection (or otherwise fail the TLS handshake, e.g.
                     # ssl.SSLError or a timeout -- all OSError subclasses), or shutdown() may interrupt
                     # the handshake, before we even start handling the request. In that case the parent
@@ -1944,7 +1944,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
         (all :class:`OSError` subclasses). There is nothing we can do about it, and it is not worth
         letting it propagate to :func:`handle_error`, which would pollute the log with a WARNING and a
         stack trace, so we just log it at the DEBUG level. The same applies to
-        :exc:`~patroni.interrupt.WatchInterrupted`, raised if :func:`shutdown` interrupted reading the request.
+        :exc:`~patroni.interrupt.RequestInterrupted`, raised if :func:`shutdown` interrupted reading the request.
 
         :param request: socket to handle the client request.
         :param client_address: tuple containing the client IP and port.
@@ -1953,7 +1953,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
             super(RestApiServer, self).finish_request(request, client_address)
         except OSError as e:
             logger.debug('Connection from %s:%s was reset: %r', client_address[0], client_address[1], e)
-        except WatchInterrupted:
+        except RequestInterrupted:
             logger.debug('Request from %s:%s was interrupted by the shutdown', client_address[0], client_address[1])
 
     def shutdown(self) -> None:
@@ -1986,7 +1986,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
                 from ssl import SSLSocket
                 if isinstance(request, SSLSocket):  # pyright
                     interruptible_call(request, request.unwrap, self.interrupter)
-            except (Exception, WatchInterrupted) as e:
+            except (Exception, RequestInterrupted) as e:
                 logger.debug('Failed to shutdown SSL connection: %r', e)
         super(RestApiServer, self).shutdown_request(request)
 

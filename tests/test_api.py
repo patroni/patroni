@@ -14,7 +14,7 @@ from patroni.api import RestApiHandler, RestApiServer
 from patroni.dcs import ClusterConfig, Member
 from patroni.exceptions import PostgresConnectionException
 from patroni.ha import _MemberStatus
-from patroni.interrupt import WatchInterrupted
+from patroni.interrupt import RequestInterrupted
 from patroni.postgresql.config import get_param_diff
 from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 from patroni.psycopg import OperationalError
@@ -1037,7 +1037,7 @@ class TestRestApiServer(unittest.TestCase):
                     self.assertIsNone(self.srv.process_request_thread(sock, ('127.0.0.1', 55555)))
                 mock_finish.assert_not_called()
                 mock_shutdown.assert_called_once_with(sock)
-                self.assertIsInstance(mock_debug.call_args[0][3], WatchInterrupted if interrupted else socket.timeout)
+                self.assertIsInstance(mock_debug.call_args[0][3], RequestInterrupted if interrupted else socket.timeout)
 
         sock.settimeout(5)
         sock.do_handshake = Mock()
@@ -1056,7 +1056,7 @@ class TestRestApiServer(unittest.TestCase):
         with patch('patroni.api.logger.debug') as mock_debug:
             self.srv.shutdown_request(sock)
         sock.unwrap.assert_called_once_with()
-        self.assertIsInstance(mock_debug.call_args[0][1], WatchInterrupted)
+        self.assertIsInstance(mock_debug.call_args[0][1], RequestInterrupted)
 
     @patch.object(HTTPServer, '__init__', Mock())
     def test_request_timeout_config(self):

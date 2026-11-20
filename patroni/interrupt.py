@@ -13,7 +13,8 @@ data. It only writes to a socket, which is safe to do from other threads and sig
 Connection pools of the HTTP client must be made interruptible with :func:`make_interruptible`.
 
 HTTP servers can wait for their clients in the same way, with :func:`interruptible_reader` for reading requests and
-with :func:`interruptible_call` for TLS handshakes and shutdowns.
+with :func:`interruptible_call` for TLS handshakes and shutdowns. They raise :exc:`RequestInterrupted`, the base class
+of :exc:`WatchInterrupted`.
 """
 import errno
 import http.client
@@ -26,7 +27,7 @@ import time
 
 from contextlib import contextmanager
 from threading import Condition, local, Thread
-from typing import Any, Callable, Generator, List, Optional, TypeVar
+from typing import Any, Callable, Generator, List, Optional, Type, TypeVar
 
 import urllib3
 
@@ -35,11 +36,19 @@ from urllib3.connection import HTTPConnection, HTTPSConnection
 _T = TypeVar('_T')
 
 
-class WatchInterrupted(BaseException):
-    """Raised by a read of the HTTP response or request after :func:`Interrupter.interrupt` was called.
+class RequestInterrupted(BaseException):
+    """Raised by an I/O operation of an HTTP request after :func:`Interrupter.interrupt` was called.
 
     Derived from :exc:`BaseException`, so that ``except Exception`` clauses don't catch it, for example, of HTTP clients
     to retry the request, or of HTTP request handlers to send an error response.
+    """
+
+
+class WatchInterrupted(RequestInterrupted):
+    """Raised by a read of the HTTP response of a DCS watch after :func:`Interrupter.interrupt` was called.
+
+    That is, of a response received while the :class:`Interrupter` was :func:`~Interrupter.armed`. Also raised by
+    :func:`~Interrupter.armed` if the :class:`Interrupter` was already interrupted.
     """
 
 
@@ -69,9 +78,9 @@ class Interrupter:
     Interrupts reads of HTTP responses received while it was :func:`armed`, reads of streams created by
     :func:`interruptible_reader`, and :func:`interruptible_call`.
 
-    The interruption is sticky: until :func:`clear` is called, raw reads of such responses and streams and :func:`armed`
-    raise :exc:`WatchInterrupted` right away, while :func:`interruptible_call` raises it as soon as the operation would
-    block.
+    The interruption is sticky: until :func:`clear` is called, raw reads of such responses and :func:`armed` raise
+    :exc:`WatchInterrupted` right away, raw reads of such streams raise :exc:`RequestInterrupted` right away, and
+    :func:`interruptible_call` raises :exc:`RequestInterrupted` as soon as the operation would block.
     """
 
     def __init__(self) -> None:
@@ -204,7 +213,8 @@ def _want_write(exc: Exception) -> bool:
         isinstance(exc.__cause__ or exc.__context__, want_write)
 
 
-def interruptible_call(sock: socket.socket, func: Callable[[], _T], interrupter: Interrupter) -> _T:
+def interruptible_call(sock: socket.socket, func: Callable[[], _T], interrupter: Interrupter,
+                       exception: Type[RequestInterrupted] = RequestInterrupted) -> _T:
     """Call *func*, which does I/O on *sock*, while *sock* is in nonblocking mode.
 
     Whenever *func* would block, wait until *sock* is ready or *interrupter* is interrupted, and call it again.
@@ -216,11 +226,12 @@ def interruptible_call(sock: socket.socket, func: Callable[[], _T], interrupter:
     :param sock: the socket, for ``WrappedSocket`` of :mod:`urllib3.contrib.pyopenssl` the underlying one.
     :param func: I/O operation, for example :func:`~ssl.SSLSocket.do_handshake` or :func:`~ssl.SSLSocket.unwrap`.
     :param interrupter: interrupts waiting.
+    :param exception: raised if *interrupter* was interrupted.
 
     :returns: the result of *func*.
 
     :raises:
-        :exc:`WatchInterrupted`: if *interrupter* was interrupted.
+        :exc:`RequestInterrupted`: *exception*, if *interrupter* was interrupted.
         :exc:`socket.timeout`: if the timeout of *sock* has expired.
     """
     interrupter_fd = interrupter.fileno()
@@ -246,7 +257,7 @@ def interruptible_call(sock: socket.socket, func: Callable[[], _T], interrupter:
             if interrupter_fd in ready:
                 interrupter.drain_stale_wakeups()
             if interrupter.is_set():
-                raise WatchInterrupted
+                raise exception
             if not ready or remaining == 0:
                 raise socket.timeout('timed out')
     finally:
@@ -256,12 +267,14 @@ def interruptible_call(sock: socket.socket, func: Callable[[], _T], interrupter:
 class _InterruptibleSocketIO(io.RawIOBase):
     """Raw socket stream whose reads can be interrupted while waiting for socket I/O."""
 
-    def __init__(self, sock: Any, interrupter: Interrupter) -> None:
+    def __init__(self, sock: Any, interrupter: Interrupter,
+                 exception: Type[RequestInterrupted] = RequestInterrupted) -> None:
         """Create a new stream.
 
         :param sock: :class:`~socket.socket`, :class:`~ssl.SSLSocket`, or ``WrappedSocket`` of
             :mod:`urllib3.contrib.pyopenssl`.
         :param interrupter: interrupts reads.
+        :param exception: raised by reads after *interrupter* was interrupted.
         """
         super().__init__()
         # The socket counts its file objects and doesn't close the connection while there are any.
@@ -269,6 +282,7 @@ class _InterruptibleSocketIO(io.RawIOBase):
         self._sock = sock
         self._raw: socket.socket = sock if isinstance(sock, socket.socket) else sock.socket
         self._interrupter = interrupter
+        self._exception = exception
 
     def readable(self) -> bool:
         """Check if the stream is readable.
@@ -302,18 +316,18 @@ class _InterruptibleSocketIO(io.RawIOBase):
         :returns: number of bytes read, 0 at the end of stream.
 
         :raises:
-            :exc:`WatchInterrupted`: if the :class:`Interrupter` was interrupted.
+            :exc:`RequestInterrupted`: *exception* of the constructor, if the :class:`Interrupter` was interrupted.
             :exc:`socket.timeout`: if the timeout of the socket has expired.
         """
         if self._interrupter.is_set():
-            raise WatchInterrupted
-        return interruptible_call(self._raw, lambda: self._sock.recv_into(buffer), self._interrupter)
+            raise self._exception
+        return interruptible_call(self._raw, lambda: self._sock.recv_into(buffer), self._interrupter, self._exception)
 
 
 def interruptible_reader(sock: Any, interrupter: Interrupter) -> io.BufferedReader:
     """Create a buffered binary stream for reading from *sock*.
 
-    Its raw reads honor the timeout of *sock*. After *interrupter* was interrupted they raise :exc:`WatchInterrupted`,
+    Its raw reads honor the timeout of *sock*. After *interrupter* was interrupted they raise :exc:`RequestInterrupted`,
     even if *sock* has data, but the data that the stream has already buffered can still be read.
 
     :param sock: :class:`~socket.socket`, :class:`~ssl.SSLSocket`, or ``WrappedSocket`` of
@@ -342,9 +356,9 @@ class _SocketWithInterruptibleFile:
 
         :param mode: always ``rb``.
 
-        :returns: buffered :class:`_InterruptibleSocketIO`.
+        :returns: buffered :class:`_InterruptibleSocketIO`, which raises :exc:`WatchInterrupted`.
         """
-        return interruptible_reader(self._sock, self._interrupter)
+        return io.BufferedReader(_InterruptibleSocketIO(self._sock, self._interrupter, WatchInterrupted))
 
 
 def _is_supported(sock: Any) -> bool:
