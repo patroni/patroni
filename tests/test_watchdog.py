@@ -48,7 +48,8 @@ def mock_ioctl(fd, op, arg=None, mutate_flag=False):
     elif op == linuxwd.WDIOC_SETTIMEOUT:
         sys.stderr.write("Set timeout called with %s\n" % arg.value)
         assert 0 < arg.value < 65535
-        dev.timeout = arg.value - 1
+        # Like Linux drivers, return the timeout that was set
+        arg.value = dev.timeout = arg.value - 1
     elif op == linuxwd.WDIOC_SETOPTIONS:
         assert arg.value == linuxwd.WDIOS['DISABLECARD']
         if dev.nowayout:
@@ -98,6 +99,16 @@ def mock_nowayout_open(filename, flag):
     return fd
 
 
+def mock_rounding_ioctl(rounding):
+    """Models drivers that set a timeout supported by the hardware instead of the requested one."""
+    def ioctl(fd, op, arg=None, mutate_flag=False):
+        if op == linuxwd.WDIOC_SETTIMEOUT:
+            arg.value = mock_devices[fd].timeout = rounding(arg.value)
+            return 0
+        return mock_ioctl(fd, op, arg, mutate_flag)
+    return ioctl
+
+
 @unittest.skipIf(os.name == 'nt', "Windows not supported")
 @patch('os.open', mock_open)
 @patch('os.write', mock_write)
@@ -140,6 +151,23 @@ class TestWatchdog(unittest.TestCase):
         self.assertFalse(watchdog.is_healthy)
         watchdog.reload_config(config)
         self.assertTrue(watchdog.is_healthy)
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    def test_timeout_rounded_down_to_zero(self):
+        # E.g. the PC87413 driver counts in whole minutes
+        ioctl = mock_rounding_ioctl(lambda timeout: timeout // 60 * 60)
+        for mode, expected in (('automatic', True), ('required', False)):
+            with self.subTest(mode=mode), patch('fcntl.ioctl', ioctl):
+                watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': mode}})
+                try:
+                    self.assertEqual(watchdog.activate(), expected)
+                    self.assertEqual(mock_devices[-1].timeout, 0)
+                    self.assertEqual(watchdog.is_activated, expected)
+                    self.assertEqual(watchdog.is_healthy, expected)
+                    # Running the HA loop more often doesn't help
+                    self.assertIsNone(watchdog.keepalive_interval)
+                finally:
+                    watchdog.disable()
 
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(Watchdog, 'is_running', PropertyMock(return_value=False))
@@ -606,6 +634,21 @@ class TestWatchdog(unittest.TestCase):
             with patch('fcntl.ioctl', Mock(side_effect=OSError(errno.ENODEV, 'No such device'))):
                 self.assertIsNone(watchdog.keepalive_interval)
             self.assertFalse(watchdog.is_running)
+        finally:
+            watchdog.disable()
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    def test_keepalive_interval_retains_accepted_timeout(self):
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10})
+        try:
+            self.assertTrue(watchdog.activate())
+            watchdog.reload_config({'ttl': 124, 'loop_wait': 80})
+            # The device accepts only 60 of the requested 119 seconds, but reading the timeout back fails
+            with patch('fcntl.ioctl', mock_rounding_ioctl(lambda timeout: min(timeout, 60))), \
+                    patch.object(LinuxWatchdogDevice, 'get_timeout', Mock(side_effect=WatchdogError('EIO'))):
+                watchdog.keepalive()
+                self.assertEqual(mock_devices[-1].timeout, 60)
+                self.assertEqual(watchdog.keepalive_interval, 50)
         finally:
             watchdog.disable()
 

@@ -1061,6 +1061,8 @@ class Ha(object):
         and then in DCS. When removing, first remove in DCS, then in postgresql.conf. This is so we only consider
         promoting standbys that were guaranteed to be replicating synchronously.
         """
+        start_time = time.monotonic()
+
         sync = self._maybe_enable_synchronous_mode()
         if not sync:
             return
@@ -1109,7 +1111,8 @@ class Ha(object):
         # Update postgresql.conf and wait 2 secs for changes to become active
         self.state_handler.sync_handler.set_synchronous_standby_names(picked)
 
-        if picked and allow_promote != picked:
+        # The next HA cycle confirms new standbys instead if it is due before that, e.g. to feed the watchdog in time
+        if picked and allow_promote != picked and time.monotonic() - start_time + 2 < self.effective_loop_wait:
             # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby
             time.sleep(2)
             allow_promote = self.state_handler.sync_handler.current_state(self.cluster).sync_confirmed

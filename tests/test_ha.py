@@ -2066,6 +2066,26 @@ class TestHa(PostgresInit):
             mock_set_sync.assert_not_called()
             mock_cfg_set_sync.assert_called_once_with("SOME_SSN")
 
+    def test__process_multisync_replication_watchdog(self):
+        self.ha.is_synchronous_mode = true
+        self.p.name = 'leader'
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
+        mock_set_sync = self.p.sync_handler.set_synchronous_standby_names = Mock()
+        # A new standby was picked, but isn't confirmed as synchronous yet
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 1, CaseInsensitiveSet(['other']),
+                                                                         CaseInsensitiveSet(['other']),
+                                                                         CaseInsensitiveSet(['other', 'other2'])))
+        for keepalive_interval, waits in ((None, True), (1, False)):
+            with self.subTest(keepalive_interval=keepalive_interval), \
+                    patch.object(Watchdog, 'keepalive_interval', PropertyMock(return_value=keepalive_interval)), \
+                    patch('time.sleep') as mock_sleep:
+                self.p.sync_handler.current_state.reset_mock()
+                self.ha._process_multisync_replication()
+                mock_set_sync.assert_called_with(CaseInsensitiveSet(['other', 'other2']))
+                # Otherwise the watchdog has to be fed before that and the next HA cycle confirms the new standby
+                self.assertEqual(mock_sleep.called, waits)
+                self.assertEqual(self.p.sync_handler.current_state.call_count, 2 if waits else 1)
+
     def test_sync_replication_become_primary(self):
         self.ha.is_synchronous_mode = true
 

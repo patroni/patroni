@@ -232,7 +232,8 @@ class Watchdog(object):
 
         :returns: ``False`` if a safe watchdog is required, but could not be configured.
         """
-        if not self.impl.is_running or actual_timeout > self.config.timeout:
+        # A driver might also round the requested timeout down to zero, e.g. PC87413 counts in whole minutes
+        if not self.impl.is_running or not 0 < actual_timeout <= self.config.timeout:
             if self.config.mode == MODE_REQUIRED:
                 if self.impl.is_null:
                     logger.error("Configuration requires watchdog, but watchdog could not be configured.")
@@ -249,9 +250,8 @@ class Watchdog(object):
 
     def _set_timeout(self) -> int:
         if self.impl.has_set_timeout():
-            self.impl.set_timeout(self.config.timeout)
-            # The best guess if reading it back fails
-            self._timeout = self.config.timeout
+            # The device might not accept the requested timeout as is, keep the armed one if reading it back fails
+            self._timeout = self.impl.set_timeout(self.config.timeout)
         return self._get_timeout()
 
     def _get_timeout(self) -> int:
@@ -261,7 +261,8 @@ class Watchdog(object):
     def _keepalive_interval(self, timeout: int) -> Optional[float]:
         """See keepalive_interval."""
         interval = max(timeout - self.config.retry_timeout, timeout / 2.0)
-        return interval if interval < self.config.loop_wait else None
+        # Running the HA loop more often doesn't help with a timeout of zero, see _check_timeout()
+        return interval if 0 < interval < self.config.loop_wait else None
 
     def _check_keepalive_interval(self, actual_timeout: int) -> None:
         """A device might not accept a timeout that leaves the HA loop enough time, see keepalive_interval."""
@@ -399,8 +400,8 @@ class Watchdog(object):
         update with the new TTL applies the new one. Also a watchdog that isn't safe to lead with has to be fed until it
         is disabled.
 
-        :returns: the actual timeout minus ``retry_timeout``, but at least half of the timeout, if that is shorter than
-                  ``loop_wait``, otherwise ``None``.
+        :returns: the actual timeout minus ``retry_timeout``, but at least half of the timeout, if that is positive and
+                  shorter than ``loop_wait``, otherwise ``None``.
         """
         if not self.active or not self.impl.is_running:
             return None
@@ -477,10 +478,12 @@ class WatchdogBase(abc.ABC):
         """Returns True if setting a timeout is supported."""
         return False
 
-    def set_timeout(self, timeout: int) -> None:
+    def set_timeout(self, timeout: int) -> int:
         """Set the watchdog timer timeout.
 
-        :param timeout: watchdog timeout in seconds"""
+        :param timeout: watchdog timeout in seconds
+
+        :returns: the timeout accepted by the device, which might differ from the requested one."""
         raise WatchdogError("Setting timeout is not supported on {0}".format(self.describe()))
 
     def describe(self) -> str:

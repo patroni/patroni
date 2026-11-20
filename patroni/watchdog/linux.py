@@ -274,14 +274,17 @@ class LinuxWatchdogDevice(WatchdogBase):
         """Returns True if setting a timeout is supported."""
         return self.get_support().has_SETTIMEOUT
 
-    def set_timeout(self, timeout: int) -> None:
+    def set_timeout(self, timeout: int) -> int:
         timeout = int(timeout)
         if not 0 < timeout < 0xFFFF:
             raise WatchdogError("Invalid timeout {0}. Supported values are between 1 and 65535".format(timeout))
+        arg = ctypes.c_int(timeout)
         try:
-            self._ioctl(WDIOC_SETTIMEOUT, ctypes.c_int(timeout))
+            self._ioctl(WDIOC_SETTIMEOUT, arg)
         except (WatchdogError, OSError, IOError) as e:
             raise WatchdogError("Could not set timeout on watchdog device: {}".format(e))
+        # The driver returns the timeout it actually set, e.g. rounded to what the hardware supports
+        return arg.value
 
     def get_timeout(self) -> int:
         timeout = ctypes.c_int()
@@ -302,13 +305,14 @@ class TestingWatchdogDevice(LinuxWatchdogDevice):  # pragma: no cover
     def get_support(self) -> WatchdogInfo:
         return WatchdogInfo(WDIOF['MAGICCLOSE'] | WDIOF['SETTIMEOUT'], 0, "Watchdog test harness")
 
-    def set_timeout(self, timeout: int) -> None:
+    def set_timeout(self, timeout: int) -> int:
         if self._fd is None:
             raise WatchdogError("Watchdog device is closed")
         buf = "Ctimeout={0}\n".format(timeout).encode('utf8')
         while len(buf):
             buf = buf[os.write(self._fd, buf):]
         self.timeout = timeout
+        return timeout
 
     def get_timeout(self) -> int:
         return self.timeout
