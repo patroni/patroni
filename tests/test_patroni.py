@@ -221,7 +221,11 @@ class TestPatroni(unittest.TestCase):
         self.p.ha.dcs.watch = Mock(side_effect=SleepException)
 
         def run_cycle():
-            self.p.sigterm_handler()  # doesn't raise SystemExit anymore
+            event = self.p.dcs.event
+            event.clear()
+            with patch('threading.Condition.__enter__', side_effect=AssertionError('SIGTERM entered a condition')):
+                self.p.sigterm_handler()  # doesn't raise SystemExit anymore
+            self.assertTrue(event.is_set())
             return 'no action'
 
         # the main loop exits after the HA cycle, during which SIGTERM was received, without waiting for the next one
@@ -267,12 +271,14 @@ class TestPatroni(unittest.TestCase):
         def watch(*args, **kwargs):
             signal.setitimer(signal.ITIMER_REAL, 0.1)
             # without the interruption the long-poll fails with ReadTimeoutError
-            return http.urlopen('GET', server.url, retries=False, timeout=urllib3.Timeout(connect=5, read=5))
+            return http.urlopen('GET', server.url, retries=False, timeout=urllib3.Timeout(connect=5, read=10))
 
         try:
             with HangingHTTPServer() as server, \
                  patch.object(etcd.Client, 'watch', Mock(side_effect=watch)) as mock_watch:
+                start = time.monotonic()
                 self.assertTrue(self.p.dcs.watch(20729, 10))
+                self.assertLess(time.monotonic() - start, 5)
                 mock_watch.assert_called_once()
         finally:
             signal.setitimer(signal.ITIMER_REAL, 0)

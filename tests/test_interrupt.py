@@ -27,7 +27,7 @@ class TestSignalSafeEvent(unittest.TestCase):
         Timer(0.1, event.set).start()
         self.assertTrue(event.wait(5))
         event.set()  # the event is already set
-        self.assertTrue(event.wait())
+        self.assertTrue(event.wait(0))
         self.assertTrue(event.is_set())
         event.clear()
         self.assertFalse(event.is_set())
