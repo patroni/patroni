@@ -372,9 +372,63 @@ class TestPatroni(unittest.TestCase):
             self.assertTrue(os.WIFSIGNALED(status))
             self.assertEqual(os.WTERMSIG(status), signal.SIGTERM)
 
+    @unittest.skipIf(not hasattr(os, 'register_at_fork'), 'os.register_at_fork() is not available')
+    def test_sigterm_guard_started_while_forking(self):
+        import _imp  # os.fork() acquires the import lock after running the before-fork hooks
+
+        detach_sigterm_guard = self.p._detach_sigterm_guard
+        set_wakeup_fd = signal.set_wakeup_fd
+        statuses = []
+        locked = False
+
+        def detach():
+            os.kill(os.getpid(), signal.SIGTERM)  # must stay blocked until the child is detached
+            detach_sigterm_guard()
+
+        def fork():
+            pid = os.fork()
+            if pid == 0:
+                try:
+                    os.kill(os.getpid(), signal.SIGTERM)
+                finally:
+                    os._exit(0)
+            statuses.append(os.waitpid(pid, 0)[1])
+
+        def fork_after_set_wakeup_fd(fd):
+            nonlocal locked
+            ret = set_wakeup_fd(fd)
+            if locked:
+                locked = False
+                _imp.release_lock()
+                thread.join()
+            return ret
+
+        handler = signal.signal(signal.SIGTERM, self.p.sigterm_handler)
+        thread = Thread(target=fork)  # like pysyncobj does to write Raft snapshots
+        try:
+            with patch.object(self.p, '_detach_sigterm_guard', Mock(side_effect=detach)), \
+                    patch('signal.set_wakeup_fd', Mock(side_effect=fork_after_set_wakeup_fd)), \
+                    patch('patroni.daemon.Thread'), warnings.catch_warnings():  # nothing reads the socket of the guard
+                warnings.simplefilter('ignore', DeprecationWarning)  # forking a multi-threaded process
+                _imp.acquire_lock()
+                locked = True
+                thread.start()
+                Event().wait(0.1)  # the thread has run the before-fork hooks and waits for the import lock
+                self.p._start_sigterm_guard()
+            self.p._sigterm_guard_rsock.setblocking(False)
+            self.assertRaises(BlockingIOError, self.p._sigterm_guard_rsock.recv, 1)  # the parent got nothing
+        finally:
+            if locked:
+                _imp.release_lock()
+            self.p._stop_sigterm_guard()
+            self.p._sigterm_guard_rsock.close()
+            signal.signal(signal.SIGTERM, handler)
+        self.assertEqual(len(statuses), 1)
+        self.assertTrue(os.WIFSIGNALED(statuses[0]))
+        self.assertEqual(os.WTERMSIG(statuses[0]), signal.SIGTERM)
+
     @unittest.skipIf(os.name == 'nt', "Windows not supported")
-    @patch.object(HTTPServer, 'shutdown')
-    def test_sigterm_guard_start_failure(self, mock_shutdown):
+    def test_sigterm_guard_start_failure(self):
         self.p.ha.shutdown = Mock()
         for target, error in (('socket.socketpair', OSError(errno.EMFILE, 'Too many open files')),
                               ('threading.Thread.start', RuntimeError("can't start new thread"))):
@@ -383,9 +437,9 @@ class TestPatroni(unittest.TestCase):
                     self.assertRaises(type(error), self.p.run)
                 self.assertEqual(signal.set_wakeup_fd(-1), -1)  # the previous wakeup fd is restored
                 self.assertIsNone(daemon._sigterm_guard_daemon)
-                # neither the REST API nor the logger thread is running, shutdown() must not wait for them
+                # the logger thread isn't running, shutdown() must not wait for it
+                # (TestRestApiServer.test_shutdown covers the REST API that wasn't started)
                 self.p.shutdown()
-                mock_shutdown.assert_not_called()
         self.assertEqual(self.p.ha.shutdown.call_count, 2)
         self.assertEqual(self.p._sigterm_guard_rsock.fileno(), -1)  # closed
         self.assertEqual(self.p._sigterm_guard_wsock.fileno(), -1)
@@ -399,13 +453,13 @@ class TestPatroni(unittest.TestCase):
         self.p.postgresql.is_running = Mock(return_value=postmaster)
         self.p.logger.flush = events.flush
 
-        def emergency_exit(armed=True):
+        def emergency_exit(armed=True, main_logger=None):
             events.reset_mock()
             events.dump_traceback_later.side_effect = None if armed else RuntimeError('unable to start watchdog thread')
             with patch('patroni.daemon._traceback_dump_fd', 42), \
                     patch('faulthandler.dump_traceback_later', events.dump_traceback_later), \
                     patch('patroni.daemon.logger', events.daemon_logger), \
-                    patch('patroni.__main__.logger', events.logger), patch('os._exit', events.exit):
+                    patch('patroni.__main__.logger', main_logger or events.logger), patch('os._exit', events.exit):
                 self.p._emergency_exit()
             return [name for name, _, _ in events.mock_calls]
 
@@ -441,10 +495,19 @@ class TestPatroni(unittest.TestCase):
         events.daemon_logger.critical.side_effect = Exception
         self.assertEqual(emergency_exit(), ['dump_traceback_later', 'daemon_logger.critical', 'exit'])
 
-        # nothing would terminate the process if logging blocks
+        # nothing would terminate the process if logging blocks, therefore all loggers are disabled
         self.p.postgresql.is_running.side_effect = None
-        events.signal_stop.return_value = True
-        self.assertEqual(emergency_exit(armed=False), ['dump_traceback_later', 'signal_stop', 'logger.info', 'exit'])
+        loggers = {lgr: lgr.disabled for lgr in [logging.root, *logging.Logger.manager.loggerDict.values()]
+                   if isinstance(lgr, logging.Logger)}
+        main_logger = logging.getLogger('patroni.__main__')
+        try:
+            with patch.object(main_logger, 'disabled', False), \
+                    patch.object(logging.Logger, 'callHandlers', events.callHandlers):
+                self.assertEqual(emergency_exit(armed=False, main_logger=main_logger),
+                                 ['dump_traceback_later', 'signal_stop', 'signal_kill', 'exit'])
+        finally:
+            for lgr, disabled in loggers.items():
+                lgr.disabled = disabled
 
     @patch('patroni.config.Config.reload_local_configuration', Mock(return_value=False))
     def test_sigterm_during_sighup_reload(self):

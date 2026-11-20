@@ -14,7 +14,7 @@ import sys
 import time
 
 from contextlib import suppress
-from threading import local, Lock, stack_size, Thread
+from threading import get_ident, local, Lock, main_thread, stack_size, Thread
 from typing import Any, Optional, Type, TYPE_CHECKING
 
 try:  # pragma: no cover
@@ -70,16 +70,22 @@ _fork_local = local()
 
 
 def _before_fork() -> None:
-    """Block SIGTERM in the thread that forks while the SIGTERM guard is running.
+    """Block SIGTERM in the thread that forks, unless it is the main thread and the SIGTERM guard isn't running.
 
     The child inherits the signal mask, and SIGTERM stays blocked until :func:`_after_fork_in_child` has detached the
     child from the guard. Otherwise, a SIGTERM received by the child in the meantime would reach the guard of the
     parent. Pending signals aren't inherited, so a SIGTERM sent to the parent is received after it unblocks SIGTERM.
 
+    Other threads block SIGTERM even if the guard isn't running yet, because the main thread could start it after this
+    function has returned, but before the process forks. The main thread can't start the guard while it forks, and
+    blocks SIGTERM only while the guard is running: :func:`signal.pthread_sigmask` runs pending signal handlers in the
+    main thread, and :func:`os.fork` would ignore :exc:`SystemExit` raised by
+    :func:`AbstractPatroniDaemon.sigterm_handler` before :func:`AbstractPatroniDaemon.run` has started.
+
     .. note::
         Registered with :func:`os.register_at_fork`. For example, :mod:`pysyncobj` forks to write Raft snapshots.
     """
-    if _sigterm_guard_daemon is not None:
+    if _sigterm_guard_daemon is not None or get_ident() != main_thread().ident:
         # pthread_sigmask() runs pending signal handlers in the main thread, a raising one would skip the assignment
         _fork_local.unblock_sigterm = True
         _fork_local.unblock_sigterm = signal.SIGTERM not in signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
@@ -215,6 +221,9 @@ class AbstractPatroniDaemon(abc.ABC):
         Also create the pipe that :func:`_emergency_exit` needs in advance, because the process could run out of file
         descriptors by then.
 
+        The guard is published before the wakeup fd is set, so that a child forked by another thread in the meantime
+        detaches from it, see :func:`_before_fork`.
+
         :raises Exception: if the guard can't be started, after restoring the previous wakeup fd.
 
         .. note::
@@ -226,10 +235,11 @@ class AbstractPatroniDaemon(abc.ABC):
             os.set_blocking(fd, False)  # the dump is discarded when the pipe is full
             _traceback_dump_fd = fd
         self._sigterm_guard_rsock, self._sigterm_guard_wsock = socket.socketpair()
+        self._prev_wakeup_fd = -1
         try:
             self._sigterm_guard_wsock.setblocking(False)
-            self._prev_wakeup_fd = signal.set_wakeup_fd(self._sigterm_guard_wsock.fileno())
             _sigterm_guard_daemon = self
+            self._prev_wakeup_fd = signal.set_wakeup_fd(self._sigterm_guard_wsock.fileno())
             Thread(target=self._sigterm_guard, name='sigterm-guard', daemon=True).start()
         except Exception:
             if _sigterm_guard_daemon is self:
@@ -261,6 +271,9 @@ class AbstractPatroniDaemon(abc.ABC):
             Called in the child from the thread that forked, which becomes the main thread of the child. SIGTERM is
             blocked until then, see :func:`_before_fork`. Other signals received by the child in the meantime still
             reach the guard of the parent, which ignores them.
+
+            If the parent forked while :func:`_start_sigterm_guard` was running, the child might not have the wakeup
+            fd of the guard, and ``_prev_wakeup_fd`` might still be ``-1``. Patroni doesn't use other wakeup fds.
         """
         signal.set_wakeup_fd(self._prev_wakeup_fd)
         self._sigterm_guard_rsock.close()
@@ -314,7 +327,8 @@ class AbstractPatroniDaemon(abc.ABC):
         If the process doesn't exit within 5 seconds anyway, for example because reading ``postmaster.pid`` blocks,
         the watchdog thread of :func:`faulthandler.dump_traceback_later` terminates it. The thread doesn't need the GIL
         and doesn't depend on signal dispositions and masks, which could be inherited from the parent process. If the
-        watchdog can't be started, for example because the process is out of memory, nothing is logged.
+        watchdog can't be started, for example because the process is out of memory, all loggers are disabled before
+        :func:`_emergency_shutdown` is called, and nothing is logged.
 
         .. note::
             The regular :func:`shutdown` can't be used: the main loop could hold locks that it needs, and
@@ -330,12 +344,17 @@ class AbstractPatroniDaemon(abc.ABC):
             with suppress(Exception):
                 faulthandler.dump_traceback_later(5, exit=True, file=_traceback_dump_fd)
                 armed = True
+            if not armed:  # nothing would terminate the process if logging blocks
+                with suppress(Exception):  # logging.disable() would take the lock of the logging module
+                    for lgr in [logging.root, *logging.Logger.manager.loggerDict.values()]:
+                        if isinstance(lgr, logging.Logger):
+                            lgr.disabled = True
             error = None
             try:
                 self._emergency_shutdown()
             except Exception as e:
                 error = e
-            if armed:  # otherwise, nothing would terminate the process if logging blocks
+            if armed:
                 with suppress(Exception):
                     logger.critical('The main loop did not exit within %s seconds after SIGTERM, terminating the '
                                     'process', self.config['loop_wait'])
@@ -351,7 +370,8 @@ class AbstractPatroniDaemon(abc.ABC):
         .. note::
             Called from the :func:`_sigterm_guard` thread while the main loop is still running, therefore it must not
             take locks that the main thread could hold. It should not log before doing anything important either,
-            because logging could block. Does nothing by default.
+            because logging could block. Loggers are disabled if :func:`_emergency_exit` couldn't start its watchdog.
+            Does nothing by default.
         """
 
     def enable_graceful_sigterm(self) -> None:
