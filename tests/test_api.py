@@ -1,10 +1,13 @@
 import datetime
 import json
+import os
 import socket
+import time
 import unittest
 
 from http.server import HTTPServer
 from io import BytesIO as IO
+from threading import Event
 from unittest.mock import Mock, patch, PropertyMock
 
 from patroni import global_config
@@ -477,6 +480,16 @@ class TestRestApiHandler(unittest.TestCase):
         MockRestApiServer(RestApiHandler, request)
 
     @patch.object(MockPatroni, 'dcs')
+    @patch.object(RestApiHandler, 'send_error')
+    def test_read_json_content_short_body(self, mock_send_error, mock_dcs):
+        # The body is cut short if the client closes the connection early, or if the REST API is shutting down
+        mock_dcs.get_cluster.return_value.config = ClusterConfig.from_node(1, '{}')
+        MockRestApiServer(RestApiHandler, 'PATCH /config HTTP/1.0' + self._authorization
+                          + '\nContent-Length: 100\n\n{"ttl": 99}')
+        mock_send_error.assert_called_once_with(400)
+        mock_dcs.set_config_value.assert_not_called()
+
+    @patch.object(MockPatroni, 'dcs')
     def test_do_PUT_config(self, mock_dcs):
         mock_dcs.get_cluster.return_value.config = ClusterConfig.from_node(1, '{}')
         request = 'PUT /config HTTP/1.0' + self._authorization + '\nContent-Length: '
@@ -587,8 +600,14 @@ class TestRestApiHandler(unittest.TestCase):
         request = 'POST /reinitialize HTTP/1.0' + self._authorization + \
                   '\nContent-Length: 36\n\n{"force": true, "from_leader": true}'
         MockRestApiServer(RestApiHandler, request)
-        with patch.object(MockHa, 'reinitialize', Mock(return_value=None)):
+        with patch.object(MockHa, 'reinitialize', Mock(return_value=None)) as mock_reinitialize:
             MockRestApiServer(RestApiHandler, request)
+            mock_reinitialize.assert_called_once_with(True, True)
+            # the request body is cut short
+            with patch.object(RestApiHandler, 'send_error') as mock_send_error:
+                MockRestApiServer(RestApiHandler, request.replace(', "from_leader": true', ''))
+            mock_send_error.assert_called_once_with(400)
+            mock_reinitialize.assert_called_once()
 
     @patch('time.sleep', Mock())
     def test_RestApiServer_query(self):
@@ -718,7 +737,7 @@ class TestRestApiHandler(unittest.TestCase):
 
         # Valid future date
         with patch.object(RestApiHandler, 'write_response') as response_mock:
-            request = post + '103\n\n{"leader": "postgresql1", "member": "postgresql2",' + \
+            request = post + '102\n\n{"leader": "postgresql1", "member": "postgresql2",' + \
                              ' "scheduled_at": "6016-02-15T18:13:30.568224+01:00"}'
             MockRestApiServer(RestApiHandler, request)
             response_mock.assert_called_with(202, 'Switchover scheduled')
@@ -732,12 +751,12 @@ class TestRestApiHandler(unittest.TestCase):
 
         # No timezone specified
         with patch.object(RestApiHandler, 'write_response') as response_mock:
-            request = post + '97\n\n{"leader": "postgresql1", "member": "postgresql2",' + \
+            request = post + '96\n\n{"leader": "postgresql1", "member": "postgresql2",' + \
                              ' "scheduled_at": "6016-02-15T18:13:30.568224"}'
             MockRestApiServer(RestApiHandler, request)
             response_mock.assert_called_with(400, 'Timezone information is mandatory for the scheduled switchover')
 
-        request = post + '103\n\n{"leader": "postgresql1", "member": "postgresql2", "scheduled_at": "'
+        request = post + '102\n\n{"leader": "postgresql1", "member": "postgresql2", "scheduled_at": "'
 
         # Scheduled in the past
         with patch.object(RestApiHandler, 'write_response') as response_mock:
@@ -753,13 +772,13 @@ class TestRestApiHandler(unittest.TestCase):
         # [Multi-site switchover]
 
         # site and candidate
-        request = post + '114\n\n{"leader": "postgresql1", "candidate": "postgresql2", "site": "dc1"}'
+        request = post + '68\n\n{"leader": "postgresql1", "candidate": "postgresql2", "site": "dc1"}'
         with patch.object(RestApiHandler, 'write_response') as response_mock:
             MockRestApiServer(RestApiHandler, request)
             dcs.manual_failover.assert_called_with('postgresql1', 'postgresql2', scheduled_at=None, site=None)
 
         # no members in site
-        request = post + '53\n\n{"leader": "postgresql1", "site": "dc1"}'
+        request = post + '40\n\n{"leader": "postgresql1", "site": "dc1"}'
         with patch.object(RestApiHandler, 'write_response') as response_mock:
             MockRestApiServer(RestApiHandler, request)
             response_mock.assert_called_with(412, 'switchover is not possible: can not find members in site dc1')
@@ -920,6 +939,57 @@ class TestRestApiServer(unittest.TestCase):
     def test_process_request(self):
         with patch.object(self.srv._executor, 'submit', lambda f, r, c: f(r, c)):
             self.srv.process_request(self.__create_socket(), ('2', 54321))
+
+    def test_shutdown(self):
+        # Patroni stops the REST API before PostgreSQL, therefore shutdown() must not wait for clients
+        handler_calls, handler_finish = [], Event()
+
+        def do_GET_liveness(handler):
+            handler_calls.append(handler)
+            handler_finish.wait(10)
+            handler.send_response(200)
+            handler.end_headers()
+
+        def connect(request):
+            sock = socket.create_connection(srv.server_address[:2], timeout=5)
+            self.addCleanup(sock.close)
+            sock.sendall(request)
+            return sock
+
+        def read_response(sock):
+            response = chunk = sock.recv(1024)
+            while chunk:
+                chunk = sock.recv(1024)
+                response += chunk
+            return response
+
+        srv = RestApiServer(MockPatroni(), {'listen': '127.0.0.1:0', 'request_timeout': 10})
+        srv.start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        self.addCleanup(handler_finish.set)
+        with patch.object(RestApiHandler, 'do_GET_liveness', do_GET_liveness):
+            busy = connect(b'GET /liveness HTTP/1.0\r\n\r\n')
+            idle = connect(b'')
+            truncated = connect(b'GET /liveness HTTP/1.0\r\n')
+            deadline = time.time() + 5
+            while (len(srv._connections) < 3 or not handler_calls) and time.time() < deadline:
+                time.sleep(0.01)
+            unconnected = socket.socket()
+            self.addCleanup(unconnected.close)
+            srv._connections.add(unconnected)
+
+            started = time.time()
+            srv.shutdown()
+            self.assertLess(time.time() - started, 3)
+
+            handler_finish.set()
+            self.assertTrue(read_response(busy).startswith(b'HTTP/1.0 200 '))
+            # On Windows the reading side of the sockets isn't shut down
+            if os.name != 'nt':
+                self.assertEqual(read_response(idle), b'')
+                self.assertIn(read_response(truncated)[:12], (b'', b'HTTP/1.0 503'))
+            self.assertEqual(len(handler_calls), 1)
 
     def test_process_request_thread_ssl_handshake_reset(self):
         import ssl

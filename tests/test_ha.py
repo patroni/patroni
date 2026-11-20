@@ -2059,6 +2059,18 @@ class TestHa(PostgresInit):
         self.ha.is_failover_possible = true
         self.ha.shutdown()
 
+    def test_restart_after_shutdown(self):
+        # REST API requests may still be running after Ha.shutdown(), they must not start PostgreSQL
+        self.p.is_running = false
+        self.ha.shutdown()
+        with patch.object(self.p, 'restart') as mock_restart:
+            self.assertEqual(self.ha.restart({}), (False, 'shutdown already in progress'))
+        mock_restart.assert_not_called()
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        with patch.object(self.ha, '_do_reinitialize') as mock_reinitialize:
+            self.assertEqual(self.ha.reinitialize(True), 'shutdown already in progress')
+        mock_reinitialize.assert_not_called()
+
     @patch('patroni.postgresql.mpp.AbstractMPPHandler.is_coordinator', Mock(return_value=False))
     def test_shutdown_citus_worker(self):
         self.ha.is_leader = true

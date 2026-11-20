@@ -19,7 +19,8 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from ipaddress import ip_address, ip_network, IPv4Network, IPv6Network
 from socketserver import TCPServer, ThreadingMixIn
-from typing import Any, Callable, cast, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
+from threading import Lock
+from typing import Any, Callable, cast, Dict, Iterator, List, Optional, Set, Tuple, TYPE_CHECKING, Union
 from urllib.parse import parse_qs, urlparse
 
 import dateutil.parser
@@ -791,8 +792,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             If request body is expected but `content-length` HTTP header is absent, then write an HTTP response
             with HTTP status ``411``.
 
-            If request body is expected but contains nothing, or if an exception is faced, then write an HTTP
-            response with HTTP status ``400``.
+            If request body is expected but contains nothing, is shorter than `content-length`, or if an exception is
+            faced, then write an HTTP response with HTTP status ``400``.
 
         :param body_is_optional: if ``False`` then the request must contain a body. If ``True``, then the request may or
             may not contain a body.
@@ -806,9 +807,15 @@ class RestApiHandler(BaseHTTPRequestHandler):
             content_length = int(self.headers.get('content-length') or 0)
             if content_length == 0 and body_is_optional:
                 return {}
-            request = json.loads(self.rfile.read(content_length).decode('utf-8'))
-            if isinstance(request, dict) and (request or body_is_optional):
-                return cast(Dict[str, Any], request)
+            body = self.rfile.read(content_length)
+            # The body is cut short if the client closes the connection early, or if the REST API is shutting down
+            if len(body) != content_length:
+                logger.error('Bad request: content-length is %d, but the body is %d bytes long',
+                             content_length, len(body))
+            else:
+                request = json.loads(body.decode('utf-8'))
+                if isinstance(request, dict) and (request or body_is_optional):
+                    return cast(Dict[str, Any], request)
         except Exception:
             logger.exception('Bad request')
         self.send_error(400)
@@ -1112,15 +1119,19 @@ class RestApiHandler(BaseHTTPRequestHandler):
         Response HTTP status codes:
 
             * ``200``: if the reinit operation has started; or
+            * ``400``: if the request body is invalid; or
             * ``503``: if any error is returned by :func:`~patroni.ha.Ha.reinitialize`.
         """
         request = self._read_json_content(body_is_optional=True)
+        if request is None:
+            # the error response was already sent by _read_json_content()
+            return
 
         if request:
             logger.debug('received reinitialize request: %s', request)
 
-        force = isinstance(request, dict) and parse_bool(request.get('force')) or False
-        from_leader = isinstance(request, dict) and parse_bool(request.get('from_leader')) or False
+        force = parse_bool(request.get('force')) or False
+        from_leader = parse_bool(request.get('from_leader')) or False
 
         data = self.server.patroni.ha.reinitialize(force, from_leader)
         if data is None:
@@ -1345,11 +1356,17 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         If the :func:`do_<REQUEST_METHOD>_<first_part_url>` method does not exist we'll fall back to original behavior.
 
+        After :func:`RestApiServer.shutdown` the request is rejected with HTTP status ``503``. It could be cut short,
+        because the reading side of the connection is shut down, and the end of the stream ends the headers.
+
         :returns: ``True`` for success, ``False`` for failure; on failure, any relevant error response has already been
                   sent back.
 
         """
         ret = BaseHTTPRequestHandler.parse_request(self)
+        if ret and self.server.shutting_down:
+            self.send_error(503)
+            return False
         if ret:
             urlpath = urlparse(self.path)
             self.path = urlpath.path
@@ -1563,6 +1580,9 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
             thread_pool_size = 5
         logger.info('REST API thread_pool_size = %d', thread_pool_size)
         self._executor = PatroniThreadPoolExecutor(max_workers=thread_pool_size + 1, thread_name_prefix='RestAPI')
+        self._connections_lock = Lock()
+        self._connections: Set[socket.socket] = set()
+        self.shutting_down = False
         self.__ssl_options: Dict[str, Any] = {}
         self.__ssl_serial_number = None
         self.__ssl_not_after: Optional[int] = None
@@ -1917,7 +1937,30 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
 
     def process_request(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
                         client_address: Tuple[str, int]) -> None:
+        """Process a request to the REST API in a worker of the thread pool.
+
+        The connection is tracked until :func:`close_request`, so that :func:`shutdown` can close it.
+
+        :param request: socket to handle the client request.
+        :param client_address: tuple containing the client IP and port.
+        """
+        if isinstance(request, socket.socket):
+            with self._connections_lock:
+                self._connections.add(request)
         self._executor.submit(self.process_request_thread, request, client_address)
+
+    def close_request(self, request: Union[socket.socket, Tuple[bytes, socket.socket]]) -> None:
+        """Stop tracking the connection and close it.
+
+        Both happen under the lock, so :func:`shutdown` never shuts down a closed socket, whose file descriptor could
+        already belong to another socket.
+
+        :param request: socket to handle the client request.
+        """
+        with self._connections_lock:
+            if isinstance(request, socket.socket):
+                self._connections.discard(request)
+            super(RestApiServer, self).close_request(request)
 
     def finish_request(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
                        client_address: Tuple[str, int]) -> None:
@@ -1940,8 +1983,34 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
             logger.debug('Connection from %s:%s was reset: %r', client_address[0], client_address[1], e)
 
     def shutdown(self) -> None:
+        """Stop the REST API without waiting for clients.
+
+        Patroni stops the REST API before PostgreSQL, and the HA loop doesn't run in between. If the stop waited for
+        clients, the leader key could expire while PostgreSQL still accepts writes.
+
+        Stop accepting connections and shut down the reading side of the open ones. It wakes up the workers that wait
+        for the client: for the TLS handshake, for the request, or for the TLS ``close_notify`` alert in
+        :func:`shutdown_request`. The workers that run a handler can still send the response, but they are not waited
+        for. The requests that aren't parsed yet are rejected with HTTP status ``503``, because they could be cut
+        short.
+
+        .. note::
+            On Windows shutting down the reading side of a socket doesn't wake up the worker, and resets the connection
+            if more data arrives. Therefore it isn't done, and idle workers exit after ``restapi.request_timeout``.
+        """
+        # Must be set before the reading side is shut down, see RestApiHandler.parse_request()
+        self.shutting_down = True
         super(RestApiServer, self).shutdown()
-        self._executor.shutdown(wait=True)
+        if os.name != 'nt':
+            with self._connections_lock:
+                for request in self._connections:
+                    try:
+                        # Not request.shutdown(), because SSLSocket.shutdown() removes the TLS layer, and a running
+                        # handler would send the response unencrypted.
+                        socket.socket.shutdown(request, socket.SHUT_RD)
+                    except OSError as e:
+                        logger.debug('Failed to shut down the REST API connection: %r', e)
+        self._executor.shutdown(wait=False)
 
     def shutdown_request(self, request: Union[socket.socket, Tuple[bytes, socket.socket]]) -> None:
         """Shut down a request to the REST API.
