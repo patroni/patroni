@@ -6,7 +6,7 @@ import platform
 
 from typing import Any, Dict, NamedTuple
 
-from .base import WatchdogBase, WatchdogDisableUnsupported, WatchdogError
+from .base import WatchdogBase, WatchdogError
 
 # Pythonification of linux/ioctl.h
 IOC_NONE = 0
@@ -210,7 +210,7 @@ class LinuxWatchdogDevice(WatchdogBase):
             except OSError as e2:
                 self._check_removed(e2)
             if e.errno in DISABLE_UNSUPPORTED_ERRNOS:
-                raise WatchdogDisableUnsupported("Watchdog device doesn't support disabling: {0}".format(e))
+                raise WatchdogError("Watchdog device doesn't support disabling: {0}".format(e))
             raise WatchdogError("Could not disable watchdog device: {0}".format(e))
         try:
             self._close_fd()

@@ -572,7 +572,7 @@ class TestHa(PostgresInit):
         self.ha.has_lock = true
         old, new = Mock(is_null=False, is_running=False, can_be_disabled=True), \
             Mock(is_null=False, is_running=False, can_be_disabled=True)
-        old.get_timeout.return_value = 25
+        old.get_timeout.return_value = old.set_timeout.return_value = 25
         old.open.side_effect = lambda: setattr(old, 'is_running', True)
         old.disable.side_effect = lambda: setattr(old, 'is_running', False)
         new.open.side_effect = lambda: setattr(new, 'is_running', True)

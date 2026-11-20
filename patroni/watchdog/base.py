@@ -17,9 +17,8 @@ MODE_REQUIRED = 'required'    # Will not run if a watchdog is not available
 MODE_AUTOMATIC = 'automatic'  # Will use a watchdog if one is available
 MODE_OFF = 'off'              # Will not try to use a watchdog
 
-
-class WatchdogDisableUnsupported(WatchdogError):
-    """The implementation doesn't support stopping the timer explicitly."""
+# The HA loop doesn't run more often than with the minimal loop_wait, see Watchdog.keepalive_interval
+MIN_KEEPALIVE_INTERVAL = 1
 
 
 def parse_mode(mode: Union[bool, str]) -> str:
@@ -58,10 +57,9 @@ class WatchdogConfig(object):
                                   if k not in ['mode', 'safety_margin', 'driver'])
 
     def __eq__(self, other: Any) -> bool:
-        # retry_timeout doesn't affect the device, only how often it has to be fed, see Watchdog.keepalive_interval
         return isinstance(other, WatchdogConfig) and \
             all(getattr(self, attr) == getattr(other, attr) for attr in
-                ['mode', 'ttl', 'loop_wait', 'safety_margin', 'driver', 'driver_config'])
+                ['mode', 'ttl', 'loop_wait', 'retry_timeout', 'safety_margin', 'driver', 'driver_config'])
 
     def __ne__(self, other: Any) -> bool:
         return not self == other
@@ -120,8 +118,8 @@ class Watchdog(object):
         self._unsafe_timeout = False
         # Turning a watchdog off can always be done immediately
         if self.config.mode == MODE_OFF:
-            if self.active:
-                self._close_impl()
+            # Also if it isn't active, a device might be still open after closing it failed
+            self._close_impl()
             self.active_config = self.config
             self.impl = NullWatchdog()
             self._impl_pending = False
@@ -249,26 +247,48 @@ class Watchdog(object):
 
         :returns: ``False`` if a safe watchdog is required, but could not be configured.
         """
-        # A driver might also round the requested timeout down to zero, e.g. PC87413 counts in whole minutes
-        if not self.impl.is_running or not 0 < actual_timeout <= self.config.timeout:
-            if self.config.mode == MODE_REQUIRED:
-                if self.impl.is_null:
-                    logger.error("Configuration requires watchdog, but watchdog could not be configured.")
-                else:
-                    logger.error("Configuration requires watchdog, but a safe watchdog timeout %s could"
-                                 " not be configured. Watchdog timeout is %s.", self.config.timeout, actual_timeout)
-                    # Otherwise the node would keep winning leader races only to give up the leader key again
-                    self._unsafe_timeout = True
-                return False
-            if not self.impl.is_null:
-                logger.warning("Watchdog timeout %s seconds does not ensure safe termination within %s seconds",
-                               actual_timeout, self.config.timeout)
+        if self._is_safe_timeout(actual_timeout):
+            return True
+        too_short = self.impl.is_running and self._is_too_short(actual_timeout)
+        if too_short:
+            logger.warning("Watchdog timeout of %s seconds is too short, the HA loop would have to run every %s"
+                           " seconds", actual_timeout, self._keepalive_interval(actual_timeout))
+        if self.config.mode == MODE_REQUIRED:
+            if self.impl.is_null:
+                logger.error("Configuration requires watchdog, but watchdog could not be configured.")
+            else:
+                logger.error("Configuration requires watchdog, but a safe watchdog timeout %s could"
+                             " not be configured. Watchdog timeout is %s.", self.config.timeout, actual_timeout)
+                # Otherwise the node would keep winning leader races only to give up the leader key again
+                self._unsafe_timeout = True
+            return False
+        if too_short:
+            # Like after a failed activation, it's acquired again only after the mode or device configuration changed
+            if self._try_disable_impl():
+                self.impl = NullWatchdog()
+            else:
+                logger.warning("Keeping %s because it could not be disabled", self.impl.describe())
+        elif not self.impl.is_null:
+            logger.warning("Watchdog timeout %s seconds does not ensure safe termination within %s seconds",
+                           actual_timeout, self.config.timeout)
         return True
+
+    def _is_safe_timeout(self, timeout: Optional[int]) -> bool:
+        """The running implementation ensures safe termination within the configured timeout, and can be fed in time."""
+        # A driver might also round the requested timeout down to zero, e.g. PC87413 counts in whole minutes
+        return self.impl.is_running and timeout is not None and 0 < timeout <= self.config.timeout \
+            and not self._is_too_short(timeout)
+
+    def _is_too_short(self, timeout: int) -> bool:
+        """The HA loop would have to run more often than every ``MIN_KEEPALIVE_INTERVAL`` seconds."""
+        interval = self._keepalive_interval(timeout)
+        return interval is not None and interval < MIN_KEEPALIVE_INTERVAL
 
     def _set_timeout(self) -> int:
         if self.impl.has_set_timeout():
-            # The device might not accept the requested timeout as is, keep the armed one if reading it back fails
+            # The device might not accept the requested timeout as is, but returns the one it actually set
             self._timeout = self.impl.set_timeout(self.config.timeout)
+            return self._timeout
         return self._get_timeout()
 
     def _get_timeout(self) -> int:
@@ -346,8 +366,11 @@ class Watchdog(object):
             logger.info("%s updated with %s second timeout, timing slack %s seconds",
                         self.impl.describe(), actual_timeout, self.config.timing_slack)
         # Same checks as on activation, e.g. a device might not accept a timeout that covers the new loop_wait.
-        self._check_keepalive_interval(actual_timeout)
-        return self._check_timeout(actual_timeout)
+        if not self._check_timeout(actual_timeout):
+            return False
+        if self.impl.is_running:
+            self._check_keepalive_interval(actual_timeout)
+        return True
 
     def _apply_unsafe_timing(self) -> None:
         """No timeout is safe with the new timing, see _activate().
@@ -384,7 +407,8 @@ class Watchdog(object):
                 self._apply_config_changes()
             except WatchdogError as e:
                 logger.error("Error while applying watchdog configuration: %s", e)
-                self._activated = self.config.mode != MODE_REQUIRED
+                # It is retried with the next keepalive, until then the armed timeout might be safe enough
+                self._activated = self.config.mode != MODE_REQUIRED or self._is_safe_timeout(self._timeout)
 
     @property
     @synchronized
