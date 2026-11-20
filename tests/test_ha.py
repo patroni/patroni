@@ -711,11 +711,21 @@ class TestHa(PostgresInit):
         self.p.is_primary = false
         with patch.object(Watchdog, 'disable') as mock_disable:
             self.ha._async_executor.schedule('promote')
+            # in failsafe mode the promotion might succeed
+            with patch.object(Ha, 'is_failsafe_mode', true):
+                self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
+            # too late to cancel it
+            self.ha._async_response.complete(True)
             self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
             mock_disable.assert_not_called()
+            self.ha._async_response.reset()
+            self.assertEqual(self.ha.run_cycle(), 'cancelled promotion because DCS is not accessible')
+            self.assertTrue(self.ha._async_response.is_cancelled)
+            self.assertTrue(self.p.cancellable.is_cancelled)
+            mock_disable.assert_called_once_with()
             self.ha._async_executor.reset_scheduled_action()
             self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
-            mock_disable.assert_called_once_with()
+            self.assertEqual(mock_disable.call_count, 2)
 
     def test_update_failsafe(self):
         self.assertRaises(Exception, self.ha.update_failsafe, {})
