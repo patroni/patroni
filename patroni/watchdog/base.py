@@ -166,7 +166,7 @@ class Watchdog(object):
         # disable a watchdog that isn't running, so it might still be active after losing the leader key. A device
         # might be still open after closing it failed, but nobody fed it since then.
         if (self._impl_outdated() or self.impl.is_running) and not self._replace_impl():
-            self._activated = self.config.mode != MODE_REQUIRED
+            self._activated = self._keep_impl()
             return self._activated
         self._activated = self._activate()
         if not self._activated:
@@ -184,6 +184,22 @@ class Watchdog(object):
             return False
         self.impl = self.config.get_impl()
         self._impl_pending = False
+        return True
+
+    def _keep_impl(self) -> bool:
+        """Keep a running implementation that could not be disabled, it still has to be fed.
+
+        In required mode it isn't considered safe to lead with. Otherwise the configured timeout is applied to it,
+        because it might still have the one it was armed with.
+
+        :returns: ``False`` if a safe watchdog is required, see is_activated.
+        """
+        if self.config.mode == MODE_REQUIRED:
+            return False
+        try:
+            self._update_timeout()
+        except WatchdogError as e:
+            logger.error("Error while applying watchdog configuration: %s", e)
         return True
 
     def _activate(self) -> bool:
@@ -206,7 +222,8 @@ class Watchdog(object):
             log("Could not activate %s: %s", self.impl.describe(), e)
             # The device is armed if open() succeeded, but _set_timeout() failed
             if not self._try_disable_impl():
-                return self.config.mode != MODE_REQUIRED
+                logger.warning("Keeping %s because it could not be disabled", self.impl.describe())
+                return self._keep_impl()
             self.impl = NullWatchdog()
             actual_timeout = self.impl.get_timeout()
 
@@ -280,20 +297,10 @@ class Watchdog(object):
         # Changes deferred to the next keepalive would be lost otherwise
         self._apply_inactive_config()
 
-    def _try_disable_impl(self, magic_close: bool = False) -> bool:
-        """Try to disable the implementation and report whether it is no longer running.
-
-        :param magic_close: close the device with the magic character if it doesn't support disabling explicitly.
-                            Unlike disabling, this can't confirm that the timer stopped.
-        """
+    def _try_disable_impl(self) -> bool:
+        """Try to disable the implementation and report whether it is no longer running."""
         try:
-            try:
-                self.impl.disable()
-            except WatchdogDisableUnsupported as e:
-                if not magic_close or not self.impl.can_be_disabled:
-                    raise
-                logger.warning('%s, closing watchdog device instead', e)
-                self.impl.close()
+            self.impl.disable()
         except WatchdogError as e:
             logger.error("Error while disabling watchdog: %s", e)
         return not self.impl.is_running
@@ -332,8 +339,10 @@ class Watchdog(object):
     def _update_timeout(self) -> bool:
         """Apply the configuration to the running implementation, see _activate()."""
         timeout_changed = self.config.timeout != self.active_config.timeout
-        actual_timeout = self._set_timeout() if timeout_changed else self._get_timeout()
-        if timeout_changed:
+        previous_timeout = self._timeout
+        # Also if the configured timeout didn't change, a retained device might still have the one it was armed with
+        actual_timeout = self._set_timeout()
+        if timeout_changed or actual_timeout != previous_timeout:
             logger.info("%s updated with %s second timeout, timing slack %s seconds",
                         self.impl.describe(), actual_timeout, self.config.timing_slack)
         # Same checks as on activation, e.g. a device might not accept a timeout that covers the new loop_wait.
@@ -344,7 +353,8 @@ class Watchdog(object):
         """No timeout is safe with the new timing, see _activate().
 
         The armed timer must be kept fed until it is confirmed as disabled, or in required mode until the HA loop
-        demotes the primary.
+        demotes the primary. Closing the device with the magic character can't confirm that: if the driver doesn't
+        support disabling the timer, it might have been loaded with ``nowayout`` without a way to detect it.
         """
         logger.warning('Watchdog not supported because leader TTL %s is less than 2x loop_wait %s',
                        self.config.ttl, self.config.loop_wait)
@@ -353,7 +363,7 @@ class Watchdog(object):
         if self.config.mode == MODE_REQUIRED:
             logger.error("Configuration requires watchdog, but watchdog could not be configured.")
             self._activated = False
-        elif self.impl.is_running and not self._try_disable_impl(magic_close=True):
+        elif self.impl.is_running and not self._try_disable_impl():
             logger.warning("Keeping %s because it could not be disabled", self.impl.describe())
         else:
             self.impl = NullWatchdog()

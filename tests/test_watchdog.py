@@ -247,31 +247,6 @@ class TestWatchdog(unittest.TestCase):
         watchdog.disable()
 
     @patch('platform.system', Mock(return_value='Linux'))
-    def test_unsafe_timing_reload_falls_back_to_magic_close(self):
-        # The timer is stopped explicitly even without the magic close flag. The magic character is a fallback only
-        # if the driver doesn't support that.
-        config = {'ttl': 30, 'loop_wait': 10, 'watchdog': {'safety_margin': 12}}
-        for ioctl, magic_close, stopped in ((mock_ioctl, False, True), (mock_legacy_ioctl, True, True),
-                                            (mock_legacy_ioctl, False, False)):
-            with self.subTest(ioctl=ioctl.__name__, magic_close=magic_close), patch('fcntl.ioctl', ioctl), \
-                    patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=magic_close)):
-                watchdog = Watchdog(config)
-                try:
-                    self.assertTrue(watchdog.activate())
-                    device = mock_devices[-1]
-                    watchdog.reload_config(dict(config, ttl=20))
-                    with self.assertLogs('patroni.watchdog.base', 'WARNING'):
-                        watchdog.keepalive()
-                    self.assertEqual(watchdog.is_running, not stopped)
-                    self.assertEqual(device.open, not stopped)
-                    self.assertEqual(device.armed, not stopped)
-                    if not stopped:
-                        watchdog.keepalive()
-                        self.assertEqual(device.writes[-1], b'1')
-                finally:
-                    watchdog.disable()
-
-    @patch('platform.system', Mock(return_value='Linux'))
     def test_timeout_change_without_device(self):
         config = {'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'automatic', 'driver': 'none'}}
         watchdog = Watchdog(config)
@@ -561,23 +536,61 @@ class TestWatchdog(unittest.TestCase):
     @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
     def test_unsafe_timing_reload_keeps_device_that_cannot_be_disabled(self):
         config = {'ttl': 30, 'loop_wait': 10, 'watchdog': {'safety_margin': 12}}
-        watchdog = Watchdog(config)
-        try:
-            with patch('fcntl.ioctl', mock_nowayout_ioctl):
+        # A legacy driver doesn't support disabling the timer, then it can't be detected whether it was loaded with
+        # nowayout and closing the device with the magic character doesn't confirm that the timer stopped
+        for ioctl, nowayout in ((mock_ioctl, True), (mock_legacy_ioctl, False), (mock_legacy_ioctl, True)):
+            with self.subTest(ioctl=ioctl.__name__, nowayout=nowayout), patch('fcntl.ioctl', ioctl), \
+                    patch('os.open', mock_nowayout_open if nowayout else mock_open):
+                watchdog = Watchdog(config)
+                try:
+                    self.assertTrue(watchdog.activate())
+                    device = mock_devices[-1]
+                    watchdog.reload_config(dict(config, ttl=20))
+                    watchdog.keepalive()
+                    # closing it would leave the timer armed without anybody feeding it
+                    self.assertTrue(device.open)
+                    self.assertTrue(device.armed)
+                    self.assertEqual(device.timeout, 17)
+                    self.assertTrue(watchdog.is_activated)
+                    writes = len(device.writes)
+                    watchdog.keepalive()
+                    self.assertEqual(device.writes[writes:], [b'1'])
+                finally:
+                    watchdog.disable()
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
+    def test_retained_device_timeout_is_applied(self):
+        config = {'ttl': 30, 'loop_wait': 10}
+        with patch('os.open', mock_nowayout_open):
+            watchdog = Watchdog(config)
+            try:
+                # Setting the timeout fails, e.g. with a transient error, and the timer can't be stopped anymore
+                with patch.object(LinuxWatchdogDevice, 'set_timeout', Mock(side_effect=WatchdogError('EIO'))):
+                    self.assertTrue(watchdog.activate())
+                device = mock_devices[-1]
+                self.assertEqual(device.timeout, 60)
+                # It is applied even if the configured timeout didn't change, otherwise the primary would be demoted
+                watchdog.reload_config(dict(config, watchdog={'mode': 'required'}))
+                watchdog.keepalive()
+                self.assertEqual(device.timeout, 24)
+                self.assertTrue(watchdog.is_activated)
+            finally:
+                watchdog.disable()
+
+            watchdog = Watchdog(config)
+            try:
                 self.assertTrue(watchdog.activate())
                 device = mock_devices[-1]
+                # The device is left open because closing it failed, and the TTL is changed since then
+                with patch('os.write', Mock(side_effect=OSError(errno.EIO, 'write failed'))):
+                    watchdog.disable()
                 watchdog.reload_config(dict(config, ttl=20))
-                watchdog.keepalive()
-            # closing it would leave the timer armed without anybody feeding it
-            self.assertTrue(device.open)
-            self.assertTrue(device.armed)
-            self.assertEqual(device.timeout, 17)
-            self.assertTrue(watchdog.is_activated)
-            writes = len(device.writes)
-            watchdog.keepalive()
-            self.assertEqual(device.writes[writes:], [b'1'])
-        finally:
-            watchdog.disable()
+                self.assertTrue(watchdog.activate())
+                self.assertIs(mock_devices[-1], device)
+                self.assertEqual(device.timeout, 14)
+            finally:
+                watchdog.disable()
 
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
