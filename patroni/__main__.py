@@ -272,8 +272,10 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
         """
         from patroni import thread_pool
 
+        api_stopped = False
         try:
             self.api.shutdown()
+            api_stopped = True
         except Exception:
             logger.exception('Exception during RestApi.shutdown')
         try:
@@ -281,6 +283,10 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
         except Exception:
             logger.exception('Exception during Ha.shutdown')
 
+        # PostgreSQL is stopped now. The REST API requests that are still running may need the thread pool.
+        # The listener runs in the same pool as the requests, therefore they are waited for only if it was stopped.
+        if api_stopped:
+            self.api.wait_for_requests()
         thread_pool.get_executor().shutdown(wait=False)
 
 

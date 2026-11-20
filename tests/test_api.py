@@ -562,6 +562,10 @@ class TestRestApiHandler(unittest.TestCase):
             with patch.object(MockHa, 'restart', Mock(return_value=(retval, "foo"))):
                 request = make_request(role=PostgresqlRole.PRIMARY, postgres_version='9.5.2')
                 MockRestApiServer(RestApiHandler, request)
+        with patch.object(MockHa, 'schedule_future_restart', Mock(return_value=None)), \
+                patch.object(RestApiHandler, 'write_response') as response_mock:
+            MockRestApiServer(RestApiHandler, make_request(schedule=future_restart_time.isoformat()))
+            response_mock.assert_called_once_with(503, 'shutdown already in progress')
 
         with patch.object(global_config.__class__, 'is_paused', PropertyMock(return_value=True)):
             MockRestApiServer(RestApiHandler,
@@ -572,10 +576,12 @@ class TestRestApiHandler(unittest.TestCase):
             MockRestApiServer(RestApiHandler, make_request(timeout='42towels'))
 
     def test_do_DELETE_restart(self):
-        for retval in (True, False):
-            with patch.object(MockHa, 'delete_future_restart', Mock(return_value=retval)):
+        for retval, code in ((True, 200), (False, 404), (None, 503)):
+            with patch.object(MockHa, 'delete_future_restart', Mock(return_value=retval)), \
+                    patch.object(RestApiHandler, 'write_response') as response_mock:
                 request = 'DELETE /restart HTTP/1.0' + self._authorization
                 self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
+                self.assertEqual(response_mock.call_args[0][0], code)
 
     @patch.object(MockPatroni, 'dcs')
     def test_do_DELETE_switchover(self, mock_dcs):

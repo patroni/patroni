@@ -989,7 +989,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 * exception is faced while performing an immediate restart.
 
             * ``409``: if another restart was already previously scheduled; or
-            * ``503``: if any issue was found while performing an immediate restart; or
+            * ``503``: if any issue was found while performing an immediate restart, or Patroni is shutting down; or
             * HTTP status returned by :func:`parse_schedule`, if any error was observed while parsing the schedule.
 
         .. note::
@@ -1046,9 +1046,13 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     logger.exception('Exception during restart')
                     status_code = 400
             else:
-                if self.server.patroni.ha.schedule_future_restart(request):
+                scheduled = self.server.patroni.ha.schedule_future_restart(request)
+                if scheduled:
                     data = "Restart scheduled"
                     status_code = 202
+                elif scheduled is None:
+                    data = 'shutdown already in progress'
+                    status_code = 503
                 else:
                     data = "Another restart is already scheduled"
                     status_code = 409
@@ -1067,11 +1071,16 @@ class RestApiHandler(BaseHTTPRequestHandler):
         Response HTTP status codes:
 
             * ``200``: if a scheduled restart was removed; or
-            * ``404``: if no scheduled restart could be found.
+            * ``404``: if no scheduled restart could be found; or
+            * ``503``: if Patroni is shutting down.
         """
-        if self.server.patroni.ha.delete_future_restart():
+        deleted = self.server.patroni.ha.delete_future_restart()
+        if deleted:
             data = "scheduled restart deleted"
             code = 200
+        elif deleted is None:
+            data = 'shutdown already in progress'
+            code = 503
         else:
             data = "no restarts are scheduled"
             code = 404
@@ -1971,6 +1980,10 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
         self.interrupter.interrupt()
         super(RestApiServer, self).shutdown()
         self._executor.shutdown(wait=False)
+
+    def wait_for_requests(self) -> None:
+        """Wait for the requests that were still being handled when the REST API was shut down."""
+        self._executor.shutdown(wait=True)
 
     def shutdown_request(self, request: Union[socket.socket, Tuple[bytes, socket.socket]]) -> None:
         """Shut down a request to the REST API.

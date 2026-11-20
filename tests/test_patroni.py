@@ -409,8 +409,14 @@ class TestPatroni(unittest.TestCase):
     @patch.object(Thread, 'join', Mock())
     def test_shutdown(self):
         self.p.api.shutdown = Mock(side_effect=Exception)
+        self.p.api.wait_for_requests = Mock()
         self.p.ha.shutdown = Mock(side_effect=Exception)
         self.p.shutdown()
+        # the listener runs in the same thread pool as the requests, it could be still running
+        self.p.api.wait_for_requests.assert_not_called()
+        self.p.api.shutdown = Mock()
+        self.p._shutdown()
+        self.p.api.wait_for_requests.assert_called_once()
 
     def test_check_psycopg(self):
         with patch('builtins.__import__', Mock(side_effect=ImportError)):

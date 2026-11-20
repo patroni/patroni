@@ -137,6 +137,12 @@ class AsyncExecutor(object):
         return None
 
     @property
+    def is_shut_down(self) -> bool:
+        """``True`` if the executor is shut down and refuses to schedule or run tasks."""
+        with self._scheduled_action_lock:
+            return self._is_shut_down
+
+    @property
     def scheduled_action(self) -> Optional[str]:
         """The currently scheduled action, if any, else ``None``."""
         with self._scheduled_action_lock:
@@ -216,25 +222,36 @@ class AsyncExecutor(object):
             return self.run_async(func, args)
         return 'Failed to run {0}, {1} is already in progress'.format(action, prev)
 
-    def cancel(self) -> None:
+    def cancel(self, unless: Optional[Callable[[], bool]] = None) -> bool:
         """Request cancellation of a scheduled async task and running tasks, if any.
 
         .. note::
-            Wait until all running tasks are finished before returning control to caller.
+            Wait until all running tasks are finished before returning control to caller. The lock isn't held while
+            waiting. Tasks scheduled meanwhile, for example a promotion by the HA loop, are not affected.
+
+        :param unless: called while holding the lock, right before the cancellation is requested. Nothing is cancelled
+            if it returns ``True``.
+
+        :returns: ``False`` if *unless* prevented the cancellation, otherwise ``True``.
         """
         with self:
+            if unless and unless():
+                return False
             with self._scheduled_action_lock:
                 if self._scheduled_action is not None:
                     logger.warning('Cancelling long running task %s', self._scheduled_action)
                 elif not self._running:
-                    return
+                    return True
             self._is_cancelled = True
 
         self._cancellable.cancel()
         self._finish_event.wait()
 
-        with self:
-            self.reset_scheduled_action()
+        with self, self._scheduled_action_lock:
+            # the flag is reset by schedule(), a task scheduled while waiting must stay scheduled
+            if self._is_cancelled:
+                self.reset_scheduled_action()
+        return True
 
     def shutdown(self) -> None:
         """Cancel the scheduled async task and running tasks, if any, and refuse to schedule or run new tasks.
