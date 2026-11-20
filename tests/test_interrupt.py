@@ -11,7 +11,8 @@ import urllib3
 
 from urllib3.exceptions import ReadTimeoutError
 
-from patroni.interrupt import _InterruptibleSocketIO, Interrupter, make_interruptible, WatchInterrupted
+from patroni.interrupt import _InterruptibleSocketIO, Interrupter, \
+    interruptible_call, make_interruptible, WatchInterrupted
 
 from . import HangingHTTPServer
 
@@ -170,3 +171,17 @@ class TestInterruptibleSocketIO(unittest.TestCase):
             with self.assertRaises(OSError) as e:
                 raw.readinto(bytearray(1))
             self.assertEqual(e.exception.errno, errno.EBADF)
+
+
+class TestInterruptibleCall(unittest.TestCase):
+
+    def test_interrupted(self):
+        # The operation is tried even after the interruption, e.g. SSLSocket.unwrap() still sends close_notify
+        rsock, wsock = socket.socketpair()
+        with rsock, wsock:
+            interrupter = Interrupter()
+            interrupter.interrupt()
+            self.assertEqual(interruptible_call(rsock, Mock(return_value=1), interrupter), 1)
+            func = Mock(side_effect=ssl.SSLWantReadError)
+            self.assertRaises(WatchInterrupted, interruptible_call, rsock, func, interrupter)
+            func.assert_called_once_with()

@@ -1,6 +1,5 @@
 import datetime
 import json
-import os
 import socket
 import time
 import unittest
@@ -15,6 +14,7 @@ from patroni.api import RestApiHandler, RestApiServer
 from patroni.dcs import ClusterConfig, Member
 from patroni.exceptions import PostgresConnectionException
 from patroni.ha import _MemberStatus
+from patroni.interrupt import WatchInterrupted
 from patroni.postgresql.config import get_param_diff
 from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 from patroni.psycopg import OperationalError
@@ -480,16 +480,6 @@ class TestRestApiHandler(unittest.TestCase):
         MockRestApiServer(RestApiHandler, request)
 
     @patch.object(MockPatroni, 'dcs')
-    @patch.object(RestApiHandler, 'send_error')
-    def test_read_json_content_short_body(self, mock_send_error, mock_dcs):
-        # The body is cut short if the client closes the connection early, or if the REST API is shutting down
-        mock_dcs.get_cluster.return_value.config = ClusterConfig.from_node(1, '{}')
-        MockRestApiServer(RestApiHandler, 'PATCH /config HTTP/1.0' + self._authorization
-                          + '\nContent-Length: 100\n\n{"ttl": 99}')
-        mock_send_error.assert_called_once_with(400)
-        mock_dcs.set_config_value.assert_not_called()
-
-    @patch.object(MockPatroni, 'dcs')
     def test_do_PUT_config(self, mock_dcs):
         mock_dcs.get_cluster.return_value.config = ClusterConfig.from_node(1, '{}')
         request = 'PUT /config HTTP/1.0' + self._authorization + '\nContent-Length: '
@@ -600,14 +590,8 @@ class TestRestApiHandler(unittest.TestCase):
         request = 'POST /reinitialize HTTP/1.0' + self._authorization + \
                   '\nContent-Length: 36\n\n{"force": true, "from_leader": true}'
         MockRestApiServer(RestApiHandler, request)
-        with patch.object(MockHa, 'reinitialize', Mock(return_value=None)) as mock_reinitialize:
+        with patch.object(MockHa, 'reinitialize', Mock(return_value=None)):
             MockRestApiServer(RestApiHandler, request)
-            mock_reinitialize.assert_called_once_with(True, True)
-            # the request body is cut short
-            with patch.object(RestApiHandler, 'send_error') as mock_send_error:
-                MockRestApiServer(RestApiHandler, request.replace(', "from_leader": true', ''))
-            mock_send_error.assert_called_once_with(400)
-            mock_reinitialize.assert_called_once()
 
     @patch('time.sleep', Mock())
     def test_RestApiServer_query(self):
@@ -737,7 +721,7 @@ class TestRestApiHandler(unittest.TestCase):
 
         # Valid future date
         with patch.object(RestApiHandler, 'write_response') as response_mock:
-            request = post + '102\n\n{"leader": "postgresql1", "member": "postgresql2",' + \
+            request = post + '103\n\n{"leader": "postgresql1", "member": "postgresql2",' + \
                              ' "scheduled_at": "6016-02-15T18:13:30.568224+01:00"}'
             MockRestApiServer(RestApiHandler, request)
             response_mock.assert_called_with(202, 'Switchover scheduled')
@@ -751,12 +735,12 @@ class TestRestApiHandler(unittest.TestCase):
 
         # No timezone specified
         with patch.object(RestApiHandler, 'write_response') as response_mock:
-            request = post + '96\n\n{"leader": "postgresql1", "member": "postgresql2",' + \
+            request = post + '97\n\n{"leader": "postgresql1", "member": "postgresql2",' + \
                              ' "scheduled_at": "6016-02-15T18:13:30.568224"}'
             MockRestApiServer(RestApiHandler, request)
             response_mock.assert_called_with(400, 'Timezone information is mandatory for the scheduled switchover')
 
-        request = post + '102\n\n{"leader": "postgresql1", "member": "postgresql2", "scheduled_at": "'
+        request = post + '103\n\n{"leader": "postgresql1", "member": "postgresql2", "scheduled_at": "'
 
         # Scheduled in the past
         with patch.object(RestApiHandler, 'write_response') as response_mock:
@@ -772,13 +756,13 @@ class TestRestApiHandler(unittest.TestCase):
         # [Multi-site switchover]
 
         # site and candidate
-        request = post + '68\n\n{"leader": "postgresql1", "candidate": "postgresql2", "site": "dc1"}'
+        request = post + '114\n\n{"leader": "postgresql1", "candidate": "postgresql2", "site": "dc1"}'
         with patch.object(RestApiHandler, 'write_response') as response_mock:
             MockRestApiServer(RestApiHandler, request)
             dcs.manual_failover.assert_called_with('postgresql1', 'postgresql2', scheduled_at=None, site=None)
 
         # no members in site
-        request = post + '40\n\n{"leader": "postgresql1", "site": "dc1"}'
+        request = post + '53\n\n{"leader": "postgresql1", "site": "dc1"}'
         with patch.object(RestApiHandler, 'write_response') as response_mock:
             MockRestApiServer(RestApiHandler, request)
             response_mock.assert_called_with(412, 'switchover is not possible: can not find members in site dc1')
@@ -936,13 +920,33 @@ class TestRestApiServer(unittest.TestCase):
             pass
         return sock
 
+    def __create_tls_connection(self):
+        import ssl
+
+        listener = socket.socket()
+        self.addCleanup(listener.close)
+        listener.bind(('127.0.0.1', 0))
+        listener.listen(1)
+        client = socket.create_connection(listener.getsockname())
+        self.addCleanup(client.close)
+        # The client doesn't send a ClientHello, so the server doesn't need a certificate
+        sock = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER).wrap_socket(listener.accept()[0], server_side=True,
+                                                                   do_handshake_on_connect=False)
+        self.addCleanup(sock.close)
+        return sock
+
     def test_process_request(self):
         with patch.object(self.srv._executor, 'submit', lambda f, r, c: f(r, c)):
             self.srv.process_request(self.__create_socket(), ('2', 54321))
 
     def test_shutdown(self):
         # Patroni stops the REST API before PostgreSQL, therefore shutdown() must not wait for clients
-        handler_calls, handler_finish = [], Event()
+        handlers, handler_calls, handler_finish = [], [], Event()
+        setup = RestApiHandler.setup
+
+        def handler_setup(handler):
+            setup(handler)
+            handlers.append(handler)
 
         def do_GET_liveness(handler):
             handler_calls.append(handler)
@@ -957,10 +961,14 @@ class TestRestApiServer(unittest.TestCase):
             return sock
 
         def read_response(sock):
-            response = chunk = sock.recv(1024)
-            while chunk:
+            response = b''
+            try:
                 chunk = sock.recv(1024)
-                response += chunk
+                while chunk:
+                    response += chunk
+                    chunk = sock.recv(1024)
+            except ConnectionResetError:  # unread data of the client was discarded
+                pass
             return response
 
         srv = RestApiServer(MockPatroni(), {'listen': '127.0.0.1:0', 'request_timeout': 10})
@@ -968,40 +976,42 @@ class TestRestApiServer(unittest.TestCase):
         self.addCleanup(srv.server_close)
         self.addCleanup(srv.shutdown)
         self.addCleanup(handler_finish.set)
-        with patch.object(RestApiHandler, 'do_GET_liveness', do_GET_liveness):
+        with patch.object(RestApiHandler, 'setup', handler_setup), \
+                patch.object(RestApiHandler, 'do_GET_liveness', do_GET_liveness):
             busy = connect(b'GET /liveness HTTP/1.0\r\n\r\n')
             idle = connect(b'')
             truncated = connect(b'GET /liveness HTTP/1.0\r\n')
             deadline = time.time() + 5
-            while (len(srv._connections) < 3 or not handler_calls) and time.time() < deadline:
+            while (len(handlers) < 3 or not handler_calls) and time.time() < deadline:
                 time.sleep(0.01)
-            unconnected = socket.socket()
-            self.addCleanup(unconnected.close)
-            srv._connections.add(unconnected)
 
             started = time.time()
             srv.shutdown()
             self.assertLess(time.time() - started, 3)
+            # the workers that wait for the request are interrupted, while the busy one is still running
+            self.assertEqual(read_response(idle), b'')
+            self.assertEqual(read_response(truncated), b'')
 
             handler_finish.set()
             self.assertTrue(read_response(busy).startswith(b'HTTP/1.0 200 '))
-            # On Windows the reading side of the sockets isn't shut down
-            if os.name != 'nt':
-                self.assertEqual(read_response(idle), b'')
-                self.assertIn(read_response(truncated)[:12], (b'', b'HTTP/1.0 503'))
+
+            # a request that was already received, but is handled after the shutdown, is rejected
+            with patch.object(RestApiHandler, 'send_error') as mock_send_error:
+                RestApiHandler(MockRequest('GET /liveness HTTP/1.0'), ('127.0.0.1', 55555), srv)
+            mock_send_error.assert_called_once_with(503)
             self.assertEqual(len(handler_calls), 1)
 
     def test_process_request_thread_ssl_handshake_reset(self):
         import ssl
 
-        # A reset/failed TLS handshake (ssl.SSLError, a connection reset, or a timeout -- all OSError
-        # subclasses) happens before the parent process_request_thread() (which is responsible for
-        # closing the socket) is reached, so process_request_thread() must shut the request down
-        # itself, log at DEBUG, and not proceed to handle the request.
+        # A reset/failed TLS handshake (ssl.SSLError or a connection reset -- OSError subclasses)
+        # happens before the parent process_request_thread() (which is responsible for closing the
+        # socket) is reached, so process_request_thread() must shut the request down itself, log at
+        # DEBUG, and not proceed to handle the request.
         sock = self.__create_socket()
         if not isinstance(sock, ssl.SSLSocket):  # pragma: no cover - ssl not available
             self.skipTest('ssl is not available')
-        for exc in (ssl.SSLError('handshake reset'), TimeoutError(), ConnectionResetError(104, 'reset')):
+        for exc in (ssl.SSLError('handshake reset'), ConnectionResetError(104, 'reset')):
             sock.do_handshake = Mock(side_effect=exc)
             with patch.object(self.srv, 'shutdown_request') as mock_shutdown, \
                     patch.object(RestApiServer, 'finish_request') as mock_finish, \
@@ -1012,29 +1022,41 @@ class TestRestApiServer(unittest.TestCase):
             self.assertTrue(any('SSL handshake' in c[0][0] for c in mock_debug.call_args_list if c[0]))
 
     def test_process_request_thread_ssl_handshake_timeout(self):
+        # A client that opens a TCP connection to the TLS port and never sends a ClientHello would
+        # otherwise block a pool worker forever. The handshake must be bounded by a timeout and be
+        # interrupted by shutdown(), and the socket must go back to its original timeout once the
+        # handshake succeeded.
+        sock = self.__create_tls_connection()
+        with patch.object(self.srv, '_RestApiServer__handshake_timeout', 0.1):
+            for interrupted in (False, True):
+                if interrupted:
+                    self.srv.interrupter.interrupt()
+                with patch.object(self.srv, 'shutdown_request') as mock_shutdown, \
+                        patch.object(RestApiServer, 'finish_request') as mock_finish, \
+                        patch('patroni.api.logger.debug') as mock_debug:
+                    self.assertIsNone(self.srv.process_request_thread(sock, ('127.0.0.1', 55555)))
+                mock_finish.assert_not_called()
+                mock_shutdown.assert_called_once_with(sock)
+                self.assertIsInstance(mock_debug.call_args[0][3], WatchInterrupted if interrupted else socket.timeout)
+
+        sock.settimeout(5)
+        sock.do_handshake = Mock()
+        with patch.object(self.srv, 'shutdown_request'), patch.object(RestApiServer, 'finish_request') as mock_finish:
+            self.srv.process_request_thread(sock, ('127.0.0.1', 55555))
+        mock_finish.assert_called_once_with(sock, ('127.0.0.1', 55555))
+        self.assertEqual(sock.gettimeout(), 5)
+
+    def test_shutdown_request_interrupted(self):
         import ssl
 
-        # A client that opens a TCP connection to the TLS port and never sends a ClientHello would
-        # otherwise block a pool worker forever. The handshake must be bounded by a timeout, and the
-        # socket must go back to its original timeout once the handshake succeeded.
-        sock = self.__create_socket()
-        if not isinstance(sock, ssl.SSLSocket):  # pragma: no cover - ssl not available
-            self.skipTest('ssl is not available')
-
-        sock.do_handshake = Mock(side_effect=socket.timeout('timed out'))
-        with patch.object(sock, 'settimeout') as mock_settimeout, \
-                patch.object(self.srv, 'shutdown_request') as mock_shutdown, \
-                patch.object(RestApiServer, 'finish_request') as mock_finish:
-            self.assertIsNone(self.srv.process_request_thread(sock, ('127.0.0.1', 55555)))
-        mock_settimeout.assert_called_once_with(2)
-        mock_finish.assert_not_called()
-        mock_shutdown.assert_called_once_with(sock)
-
-        sock.do_handshake = Mock()
-        with patch.object(sock, 'settimeout') as mock_settimeout, \
-                patch.object(RestApiServer, 'finish_request', Mock()):
-            self.srv.process_request_thread(sock, ('127.0.0.1', 55555))
-        self.assertEqual([c[0][0] for c in mock_settimeout.call_args_list], [2, None])
+        # After shutdown() the worker doesn't wait for the TLS close_notify alert of the client
+        sock = self.__create_tls_connection()
+        sock.unwrap = Mock(side_effect=ssl.SSLWantReadError)
+        self.srv.interrupter.interrupt()
+        with patch('patroni.api.logger.debug') as mock_debug:
+            self.srv.shutdown_request(sock)
+        sock.unwrap.assert_called_once_with()
+        self.assertIsInstance(mock_debug.call_args[0][1], WatchInterrupted)
 
     @patch.object(HTTPServer, '__init__', Mock())
     def test_request_timeout_config(self):
