@@ -455,6 +455,7 @@ class TestEtcd(unittest.TestCase):
             self.etcd.set_sync_state_value = Mock(return_value='foo')
             self.etcd.write_sync_state('a', ['b'], 0, 1)
 
+
 class TestConfigureTLS(unittest.TestCase):
 
     def _run(self, config, pool_kw=None):
