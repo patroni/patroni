@@ -234,7 +234,7 @@ class TestWatchdog(unittest.TestCase):
     @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
     @patch.object(LinuxWatchdogDevice, 'is_healthy', PropertyMock(return_value=True))
     def test_timeout_too_short(self):
-        # The HA loop would have to run every half a second, but it doesn't run more often than every second
+        # The HA loop would have to run every half a second, more often than with the minimal loop_wait
         too_short = mock_rounding_ioctl(lambda timeout: 1)
         for mode, nowayout, reload in (('required', False, False), ('required', False, True),
                                        ('automatic', False, False), ('automatic', False, True),
@@ -496,18 +496,33 @@ class TestWatchdog(unittest.TestCase):
     @patch.object(LinuxWatchdogDevice, 'is_healthy', PropertyMock(return_value=True))
     def test_failed_timeout_update(self):
         config = {'ttl': 30, 'loop_wait': 10}
-        for mode, ttl in (('automatic', 20), ('required', 20), ('required', 40)):
-            with self.subTest(mode=mode, ttl=ttl):
+        for mode, ttl, applied, readable in (('automatic', 20, None, True), ('required', 20, None, True),
+                                             ('required', 40, None, True), ('required', 40, 48, True),
+                                             ('required', 40, None, False)):
+            with self.subTest(mode=mode, ttl=ttl, applied=applied, readable=readable):
                 config = dict(config, watchdog={'mode': mode})
                 watchdog = Watchdog(config)
+
+                def set_timeout(timeout):
+                    # Linux sets the timeout before pinging the device, which might fail afterwards
+                    if applied:
+                        mock_devices[-1].timeout = applied
+                    raise WatchdogError('')
+
+                def get_timeout():
+                    if readable:
+                        return mock_devices[-1].timeout
+                    raise WatchdogError('')
                 try:
                     self.assertTrue(watchdog.activate())
                     watchdog.reload_config(dict(config, ttl=ttl))
-                    with patch.object(LinuxWatchdogDevice, 'set_timeout', Mock(side_effect=WatchdogError(''))):
+                    with patch.object(LinuxWatchdogDevice, 'set_timeout', Mock(side_effect=set_timeout)), \
+                            patch.object(LinuxWatchdogDevice, 'get_timeout', Mock(side_effect=get_timeout)):
                         watchdog.keepalive()
                     # the previous timeout ensures termination before the longer TTL expires, but not the shorter one
                     self.assertTrue(watchdog.is_running)
-                    self.assertEqual(watchdog.is_activated, mode == 'automatic' or ttl > 30)
+                    self.assertEqual(watchdog.is_activated,
+                                     mode == 'automatic' or ttl > 30 and not applied and readable)
                     # the error might be transient, the node isn't excluded from leader races after the demotion
                     self.assertTrue(watchdog.is_healthy)
                     # the update is retried with the next keepalive
@@ -652,6 +667,32 @@ class TestWatchdog(unittest.TestCase):
                 self.assertEqual(device.timeout, 14)
             finally:
                 watchdog.disable()
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
+    def test_retained_replacement_timeout_is_retried(self):
+        config = {'ttl': 30, 'loop_wait': 10}
+        watchdog = Watchdog(config)
+        try:
+            self.assertTrue(watchdog.activate())
+            watchdog.reload_config(dict(config, watchdog={'device': '/dev/other'}))
+            # Setting the timeout of the replacement fails with a transient error, and it can't be stopped anymore
+            with patch('os.open', mock_nowayout_open), \
+                    patch.object(LinuxWatchdogDevice, 'set_timeout', Mock(side_effect=WatchdogError('EIO'))):
+                watchdog.keepalive()
+                device = mock_devices[-1]
+                self.assertEqual(device.filename, '/dev/other')
+                watchdog.keepalive()
+            self.assertEqual(device.timeout, 60)
+            # It is retried with every keepalive until it succeeds, also without a configuration change
+            watchdog.keepalive()
+            self.assertEqual(device.timeout, 24)
+            self.assertTrue(watchdog.is_activated)
+            with patch.object(LinuxWatchdogDevice, 'set_timeout') as mock_set_timeout:
+                watchdog.keepalive()
+                mock_set_timeout.assert_not_called()
+        finally:
+            watchdog.disable()
 
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
@@ -832,6 +873,32 @@ class TestWatchdog(unittest.TestCase):
                     self.assertTrue(watchdog.activate())
                 self.assertTrue(watchdog.is_running)
                 watchdog.disable()
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
+    def test_reacquire_after_too_short_timeout(self):
+        config = {'ttl': 30, 'loop_wait': 1, 'watchdog': {'safety_margin': 18}}
+        for demoted in (False, True):
+            with self.subTest(demoted=demoted):
+                watchdog = Watchdog(config)
+                try:
+                    self.assertTrue(watchdog.activate())
+                    # the device sets 1 second instead of the requested 2 seconds, so it is disabled
+                    watchdog.reload_config(dict(config, ttl=20))
+                    watchdog.keepalive()
+                    self.assertFalse(watchdog.is_running)
+                    # the device is acquired again once the requested timeout changed
+                    if demoted:
+                        watchdog.disable()
+                        watchdog.reload_config(config)
+                        self.assertTrue(watchdog.activate())
+                    else:
+                        watchdog.reload_config(config)
+                        watchdog.keepalive()
+                    self.assertTrue(watchdog.is_activated)
+                    self.assertEqual(mock_devices[-1].timeout, 11)
+                finally:
+                    watchdog.disable()
 
     @patch('platform.system', Mock(return_value='Linux'))
     def test_mode_off_after_unsafe_timing(self):

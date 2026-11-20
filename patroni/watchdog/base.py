@@ -17,7 +17,9 @@ MODE_REQUIRED = 'required'    # Will not run if a watchdog is not available
 MODE_AUTOMATIC = 'automatic'  # Will use a watchdog if one is available
 MODE_OFF = 'off'              # Will not try to use a watchdog
 
-# The HA loop doesn't run more often than with the minimal loop_wait, see Watchdog.keepalive_interval
+# A watchdog timeout is too short if the HA loop would have to run more often than with the minimal loop_wait to feed
+# it, see Watchdog._is_too_short. It doesn't limit Watchdog.keepalive_interval: until such a watchdog is disabled, or
+# if it can't be stopped, the HA loop still runs as often as needed to feed it.
 MIN_KEEPALIVE_INTERVAL = 1
 
 
@@ -101,6 +103,8 @@ class Watchdog(object):
         self._impl_pending = False
         # The last known timeout of the open implementation, see keepalive_interval
         self._timeout: Optional[int] = None
+        # Applying the configured timeout to the running implementation failed, it is retried with every keepalive
+        self._timeout_pending = False
 
         if self.config.mode == MODE_OFF:
             self.impl = NullWatchdog()
@@ -135,8 +139,13 @@ class Watchdog(object):
             self.config.driver_config != self.active_config.driver_config
 
     def _impl_outdated(self) -> bool:
-        """The configuration requires a new implementation, but replacing it might have been deferred."""
-        return self._impl_pending or self.config.mode != self.active_config.mode or self._device_changed()
+        """The configuration requires a new implementation, but replacing it might have been deferred.
+
+        Also a device that was not activated, e.g. because its timeout was too short, is acquired again once the
+        requested timeout changed.
+        """
+        return self._impl_pending or self.config.mode != self.active_config.mode or self._device_changed() \
+            or self.impl.is_null and self.config.timeout != self.active_config.timeout
 
     def _apply_inactive_config(self) -> None:
         """Apply the configuration while the watchdog is inactive, the implementation is opened on activation."""
@@ -263,7 +272,8 @@ class Watchdog(object):
                 self._unsafe_timeout = True
             return False
         if too_short:
-            # Like after a failed activation, it's acquired again only after the mode or device configuration changed
+            # Like after a failed activation, it's acquired again only after the mode, the device or the requested
+            # timeout changed, see _impl_outdated()
             if self._try_disable_impl():
                 self.impl = NullWatchdog()
             else:
@@ -285,15 +295,25 @@ class Watchdog(object):
         return interval is not None and interval < MIN_KEEPALIVE_INTERVAL
 
     def _set_timeout(self) -> int:
+        self._timeout_pending = True
         if self.impl.has_set_timeout():
             # The device might not accept the requested timeout as is, but returns the one it actually set
-            self._timeout = self.impl.set_timeout(self.config.timeout)
-            return self._timeout
-        return self._get_timeout()
+            actual_timeout = self._timeout = self.impl.set_timeout(self.config.timeout)
+        else:
+            actual_timeout = self._get_timeout()
+        self._timeout_pending = False
+        return actual_timeout
 
     def _get_timeout(self) -> int:
         self._timeout = self.impl.get_timeout()
         return self._timeout
+
+    def _read_timeout(self) -> Optional[int]:
+        """The actual timeout, or ``None`` if it can't be read."""
+        try:
+            return self._get_timeout()
+        except WatchdogError:
+            return None
 
     def _keepalive_interval(self, timeout: int) -> Optional[float]:
         """See keepalive_interval."""
@@ -345,8 +365,9 @@ class Watchdog(object):
             self._apply_unsafe_timing()
             self.active_config = self.config
             return
-        mode_changed = self.config.mode != self.active_config.mode
-        needs_replacement = self._impl_pending or self._device_changed() or mode_changed and not self.impl.is_running
+        # A running implementation is kept on a mode change, only the configured timeout is applied to it
+        needs_replacement = (self._impl_pending or self._device_changed()) if self.impl.is_running \
+            else self._impl_outdated()
 
         if needs_replacement and self._replace_impl():
             self._activated = self._activate()
@@ -401,14 +422,19 @@ class Watchdog(object):
             self.impl.keepalive()
         except WatchdogError as e:
             logger.error("Error while sending keepalive: %s", e)
-        # Even if the keepalive failed, e.g. because the device was removed and has to be replaced
-        if self.config != self.active_config:
-            try:
+        try:
+            # Even if the keepalive failed, e.g. because the device was removed and has to be replaced
+            if self.config != self.active_config:
                 self._apply_config_changes()
-            except WatchdogError as e:
-                logger.error("Error while applying watchdog configuration: %s", e)
-                # It is retried with the next keepalive, until then the armed timeout might be safe enough
-                self._activated = self.config.mode != MODE_REQUIRED or self._is_safe_timeout(self._timeout)
+            # E.g. after a transient error, a device that could not be disabled was retained with its old timeout.
+            # With unsafe timing no timeout is applied, see _apply_unsafe_timing().
+            elif self._timeout_pending and self.impl.is_running and self.config.timing_slack >= 0:
+                self._activated = self._update_timeout()
+        except WatchdogError as e:
+            logger.error("Error while applying watchdog configuration: %s", e)
+            # It is retried with the next keepalive, until then the armed timeout might be safe enough. But the failed
+            # request might have changed it, e.g. Linux sets the timeout before pinging the device.
+            self._activated = self.config.mode != MODE_REQUIRED or self._is_safe_timeout(self._read_timeout())
 
     @property
     @synchronized
