@@ -79,9 +79,11 @@ class TestPatroniLogger(unittest.TestCase):
                               Mock(side_effect=[logging.LogRecord('', logging.INFO, '', 0, '', (), None), Exception])):
                 logging.exception('test')
             logging.error('test')
+            # Stop the logger thread before mocking put_nowait(), otherwise its asynchronous
+            # "Failed to close the old log handler" record could be lost and counted in records_lost.
+            self.assertRaises(Exception, logger.shutdown)
             with patch.object(Queue, 'put_nowait', Mock(side_effect=Full)):
                 self.assertRaises(SystemExit, logger.shutdown)
-            self.assertRaises(Exception, logger.shutdown)
         self.assertLessEqual(logger.queue_size, 2)  # "Failed to close the old log handler" could be still in the queue
         self.assertEqual(logger.records_lost, 0)
         del config['log']['traceback_level']

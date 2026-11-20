@@ -193,6 +193,10 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
             if local or received_new_cert:
                 self.api.reload_config(self.config['restapi'])
             self.watchdog.reload_config(self.config)
+            if self.watchdog.needs_immediate_keepalive:
+                # Not every DCS starts the next cycle right away when the TTL changes, so the HA loop would sleep for
+                # the new loop_wait while the watchdog is still armed with the timeout of the previous configuration.
+                self.ha.wakeup()
             self._last_effective_role = ROLE_CONFIG_SUFFIX_MAP.get(self.postgresql.role)
             self._last_effective_pg_config = \
                 self.config.build_effective_postgresql_configuration(self.postgresql.role)
