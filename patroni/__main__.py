@@ -81,7 +81,7 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
         cluster = self.ensure_dcs_access()
         self.ensure_unique_name(cluster)
 
-        self.watchdog = Watchdog(self.config)
+        self.watchdog = Watchdog(self.config, self._watchdog_timeout)
         self.apply_dynamic_configuration(cluster)
 
         # Initialize global config
@@ -97,6 +97,21 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
 
         self._last_effective_role = None
         self._last_effective_pg_config = self.config['postgresql']
+
+    def _watchdog_timeout(self) -> None:
+        """Request immediate PostgreSQL shutdown without running the normal shutdown hooks."""
+        logger.critical('Watchdog thread expired, requesting immediate PostgreSQL shutdown and terminating Patroni')
+        try:
+            postmaster = self.postgresql.is_running()
+            if postmaster is not None and \
+                    postmaster.signal_stop('immediate', self.postgresql.pgcommand('pg_ctl')) is False:
+                # A primary left running after Patroni exits would keep accepting writes after the leader key expires.
+                logger.critical('Could not request immediate shutdown, killing PostgreSQL')
+                postmaster.signal_kill()
+        except Exception:
+            logger.exception('Failed to stop PostgreSQL after watchdog thread expiry')
+        # os._exit() discards records not yet written by the logger thread
+        self.logger.flush(1)
 
     def ensure_dcs_access(self, sleep_time: int = 5) -> 'Cluster':
         """Continuously attempt to retrieve cluster from DCS with delay.
@@ -280,6 +295,8 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
             self.ha.shutdown()
         except Exception:
             logger.exception('Exception during Ha.shutdown')
+        # The watchdog is still armed only if PostgreSQL was not stopped, e.g. because the stop request failed.
+        self.watchdog.wait_for_thread_expiry()
 
         thread_pool.get_executor().shutdown(wait=False)
 

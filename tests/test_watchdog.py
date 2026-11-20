@@ -1,16 +1,18 @@
 import ctypes
 import errno
 import os
+import signal
 import sys
 import unittest
 
-from unittest.mock import Mock, patch, PropertyMock
+from unittest.mock import call, Mock, patch, PropertyMock
 
 import patroni.watchdog.linux as linuxwd
 
 from patroni.watchdog import Watchdog, WatchdogError
-from patroni.watchdog.base import NullWatchdog
+from patroni.watchdog.base import NullWatchdog, WatchdogConfig
 from patroni.watchdog.linux import LinuxWatchdogDevice
+from patroni.watchdog.thread import ThreadWatchdog
 
 
 class MockDevice:
@@ -93,6 +95,9 @@ def mock_nowayout_ioctl(fd, *args):
 class TestWatchdog(unittest.TestCase):
     def setUp(self):
         mock_devices[:] = [None]
+        thread_start = patch('patroni.watchdog.thread.Thread.start')
+        thread_start.start()
+        self.addCleanup(thread_start.stop)
 
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
@@ -104,7 +109,10 @@ class TestWatchdog(unittest.TestCase):
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'get_timeout', Mock(return_value=16))
     def test_timeout_does_not_ensure_safe_termination(self):
-        Watchdog({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'auto', 'safety_margin': -1}}).activate()
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'auto', 'safety_margin': -1}})
+        watchdog.activate()
+        self.assertEqual(watchdog.impl.get_timeout(), 16)
+        self.assertIsInstance(watchdog.impl, LinuxWatchdogDevice)
         self.assertEqual(len(mock_devices), 2)
 
     @patch('platform.system', Mock(return_value='Linux'))
@@ -125,13 +133,18 @@ class TestWatchdog(unittest.TestCase):
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(Watchdog, 'is_running', PropertyMock(return_value=False))
     def test_watchdog_not_activated(self):
-        self.assertFalse(Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}}).activate())
+        self.assertFalse(Watchdog({
+            'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required', 'fallback': 'thread'}
+        }).activate())
 
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'is_running', PropertyMock(return_value=False))
     def test_watchdog_activate(self):
         with patch.object(LinuxWatchdogDevice, 'open', Mock(side_effect=WatchdogError(''))):
-            self.assertTrue(Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'auto'}}).activate())
+            watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'auto'}})
+            self.addCleanup(watchdog.disable)
+            self.assertTrue(watchdog.activate())
+            self.assertFalse(watchdog.is_running)
         self.assertFalse(Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}}).activate())
 
     @patch('platform.system', Mock(return_value='Linux'))
@@ -170,7 +183,8 @@ class TestWatchdog(unittest.TestCase):
                 self.assertEqual(mock_devices[-1].writes[-1], b'V')
 
     def test_invalid_timings(self):
-        watchdog = Watchdog({'ttl': 30, 'loop_wait': 20, 'watchdog': {'mode': 'automatic', 'safety_margin': -1}})
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 20,
+                            'watchdog': {'mode': 'automatic', 'safety_margin': -1, 'fallback': 'thread'}})
         watchdog.activate()
         self.assertEqual(len(mock_devices), 1)
         self.assertFalse(watchdog.is_running)
@@ -181,16 +195,122 @@ class TestWatchdog(unittest.TestCase):
             self.assertEqual(watchdog.config.mode, 'off')
             warning_mock.assert_called_once()
 
+    def test_parse_fallback(self):
+        default = WatchdogConfig({'ttl': 30, 'loop_wait': 10})
+        self.assertEqual(default.fallback, 'none')
+        for value in ('none', 'thread', 'THREAD', None, 'invalid', True):
+            with self.subTest(value=value), patch('patroni.watchdog.base.logger.warning') as warning_mock:
+                config = WatchdogConfig({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': value}})
+                self.assertEqual(config.driver_config, {})
+                if value in ('thread', 'THREAD'):
+                    self.assertEqual(config.fallback, 'thread')
+                    self.assertNotEqual(config, default)
+                else:
+                    self.assertEqual(config, default)
+                if value in ('invalid', True):
+                    warning_mock.assert_called_once()
+                else:
+                    warning_mock.assert_not_called()
+
     @patch('platform.system', Mock(return_value='Unknown'))
     def test_unsupported_platform(self):
         self.assertRaises(SystemExit, Watchdog, {'ttl': 30, 'loop_wait': 10,
                                                  'watchdog': {'mode': 'required', 'driver': 'bad'}})
 
+    @patch('platform.system', Mock(return_value='Unknown'))
+    def test_automatic_no_fallback(self):
+        for config in ({}, {'watchdog': {'mode': 'automatic'}}, {'watchdog': {'fallback': 'none'}}):
+            with self.subTest(config=config):
+                watchdog = Watchdog(dict(ttl=30, loop_wait=10, **config))
+                self.addCleanup(watchdog.disable)
+                self.assertTrue(watchdog.activate())
+                self.assertFalse(watchdog.is_running)
+                self.assertFalse(watchdog._fallback.is_running)
+
+    @patch('platform.system', Mock(return_value='Unknown'))
+    @patch('patroni.watchdog.thread.Thread')
+    def test_automatic_fallback(self, mock_thread):
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread'}})
+        self.addCleanup(watchdog.disable)
+        mock_thread.return_value.start.assert_called_once()
+        self.assertFalse(watchdog.is_running)
+        with patch('patroni.watchdog.base.logger.warning') as warning_mock:
+            self.assertTrue(watchdog.activate())
+            warning_mock.assert_called_once_with(
+                "Watchdog device is unavailable or unusable, using thread watchdog fallback")
+            warning_mock.reset_mock()
+            watchdog.keepalive()
+            warning_mock.assert_not_called()
+        self.assertTrue(watchdog.is_running)
+        self.assertIsInstance(watchdog.impl, ThreadWatchdog)
+        self.assertEqual(watchdog.impl.get_timeout(), 25)
+        watchdog.disable()
+        self.assertTrue(watchdog.activate())
+        mock_thread.assert_called_once()
+        mock_thread.return_value.start.assert_called_once()
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    @patch('patroni.watchdog.thread.Thread')
+    def test_thread_started_in_other_modes(self, mock_thread):
+        for mode in ('off', 'required'):
+            with self.subTest(mode=mode):
+                mock_thread.reset_mock()
+                watchdog = Watchdog({'ttl': 30, 'loop_wait': 10,
+                                    'watchdog': {'mode': mode, 'fallback': 'thread'}})
+                self.addCleanup(watchdog.disable)
+                fallback = watchdog._fallback
+                mock_thread.return_value.start.assert_called_once()
+                self.assertFalse(fallback.is_running)
+                self.assertTrue(watchdog.activate())
+                self.assertFalse(fallback.is_running)
+                watchdog.reload_config({'ttl': 60, 'loop_wait': 10,
+                                        'watchdog': {'driver': 'unknown', 'fallback': 'thread'}})
+                watchdog.keepalive()
+                self.assertIs(watchdog.impl, fallback)
+                self.assertEqual(watchdog.impl.get_timeout(), 55)
+                mock_thread.assert_called_once()
+                mock_thread.return_value.start.assert_called_once()
+                watchdog.disable()
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    def test_automatic_device_available(self):
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread'}})
+        self.assertTrue(watchdog.activate())
+        self.assertIsInstance(watchdog.impl, LinuxWatchdogDevice)
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    def test_automatic_device_failure(self):
+        for operation in ('open', 'get_support', 'set_timeout'):
+            with self.subTest(operation=operation), \
+                    patch.object(LinuxWatchdogDevice, operation, side_effect=WatchdogError('failed')):
+                watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread'}})
+                self.addCleanup(watchdog.disable)
+                self.assertTrue(watchdog.activate())
+                self.assertIsInstance(watchdog.impl, ThreadWatchdog)
+                if operation != 'open':
+                    self.assertFalse(mock_devices[-1].open)
+                watchdog.disable()
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    def test_automatic_unsafe_timeout(self):
+        # the mock device does not support magic close, but an explicit disable stops it
+        for timeout in (5, 60):
+            with self.subTest(timeout=timeout), patch.object(LinuxWatchdogDevice, 'get_timeout', return_value=timeout):
+                watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread'}})
+                try:
+                    self.assertTrue(watchdog.activate())
+                    self.assertIsInstance(watchdog.impl, ThreadWatchdog)
+                    self.assertEqual(watchdog.impl.get_timeout(), 25)
+                    self.assertFalse(mock_devices[-1].open)
+                    self.assertFalse(mock_devices[-1].armed)
+                finally:
+                    watchdog.disable()
+
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
     @patch.object(LinuxWatchdogDevice, 'get_timeout', Mock(return_value=5))
     def test_set_timeout_keeps_impl(self):
-        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10})
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread'}})
         impl = watchdog.impl
         impl.open()
         self.assertEqual(watchdog._set_timeout(), 5)
@@ -235,9 +355,9 @@ class TestWatchdog(unittest.TestCase):
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'has_set_timeout', Mock(return_value=False))
     def test_timeout_change_with_fixed_timeout_device(self):
-        for mode in ('automatic', 'required'):
-            with self.subTest(mode=mode):
-                config = {'ttl': 90, 'loop_wait': 10, 'watchdog': {'mode': mode}}
+        for mode, fallback in (('automatic', 'none'), ('automatic', 'thread'), ('required', 'none')):
+            with self.subTest(mode=mode, fallback=fallback):
+                config = {'ttl': 90, 'loop_wait': 10, 'watchdog': {'mode': mode, 'fallback': fallback}}
                 watchdog = Watchdog(config)
                 try:
                     self.assertTrue(watchdog.activate())
@@ -252,9 +372,55 @@ class TestWatchdog(unittest.TestCase):
                     self.assertIs(watchdog.impl, impl)
                     self.assertEqual(impl.get_timeout(), 60)
                     self.assertTrue(watchdog.is_running)
+                    self.assertFalse(watchdog._fallback.is_running)
                     self.assertEqual(watchdog.active_config, watchdog.config)
                 finally:
                     watchdog.disable()
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
+    @patch.object(LinuxWatchdogDevice, 'get_timeout', Mock(return_value=25))
+    def test_fallback_rechecks_timeout_on_reload(self):
+        for ttl, fallback in ((40, 'thread'), (20, 'none')):
+            with self.subTest(ttl=ttl, fallback=fallback):
+                watchdog = Watchdog({'ttl': ttl, 'loop_wait': 5, 'watchdog': {'fallback': fallback}})
+                self.assertTrue(watchdog.activate())
+                device = mock_devices[-1]
+                watchdog.reload_config({'ttl': 20, 'loop_wait': 5, 'watchdog': {'fallback': 'thread'}})
+                watchdog.keepalive()
+                self.assertIsInstance(watchdog.impl, ThreadWatchdog)
+                self.assertEqual(watchdog.impl.get_timeout(), 15)
+                self.assertFalse(device.open)
+                self.assertFalse(device.armed)
+                self.assertEqual(device.writes[-1], b'V')
+                watchdog.disable()
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
+    def test_fallback_retains_nowayout_device(self):
+        # a timeout shorter than loop_wait is covered by test_unsafe_timeout_falls_back_to_magic_close
+        for timeout in (25, 60):
+            with self.subTest(timeout=timeout), \
+                    patch.object(LinuxWatchdogDevice, 'get_timeout', return_value=timeout), \
+                    patch('fcntl.ioctl', mock_nowayout_ioctl):
+                watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread'}})
+                self.assertTrue(watchdog.activate())
+                device = mock_devices[-1]
+                self.assertIsInstance(watchdog.impl, LinuxWatchdogDevice)
+                self.assertTrue(device.open)
+                self.assertTrue(device.armed)
+                self.assertFalse(watchdog._fallback.is_running)
+                watchdog.keepalive()
+                self.assertEqual(device.writes[-1], b'1')
+                impl = watchdog.impl
+                watchdog.reload_config({
+                    'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread', 'device': '/dev/other'}
+                })
+                watchdog.keepalive()
+                self.assertIs(watchdog.impl, impl)
+                self.assertTrue(device.open)
+                self.assertTrue(device.armed)
+                self.assertFalse(watchdog._fallback.is_running)
 
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
@@ -262,13 +428,16 @@ class TestWatchdog(unittest.TestCase):
     def test_activation_error_retains_device_when_disable_fails(self):
         for mode, expected in (('automatic', True), ('required', False)):
             with self.subTest(mode=mode), patch('fcntl.ioctl', mock_nowayout_ioctl):
-                watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': mode}})
+                watchdog = Watchdog({
+                    'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': mode, 'fallback': 'thread'}
+                })
                 impl = watchdog.impl
                 self.assertEqual(watchdog.activate(), expected)
                 self.assertIs(watchdog.impl, impl)
                 self.assertTrue(watchdog.active)
                 self.assertTrue(mock_devices[-1].open)
                 self.assertTrue(mock_devices[-1].armed)
+                self.assertFalse(watchdog._fallback.is_running)
                 watchdog.keepalive()
                 self.assertEqual(mock_devices[-1].writes[-1], b'1')
 
@@ -277,16 +446,21 @@ class TestWatchdog(unittest.TestCase):
     def test_mode_change_retains_device_when_disable_fails(self):
         for initial_mode, mode, expected in (('required', 'automatic', True), ('automatic', 'required', False)):
             with self.subTest(mode=mode), patch('fcntl.ioctl', mock_nowayout_ioctl):
-                watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': initial_mode}})
+                watchdog = Watchdog({
+                    'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': initial_mode, 'fallback': 'thread'}
+                })
                 self.assertTrue(watchdog.activate())
                 impl = watchdog.impl
                 device = mock_devices[-1]
-                watchdog.reload_config({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': mode}})
+                watchdog.reload_config({
+                    'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': mode, 'fallback': 'thread'}
+                })
                 self.assertEqual(watchdog.activate(), expected)
                 self.assertIs(watchdog.impl, impl)
                 self.assertTrue(watchdog.active)
                 self.assertTrue(device.open)
                 self.assertTrue(device.armed)
+                self.assertFalse(watchdog._fallback.is_running)
                 writes = len(device.writes)
                 watchdog.keepalive()
                 self.assertEqual(device.writes[writes:], [b'1'])
@@ -295,7 +469,7 @@ class TestWatchdog(unittest.TestCase):
     @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
     def test_keepalive_applies_config_when_device_is_retained(self):
         with patch('fcntl.ioctl', mock_nowayout_ioctl):
-            config = {'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'automatic'}}
+            config = {'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'automatic', 'fallback': 'thread'}}
             watchdog = Watchdog(config)
             self.assertTrue(watchdog.activate())
             impl = watchdog.impl
@@ -335,12 +509,140 @@ class TestWatchdog(unittest.TestCase):
             self.assertTrue(mock_devices[-1].open)
 
     @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'keepalive', Mock(side_effect=WatchdogError('failed')))
+    def test_automatic_keepalive_failure(self):
+        on_timeout = Mock()
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread'}}, on_timeout)
+        self.assertTrue(watchdog.activate())
+        with patch.object(LinuxWatchdogDevice, 'disable', Mock(side_effect=WatchdogError('failed'))):
+            watchdog.keepalive()
+        self.assertIsInstance(watchdog.impl, LinuxWatchdogDevice)
+        self.assertTrue(mock_devices[-1].open)
+        watchdog.keepalive()
+        self.assertIsInstance(watchdog.impl, ThreadWatchdog)
+        self.assertIs(watchdog.impl._on_timeout, on_timeout)
+        self.assertFalse(mock_devices[-1].open)
+        self.assertFalse(mock_devices[-1].armed)
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    def test_keepalive_failure_without_fallback(self):
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10})
+        self.assertTrue(watchdog.activate())
+        device = watchdog.impl
+        with patch.object(LinuxWatchdogDevice, 'keepalive', side_effect=WatchdogError('failed')):
+            watchdog.keepalive()
+            self.assertIs(watchdog.impl, device)
+            self.assertTrue(mock_devices[-1].open)
+            self.assertFalse(watchdog._fallback.is_running)
+            watchdog.disable()
+        self.assertFalse(mock_devices[-1].open)
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    def test_keepalive_failure_device_removed(self):
+        def unsupported_ioctl(fd, op, *args):
+            if op == linuxwd.WDIOC_GETSUPPORT:
+                raise OSError(errno.ENOTTY, 'Inappropriate ioctl for device')
+            return mock_legacy_ioctl(fd, op, *args)
+
+        # a device that can be neither configured nor disabled is kept without a cached support query result
+        for ioctl in (mock_ioctl, unsupported_ioctl):
+            with self.subTest(ioctl=ioctl.__name__):
+                watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread'}})
+                with patch('fcntl.ioctl', ioctl):
+                    self.assertTrue(watchdog.activate())
+                self.assertIsInstance(watchdog.impl, LinuxWatchdogDevice)
+                removed = OSError(errno.ENODEV, 'No such device')
+                with patch('os.write', side_effect=removed), patch('fcntl.ioctl', side_effect=removed):
+                    watchdog.keepalive()
+                self.assertIsInstance(watchdog.impl, ThreadWatchdog)
+                self.assertTrue(watchdog.is_running)
+                self.assertFalse(mock_devices[-1].open)
+                watchdog.disable()
+
+    @patch('platform.system', Mock(return_value='Unknown'))
+    def test_fallback_reload(self):
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10})
+        self.addCleanup(watchdog.disable)
+        fallback = watchdog._fallback
+        self.assertTrue(watchdog.activate())
+        watchdog.reload_config({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread'}})
+        self.assertFalse(watchdog.is_running)
+        watchdog.keepalive()
+        self.assertIs(watchdog.impl, fallback)
+        self.assertTrue(watchdog.is_running)
+        watchdog.reload_config({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'none'}})
+        self.assertFalse(watchdog.is_running)
+        self.assertFalse(fallback.is_running)
+        watchdog.keepalive()
+        self.assertFalse(watchdog.is_running)
+        watchdog.reload_config({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread'}})
+        self.assertTrue(watchdog.activate())
+        self.assertIs(watchdog.impl, fallback)
+        watchdog.disable()
+        watchdog.reload_config({'ttl': 30, 'loop_wait': 10})
+        self.assertTrue(watchdog.activate())
+        self.assertFalse(watchdog.is_running)
+        self.assertFalse(fallback.is_running)
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    def test_fallback_reload_with_device(self):
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10})
+        self.assertTrue(watchdog.activate())
+        device = watchdog.impl
+        for fallback in ('thread', 'none'):
+            watchdog.reload_config({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': fallback}})
+            watchdog.keepalive()
+            self.assertIs(watchdog.impl, device)
+            self.assertTrue(mock_devices[-1].open)
+            self.assertEqual(len(mock_devices), 2)
+            self.assertFalse(watchdog._fallback.is_running)
+
+    @patch('platform.system', Mock(return_value='Unknown'))
+    def test_fallback_unsafe_timeout_reload(self):
+        for config in ({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread', 'safety_margin': 25}},
+                       {'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread', 'safety_margin': 30}},
+                       {'ttl': 30, 'loop_wait': 26, 'watchdog': {'fallback': 'thread'}}):
+            with self.subTest(config=config):
+                watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread'}})
+                self.assertTrue(watchdog.activate())
+                fallback = watchdog.impl
+                self.assertIsInstance(fallback, ThreadWatchdog)
+                watchdog.reload_config(config)
+                # the armed timeout protects the leader key until the keepalive that follows its update with the new
+                # TTL, which has to be sent right away if the next HA loop sleep would be longer
+                self.assertTrue(fallback.is_running)
+                self.assertEqual(watchdog.needs_immediate_keepalive, config['loop_wait'] > 25)
+                watchdog.keepalive()
+                self.assertFalse(fallback.is_running)
+                self.assertFalse(watchdog.is_running)
+                watchdog.reload_config({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread'}})
+                self.assertTrue(watchdog.activate())
+                self.assertIs(watchdog.impl, fallback)
+                self.assertEqual(fallback.get_timeout(), 25)
+
+    @patch('platform.system', Mock(return_value='Unknown'))
+    def test_fallback_longer_loop_wait_reload(self):
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread', 'safety_margin': 10}})
+        self.addCleanup(watchdog.disable)
+        self.assertTrue(watchdog.activate())
+        self.assertFalse(watchdog.needs_immediate_keepalive)
+        # the new configuration is safe, but the next HA loop sleep is longer than the armed 20 second timeout
+        watchdog.reload_config({'ttl': 60, 'loop_wait': 25, 'watchdog': {'fallback': 'thread', 'safety_margin': 10}})
+        self.assertTrue(watchdog.is_running)
+        self.assertEqual(watchdog.impl.get_timeout(), 20)
+        self.assertTrue(watchdog.needs_immediate_keepalive)
+        watchdog.keepalive()
+        self.assertEqual(watchdog.impl.get_timeout(), 50)
+        self.assertFalse(watchdog.needs_immediate_keepalive)
+
+    @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
     def test_unsafe_timing_reload_with_device(self):
         config = {'ttl': 30, 'loop_wait': 10, 'watchdog': {'safety_margin': 12}}
-        for demoted in (False, True):
-            with self.subTest(demoted=demoted):
+        for fallback, demoted in (('none', False), ('thread', False), ('none', True)):
+            with self.subTest(fallback=fallback, demoted=demoted):
                 mock_devices[:] = [None]
+                config['watchdog']['fallback'] = fallback
                 watchdog = Watchdog(config)
                 try:
                     self.assertTrue(watchdog.activate())
@@ -354,6 +656,7 @@ class TestWatchdog(unittest.TestCase):
                     self.assertFalse(device.open)
                     self.assertFalse(device.armed)
                     self.assertFalse(watchdog.is_running)
+                    self.assertFalse(watchdog._fallback.is_running)
                     # the device is acquired again once the timing is fixed
                     if demoted:
                         watchdog.disable()
@@ -394,12 +697,103 @@ class TestWatchdog(unittest.TestCase):
                 self.assertTrue(mock_devices[-1].armed)
 
     @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
+    @patch.object(LinuxWatchdogDevice, 'has_set_timeout', Mock(return_value=False))
+    @patch.object(LinuxWatchdogDevice, 'get_timeout', Mock(return_value=15))
+    def test_longer_loop_wait_reload_with_fixed_timeout_device(self):
+        for fallback in ('none', 'thread'):
+            with self.subTest(fallback=fallback):
+                config = {'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': fallback}}
+                watchdog = Watchdog(config)
+                try:
+                    self.assertTrue(watchdog.activate())
+                    device = mock_devices[-1]
+                    watchdog.reload_config(dict(config, loop_wait=18))
+                    self.assertTrue(watchdog.needs_immediate_keepalive)
+                    with self.assertLogs('patroni.watchdog.base', 'ERROR'):
+                        watchdog.keepalive()
+                    self.assertFalse(device.armed)
+                    self.assertEqual(watchdog.is_running, fallback == 'thread')
+                    self.assertEqual(watchdog._fallback.is_running, fallback == 'thread')
+                finally:
+                    watchdog.disable()
+
+    @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'get_timeout', Mock(side_effect=WatchdogError('')))
     def test_needs_immediate_keepalive_get_timeout_error(self):
         watchdog = Watchdog({'ttl': 30, 'loop_wait': 10})
         watchdog.active = True
         with patch.object(LinuxWatchdogDevice, 'is_running', PropertyMock(return_value=True)):
             self.assertTrue(watchdog.needs_immediate_keepalive)
+
+    @patch('platform.system', Mock(return_value='Unknown'))
+    def test_automatic_config_reload(self):
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread'}})
+        self.addCleanup(watchdog.disable)
+        self.assertTrue(watchdog.activate())
+        watchdog.reload_config({'ttl': 60, 'loop_wait': 10, 'watchdog': {'fallback': 'thread'}})
+        self.assertEqual(watchdog.impl.get_timeout(), 25)
+        watchdog.keepalive()
+        self.assertEqual(watchdog.impl.get_timeout(), 55)
+
+        old_thread = watchdog.impl._thread
+        watchdog.reload_config({
+            'ttl': 60, 'loop_wait': 10, 'watchdog': {'device': '/dev/other', 'fallback': 'thread'}
+        })
+        watchdog.keepalive()
+        self.assertIs(watchdog.impl._thread, old_thread)
+        self.assertTrue(watchdog.is_running)
+
+        watchdog.reload_config({
+            'ttl': 60, 'loop_wait': 10, 'watchdog': {'mode': 'required', 'fallback': 'thread'}
+        })
+        self.assertFalse(watchdog.is_healthy)
+        self.assertFalse(watchdog.activate())
+        watchdog.keepalive()
+        self.assertFalse(watchdog.is_running)
+        self.assertFalse(watchdog.is_healthy)
+        self.assertFalse(watchdog.activate())
+
+        watchdog.reload_config({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread'}})
+        self.assertTrue(watchdog.activate())
+        self.assertIsInstance(watchdog.impl, ThreadWatchdog)
+        watchdog.reload_config({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'off', 'fallback': 'thread'}})
+        self.assertFalse(watchdog.is_running)
+        watchdog.reload_config({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread'}})
+        watchdog.keepalive()
+        self.assertTrue(watchdog.is_running)
+        self.assertIs(watchdog.impl._thread, old_thread)
+
+        watchdog.disable()
+        watchdog.reload_config({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}})
+        self.assertFalse(watchdog.activate())
+
+    @patch('platform.system', Mock(return_value='Unknown'))
+    @patch('patroni.watchdog.thread.Thread.start', side_effect=RuntimeError('no threads'))
+    def test_automatic_thread_start_failure(self, mock_start):
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread'}})
+        mock_start.assert_called_once()
+        self.assertTrue(watchdog.activate())
+        watchdog.disable()
+        self.assertTrue(watchdog.activate())
+        self.assertFalse(watchdog.is_running)
+        mock_start.assert_called_once()
+
+    @patch('platform.system', Mock(return_value='Unknown'))
+    def test_automatic_fallback_activation_failure(self):
+        for operation in ('set_timeout', 'open'):
+            error = WatchdogError('failed')
+            with self.subTest(operation=operation), \
+                    patch.object(ThreadWatchdog, operation, side_effect=error) as mock_operation, \
+                    patch('patroni.watchdog.base.logger.warning') as mock_warning:
+                watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread'}})
+                self.addCleanup(watchdog.disable)
+                self.assertTrue(watchdog.activate())
+                mock_operation.assert_called_once()
+                mock_warning.assert_called_once_with('Could not activate %s: %s', 'ThreadWatchdog', error)
+                self.assertIsInstance(watchdog.impl, NullWatchdog)
+                self.assertFalse(watchdog.is_running)
+                self.assertFalse(watchdog._fallback.is_running)
 
     def test_exceptions(self):
         wd = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'bad'}})
@@ -611,6 +1005,185 @@ class TestWatchdog(unittest.TestCase):
             watchdog.keepalive()
         self.assertFalse(device.open)
         self.assertEqual(device.writes[-1], b'V')
+
+
+class TestThreadWatchdog(unittest.TestCase):
+
+    def setUp(self):
+        self.clock = patch('patroni.watchdog.thread.time.monotonic', return_value=100).start()
+        self.thread = patch('patroni.watchdog.thread.Thread').start()
+        self.exit = patch('patroni.watchdog.thread.os._exit').start()
+        self.guard = patch('patroni.watchdog.thread.faulthandler.dump_traceback_later').start()
+        self.alarm = patch('patroni.watchdog.thread.signal.alarm', create=True).start()
+        self.sys = patch('patroni.watchdog.thread.sys').start()
+        self.sys.stderr.fileno.return_value = 2
+        self.addCleanup(patch.stopall)
+        self.on_timeout = Mock()
+        self.watchdog = ThreadWatchdog(25, self.on_timeout)
+        self.addCleanup(self.watchdog.close)
+
+    def test_lifecycle(self):
+        self.assertTrue(self.watchdog.is_healthy)
+        self.assertTrue(self.watchdog.can_be_disabled)
+        self.assertTrue(self.watchdog.has_set_timeout())
+        self.assertFalse(self.watchdog.is_running)
+        self.thread.assert_called_once_with(target=self.watchdog._run, name='watchdog', daemon=True)
+        self.thread.return_value.start.assert_called_once()
+        self.watchdog.open()
+        self.watchdog.open()
+        self.thread.assert_called_once_with(target=self.watchdog._run, name='watchdog', daemon=True)
+        self.thread.return_value.start.assert_called_once()
+        self.assertTrue(self.watchdog.is_running)
+        self.assertEqual(self.watchdog._deadline, 125)
+        self.clock.return_value = 110
+        self.watchdog.keepalive()
+        self.assertEqual(self.watchdog._deadline, 135)
+        self.watchdog.close()
+        self.thread.return_value.join.assert_not_called()
+        self.assertFalse(self.watchdog.is_running)
+        self.watchdog.keepalive()
+        with patch.object(self.watchdog._condition, 'wait', side_effect=RuntimeError('idle')) as mock_wait:
+            self.assertRaises(RuntimeError, self.watchdog._run)
+        mock_wait.assert_called_once_with()
+        self.on_timeout.assert_not_called()
+        self.exit.assert_not_called()
+        self.clock.return_value = 200
+        self.watchdog.open()
+        self.assertEqual(self.watchdog._deadline, 225)
+        self.thread.assert_called_once()
+        self.thread.return_value.start.assert_called_once()
+
+    def test_waits_when_disarmed(self):
+        def expire():
+            self.clock.return_value = 125
+
+        wakeups = iter((self.watchdog.open, self.watchdog.close, self.watchdog.open, expire))
+
+        def wakeup(timeout=None):
+            next(wakeups)()
+
+        with patch.object(self.watchdog._condition, 'wait', side_effect=wakeup) as mock_wait, \
+                patch('patroni.watchdog.thread.time.sleep', side_effect=wakeup) as mock_sleep:
+            self.watchdog._run()
+        self.assertEqual(mock_wait.call_args_list, [call(), call()])
+        self.assertEqual(mock_sleep.call_args_list, [call(1), call(1)])
+        self.on_timeout.assert_called_once()
+        self.exit.assert_called_once_with(1)
+
+    def test_timeout(self):
+        actions = Mock()
+        actions.attach_mock(self.guard, 'guard')
+        actions.attach_mock(self.alarm, 'alarm')
+        actions.attach_mock(self.on_timeout, 'shutdown')
+        actions.attach_mock(self.exit, 'exit')
+        self.watchdog.open()
+        self.clock.side_effect = [110, 124.5, 125]
+        with patch('patroni.watchdog.thread.time.sleep') as mock_sleep:
+            self.watchdog._run()
+        self.assertEqual(mock_sleep.call_args_list, [call(1), call(0.5)])
+        # the alarm can't block, so it is armed first; a file descriptor stops faulthandler from flushing sys.stderr
+        expected = ([call.alarm(10)] if os.name != 'nt' else []) + \
+            [call.guard(5, exit=True, file=2), call.shutdown(), call.exit(1)]
+        self.assertEqual(actions.mock_calls, expected)
+        self.assertFalse(self.watchdog.is_running)
+
+    def test_late_keepalive(self):
+        self.watchdog.open()
+        self.clock.return_value = 125
+        self.watchdog.keepalive()
+        self.watchdog.set_timeout(100)
+        self.assertEqual(self.watchdog._deadline, 125)
+        self.watchdog._run()
+        self.on_timeout.assert_called_once()
+        self.exit.assert_called_once_with(1)
+
+    def test_set_timeout(self):
+        self.watchdog.open()
+        self.clock.return_value = 110
+        self.watchdog.keepalive()
+        self.clock.return_value = 115
+        self.watchdog.set_timeout(40)
+        self.assertEqual(self.watchdog.get_timeout(), 40)
+        self.assertEqual(self.watchdog._deadline, 150)
+        self.watchdog.set_timeout(5)
+        self.watchdog._run()
+        self.on_timeout.assert_called_once()
+        self.exit.assert_called_once_with(1)
+        self.watchdog.close()
+        self.watchdog.set_timeout(30)
+        self.assertFalse(self.watchdog.is_running)
+
+    def test_shutdown_error(self):
+        self.watchdog.open()
+        self.clock.return_value = 125
+        self.sys.stderr = None
+        self.on_timeout.side_effect = RuntimeError('shutdown failed')
+        with self.assertLogs('patroni.watchdog.thread', 'WARNING') as logs:
+            self.watchdog._run()
+        self.assertEqual([r.levelname for r in logs.records], ['WARNING', 'ERROR'])
+        self.guard.assert_not_called()
+        if os.name != 'nt':
+            self.alarm.assert_called_once_with(10)
+        self.on_timeout.assert_called_once()
+        self.exit.assert_called_once_with(1)
+
+    def test_no_callback(self):
+        self.watchdog._on_timeout = None
+        self.watchdog.open()
+        self.clock.return_value = 125
+        self.watchdog._run()
+        self.exit.assert_called_once_with(1)
+
+    def test_wait(self):
+        with patch.object(self.watchdog._condition, 'wait', side_effect=self.watchdog.close) as mock_wait:
+            self.watchdog.wait()
+            mock_wait.assert_not_called()
+            self.watchdog.open()
+            with self.assertLogs('patroni.watchdog.thread', 'WARNING'):
+                self.watchdog.wait()
+            mock_wait.assert_called_once_with()
+            # the timeout handler is still running once the deadline is cleared
+            self.watchdog.open()
+            self.clock.return_value = 125
+            self.watchdog._run()
+            mock_wait.side_effect = RuntimeError('still blocked')
+            self.assertRaises(RuntimeError, self.watchdog.wait)
+
+    def test_wait_ignores_interrupt(self):
+        def wait():
+            if mock_wait.call_count == 1:
+                raise KeyboardInterrupt
+            self.watchdog.close()
+
+        self.watchdog.open()
+        with patch.object(self.watchdog._condition, 'wait', side_effect=wait) as mock_wait, \
+                self.assertLogs('patroni.watchdog.thread', 'WARNING') as logs:
+            self.watchdog.wait()
+        self.assertEqual(mock_wait.call_count, 2)
+        self.assertIn('Ignoring interrupt', logs.output[-1])
+
+    @unittest.skipIf(os.name == 'nt', 'SIGALRM is not available on Windows')
+    @patch('patroni.watchdog.thread.signal.signal')
+    @patch('patroni.watchdog.thread.signal.getsignal')
+    def test_reset_ignored_alarm(self, mock_getsignal, mock_signal):
+        mock_getsignal.return_value = signal.SIG_IGN
+        ThreadWatchdog(25)
+        for handler in (signal.SIG_DFL, Mock()):
+            mock_getsignal.return_value = handler
+            self.watchdog.open()
+            self.watchdog.close()
+        mock_getsignal.return_value = signal.SIG_IGN
+        with patch('patroni.watchdog.thread.current_thread', Mock()):
+            self.watchdog.open()
+        self.watchdog.close()
+        mock_signal.assert_not_called()
+        self.watchdog.open()
+        mock_signal.assert_called_once_with(signal.SIGALRM, signal.SIG_DFL)
+
+    def test_start_failure(self):
+        self.thread.return_value.start.side_effect = RuntimeError('no threads')
+        self.assertRaises(WatchdogError, ThreadWatchdog, 25)
+        self.assertFalse(self.watchdog.is_running)
 
 
 class TestNullWatchdog(unittest.TestCase):

@@ -100,7 +100,7 @@ class PatroniController(AbstractController):
         PatroniController.__PORT += 1
         self._data_dir = os.path.join(work_directory, 'data', name)
         self._connstring = None
-        if custom_config and 'watchdog' in custom_config:
+        if custom_config and custom_config.get('watchdog') is True:
             self.watchdog = WatchdogMonitor(name, work_directory, output_dir)
             custom_config['watchdog'] = {'driver': 'testing', 'device': self.watchdog.fifo_path, 'mode': 'required'}
         else:
@@ -352,6 +352,18 @@ class PatroniController(AbstractController):
         self._closables.append(hang)
         hang.start()
 
+    def postgres_connection_hang(self, timeout):
+        row = self.query("SELECT pid FROM pg_catalog.pg_stat_activity"
+                         " WHERE application_name = 'Patroni heartbeat'").fetchone()
+        assert row, 'Patroni heartbeat connection is not available'
+        postmaster_pid = self._get_pid()
+        assert postmaster_pid, 'PostgreSQL is not running'
+        postmaster = psutil.Process(postmaster_pid)
+        hang = ProcessHang(row[0], timeout)
+        self._closables.append(hang)
+        hang.start()
+        return postmaster
+
     def cancel_background(self):
         for obj in self._closables:
             obj.close()
@@ -395,7 +407,10 @@ class ProcessHang(object):
         try:
             self._cancelled.wait(self.timeout)
         finally:
-            os.kill(self.pid, signal.SIGCONT)
+            try:
+                os.kill(self.pid, signal.SIGCONT)
+            except ProcessLookupError:
+                pass
 
     def close(self):
         self._cancelled.set()
@@ -865,7 +880,8 @@ class PatroniPoolController(object):
 
     def __getattr__(self, func):
         if func not in ['stop', 'query', 'write_label', 'read_label', 'read_config', 'check_role_has_changed_to',
-                        'add_tag_to_config', 'get_watchdog', 'patroni_hang', 'backup', 'read_patroni_log']:
+                        'add_tag_to_config', 'get_watchdog', 'patroni_hang', 'postgres_connection_hang',
+                        'backup', 'read_patroni_log']:
             raise AttributeError("PatroniPoolController instance has no attribute '{0}'".format(func))
 
         def wrapper(name, *args, **kwargs):
@@ -1187,6 +1203,9 @@ def after_feature(context, feature):
 
 
 def before_scenario(context, scenario):
+    if 'thread-watchdog' in scenario.effective_tags and os.name == 'nt':
+        scenario.skip('SIGSTOP is not supported on Windows')
+        return
     server_version = context.pctl.server_version
     if server_version:
         for tag in scenario.effective_tags:

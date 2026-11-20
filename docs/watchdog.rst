@@ -21,7 +21,56 @@ Safety margin is the amount of time that Patroni reserves for time between leade
 
 During demotion, once PostgreSQL has started shutting down, Patroni can disable the watchdog as soon as all user backends have exited. If there are no user backends, it can disable the watchdog without waiting for the remaining PostgreSQL shutdown work to finish.
 
-Currently watchdogs are only supported using Linux watchdog device interface.
+Patroni supports watchdog devices through the Linux watchdog device interface. In ``automatic`` mode,
+``watchdog.fallback`` defaults to ``none``, so no thread fallback is used. Setting it to ``thread`` enables
+the fallback described below. ``required`` mode requires a usable watchdog device and never uses the thread
+fallback; ``off`` disables both implementations.
+
+With the fallback enabled, Patroni can use a thread if a device is unavailable, cannot provide a suitable timeout,
+or fails to accept a keepalive. The thread uses the same configured timeout and safety margin as a device,
+and its timeout must be at least ``loop_wait``. Patroni logs a warning when activating the thread fallback.
+Timeout changes and enabling the fallback trigger a device timeout suitability check on the next keepalive.
+
+Patroni replaces an active device with the thread fallback only after confirming that the device has stopped.
+On Linux, this requires a successful explicit disable ioctl; closing the device alone does not confirm this.
+If disabling fails or is unsupported, Patroni does not switch to the thread fallback. A device that has disappeared,
+for example because its driver was unbound, reports ``ENODEV`` and can no longer be pinged or stopped, so Patroni
+releases it and switches to the thread fallback.
+
+Thread watchdog fallback
+------------------------
+
+To enable the fallback explicitly:
+
+.. code-block:: yaml
+
+        watchdog:
+            mode: automatic
+            fallback: thread
+            safety_margin: 5
+
+The watchdog thread is started during Patroni initialization and waits while disarmed. Activation, disabling, and
+configuration changes reuse this same thread rather than starting or stopping a worker.
+Reloading ``fallback: none`` disarms an active fallback immediately. Enabling the fallback while the watchdog is
+active takes effect on the next keepalive. Changing only this setting does not replace a working device watchdog.
+
+The watchdog thread tracks HA-loop keepalives using a monotonic clock. If no keepalive arrives before the timeout,
+it logs a critical message, requests immediate PostgreSQL shutdown, and forcibly exits Patroni without running normal
+shutdown handlers.
+This bypasses checkpoints and user-defined shutdown callbacks. It does not wait for PostgreSQL shutdown to finish.
+If requesting the shutdown takes longer than 5 seconds, Patroni writes the stacks of all its threads to standard
+error and exits anyway. On POSIX systems, if writing the stacks blocks, for example because the reader of standard
+error is stalled, ``SIGALRM`` terminates Patroni after 10 seconds.
+As with a device watchdog, the thread is disarmed when Patroni disables the watchdog, including during pause and
+after demotion reaches a safe point. Unlike a device, the thread cannot outlive Patroni, so if Patroni is shutting
+down but could not stop PostgreSQL, it keeps running until the armed thread expires. The stop timeout of the service
+manager, for example ``TimeoutStopSec`` of systemd, should therefore exceed the watchdog timeout.
+
+This fallback is best-effort protection against a stalled HA loop, not a substitute for a watchdog device.
+It cannot run if Patroni is killed or suspended, if Python cannot schedule the watchdog thread, or if the operating
+system or virtual machine is stalled. It cannot guarantee that PostgreSQL will process the shutdown request before
+the leader key expires, and it does not reboot the host. Use ``required`` mode with a watchdog device when those
+stronger guarantees are needed.
 
 Setting up software watchdog on Linux
 -------------------------------------

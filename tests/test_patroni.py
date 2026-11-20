@@ -23,6 +23,7 @@ from patroni.log import PatroniLogger
 from patroni.postgresql import Postgresql
 from patroni.postgresql.config import ConfigHandler
 from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
+from patroni.watchdog.thread import ThreadWatchdog
 
 from . import psycopg_connect, SleepException
 from .test_etcd import etcd_read, etcd_write
@@ -102,6 +103,23 @@ class TestPatroni(unittest.TestCase):
 
     def tearDown(self):
         logging.getLogger().handlers[:] = self._handlers
+
+    def test_watchdog_timeout(self):
+        self.assertEqual(self.p.watchdog._fallback._on_timeout, self.p._watchdog_timeout)
+        postmaster = MockPostmaster()
+        with patch.object(Postgresql, 'is_running', Mock(side_effect=[postmaster, postmaster, None, OSError])), \
+                patch.object(PatroniLogger, 'flush') as mock_flush, self.assertLogs('patroni.__main__') as logs:
+            self.p._watchdog_timeout()
+            postmaster.signal_stop.assert_called_once_with('immediate', self.p.postgresql.pgcommand('pg_ctl'))
+            postmaster.signal_kill.assert_not_called()
+            mock_flush.assert_called_once_with(1)
+            postmaster.signal_stop.return_value = False
+            self.p._watchdog_timeout()
+            postmaster.signal_kill.assert_called_once_with()
+            self.p._watchdog_timeout()
+            self.p._watchdog_timeout()
+        self.assertIn('Failed to stop PostgreSQL after watchdog thread expiry', logs.output[-1])
+        self.assertEqual(mock_flush.call_count, 4)
 
     def test_apply_dynamic_configuration(self):
         empty_cluster = Cluster.empty()
@@ -410,7 +428,9 @@ class TestPatroni(unittest.TestCase):
     def test_shutdown(self):
         self.p.api.shutdown = Mock(side_effect=Exception)
         self.p.ha.shutdown = Mock(side_effect=Exception)
-        self.p.shutdown()
+        with patch.object(ThreadWatchdog, 'wait') as mock_wait:
+            self.p.shutdown()
+        mock_wait.assert_called_once_with()
 
     def test_check_psycopg(self):
         with patch('builtins.__import__', Mock(side_effect=ImportError)):
