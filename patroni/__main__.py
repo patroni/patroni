@@ -277,6 +277,24 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
         """
         self.ha.wakeup()
 
+    def _emergency_shutdown(self) -> None:
+        """Request fast shutdown of Postgres, unless paused, without waiting for it. Kill Postgres if it fails.
+
+        .. note::
+            Unlike :func:`~patroni.ha.Ha.shutdown`, doesn't run callbacks, doesn't wait for synchronous standbys and
+            doesn't remove the leader key, which expires after ``ttl`` seconds.
+        """
+        if self.ha.is_paused():
+            logger.info('PostgreSQL is not stopped due to paused state')
+            return
+        postmaster = self.postgresql.is_running()
+        if postmaster:
+            logger.info('Requesting fast shutdown of PostgreSQL')
+            if postmaster.signal_stop('fast', self.postgresql.pgcommand('pg_ctl')) is False:
+                # A primary left running after Patroni exits would keep accepting writes after the leader key expires.
+                logger.critical('Could not request fast shutdown, killing PostgreSQL')
+                postmaster.signal_kill()
+
     def _shutdown(self) -> None:
         """Perform shutdown of ``patroni`` daemon process.
 

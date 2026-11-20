@@ -1,12 +1,13 @@
 import logging
 import os
 import signal
+import socket
 import sys
 import time
 import unittest
 
 from http.server import HTTPServer
-from threading import Thread
+from threading import Event, Thread
 from unittest.mock import MagicMock, Mock, patch, PropertyMock
 
 import etcd
@@ -212,11 +213,10 @@ class TestPatroni(unittest.TestCase):
         self.assertFalse(self.p.api_sigterm())
         self.p.sigterm_handler()  # doesn't raise SystemExit, because SIGTERM was already received
 
-    @patch('signal.alarm', create=True)
     @patch('patroni.config.Config.save_cache', Mock())
     @patch('patroni.config.Config.set_dynamic_configuration', Mock(return_value=False))
     @patch.object(Postgresql, 'reload_config', Mock())
-    def test_graceful_sigterm(self, mock_alarm):
+    def test_graceful_sigterm(self):
         self.p.enable_graceful_sigterm()
         self.p.api.start = Mock()
         self.p.logger.start = Mock()
@@ -235,34 +235,77 @@ class TestPatroni(unittest.TestCase):
         self.p.run()
         self.assertTrue(self.p.received_sigterm)
         self.p.ha.dcs.watch.assert_not_called()
-        # the alarm is armed on SIGTERM and canceled when the main loop exits
-        loop_wait = self.p.config['loop_wait']
-        self.assertEqual(mock_alarm.call_args_list, [] if os.name == 'nt' else [((loop_wait,),), ((0,),)])
 
-    @patch.object(Thread, 'join', Mock())
-    def test_sigalrm_handler(self):
-        self.p.sigalrm_handler()  # doesn't raise SystemExit before the main loop has started
+    def test_sigterm_guard(self):
+        self.p._emergency_exit = Mock()
+        for data, main_loop_running, loop_wait in ((b'', True, 0),  # the main loop has exited and closed the socket
+                                                   (bytes([signal.SIGINT]), True, 0),  # only SIGTERM arms the guard
+                                                   (bytes([signal.SIGTERM, signal.SIGINT]), True, 0),
+                                                   (bytes([signal.SIGTERM]), True, 0.01),
+                                                   (bytes([signal.SIGTERM]), False, 0.01)):  # the main loop has exited
+            self.p._sigterm_guard_rsock, wsock = socket.socketpair()
+            self.p._main_loop_running = main_loop_running
+            with wsock, patch.object(self.p, 'config', {'loop_wait': loop_wait}):
+                wsock.sendall(data)
+                if signal.SIGTERM not in data:
+                    wsock.shutdown(socket.SHUT_WR)  # the guard exits on EOF
+                self.p._sigterm_guard()
+        self.assertEqual(self.p._emergency_exit.call_count, 2)
+
+    @unittest.skipIf(os.name == 'nt', "Windows not supported")
+    def test_sigterm_guard_terminates_hanging_main_loop(self):
+        self.p.enable_graceful_sigterm()
         self.p.api.start = Mock()
         self.p.logger.start = Mock()
+        exited = Event()
+        self.p._emergency_exit = Mock(side_effect=exited.set)
 
         def run_cycle():
-            self.p.sigalrm_handler()  # doesn't raise SystemExit before SIGTERM was received
-            self.p._received_sigterm = True
-            self.p.sigalrm_handler()  # the main loop is stuck in the HA cycle after SIGTERM when SIGALRM arrives
+            os.kill(os.getpid(), signal.SIGTERM)
+            self.assertTrue(exited.wait(5))  # the main loop hangs after SIGTERM until terminated
 
-        self.p.ha.run_cycle = Mock(side_effect=run_cycle)
-        self.assertRaises(SystemExit, self.p.run)
-        self.assertTrue(self.p.received_sigterm)
-        self.p.sigalrm_handler()  # doesn't raise SystemExit after the main loop has exited
-        self.p.api.shutdown = Mock()
-        self.p.ha.shutdown = Mock()
-        with patch('patroni.daemon.logger.warning') as mock_warning:
-            self.p.shutdown()
-        mock_warning.assert_called_once()
+        self.p._run_cycle = Mock(side_effect=run_cycle)
+        handler = signal.signal(signal.SIGTERM, self.p.sigterm_handler)
+        try:
+            with patch.object(self.p, 'config', {'loop_wait': 0.1}):
+                self.p.run()
+        finally:
+            signal.signal(signal.SIGTERM, handler)
+        self.p._emergency_exit.assert_called_once()
+        self.assertEqual(signal.set_wakeup_fd(-1), -1)  # the previous wakeup fd is restored
 
+    @patch('os._exit')
     @patch('signal.alarm', create=True)
+    def test_emergency_exit(self, mock_alarm, mock_exit):
+        self.p.logger.flush = Mock()
+        postmaster = MockPostmaster()
+        self.p.postgresql.is_running = Mock(return_value=postmaster)
+        with patch('patroni.daemon.logger.critical') as mock_critical:
+            self.p._emergency_exit()
+        mock_alarm.assert_called_once_with(5)  # the kernel terminates the process if the emergency exit blocks
+        mock_critical.assert_called_once()
+        postmaster.signal_stop.assert_called_once_with('fast', self.p.postgresql.pgcommand('pg_ctl'))
+        postmaster.signal_kill.assert_not_called()
+        self.p.logger.flush.assert_called_once_with(1)
+        mock_exit.assert_called_once_with(1)
+
+        postmaster.signal_stop.return_value = False
+        self.p._emergency_exit()
+        postmaster.signal_kill.assert_called_once()
+
+        postmaster.signal_stop.reset_mock()
+        with patch('patroni.ha.Ha.is_paused', Mock(return_value=True)):
+            self.p._emergency_exit()
+        postmaster.signal_stop.assert_not_called()
+
+        self.p.postgresql.is_running = Mock(side_effect=Exception)
+        with patch('patroni.daemon.logger.exception') as mock_exception:
+            self.p._emergency_exit()
+        mock_exception.assert_called_once()
+        self.assertEqual(mock_exit.call_count, 4)
+
     @patch('patroni.config.Config.reload_local_configuration', Mock(return_value=False))
-    def test_sigterm_during_sighup_reload(self, mock_alarm):
+    def test_sigterm_during_sighup_reload(self):
         self.p.enable_graceful_sigterm()
         self.p.logger.start = Mock()
         self.p._run_cycle = Mock()
@@ -521,7 +564,7 @@ class TestPatroni(unittest.TestCase):
 
     @patch.object(Thread, 'join', Mock())
     def test_main_thread_does_not_take_sigterm_lock(self):
-        # SystemExit raised by sigalrm_handler() would leak the lock held by the main thread and deadlock shutdown()
+        # KeyboardInterrupt raised by SIGINT would leak the lock held by the main thread and deadlock shutdown()
         self.p._sigterm_lock = MagicMock()
         self.p._sigterm_lock.__enter__.side_effect = AssertionError('the main thread took _sigterm_lock')
         self.assertFalse(self.p.received_sigterm)

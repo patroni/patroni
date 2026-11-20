@@ -8,9 +8,11 @@ import argparse
 import logging
 import os
 import signal
+import socket
 import sys
+import time
 
-from threading import Lock, stack_size
+from threading import Lock, stack_size, Thread
 from typing import Any, Optional, Type, TYPE_CHECKING
 
 try:  # pragma: no cover
@@ -136,8 +138,7 @@ class AbstractPatroniDaemon(abc.ABC):
 
         Afterwards, flag the daemon as "SIGTERM received" and wake up the main loop with :func:`_wakeup`. The main
         loop exits and shuts down the daemon. If the main loop doesn't exit within ``loop_wait`` seconds, for example
-        because it hangs, :func:`sigalrm_handler` interrupts it by raising :exc:`SystemExit`, and the daemon is shut
-        down anyway.
+        because it hangs, :func:`_sigterm_guard` terminates the daemon with :func:`_emergency_exit`.
 
         .. note::
             Python runs signal handlers in the main thread between arbitrary bytecode instructions. An exception
@@ -154,19 +155,95 @@ class AbstractPatroniDaemon(abc.ABC):
         if not self._graceful_sigterm:
             sys.exit()
         self._wakeup()
-        if self._main_loop_running and os.name != 'nt':
-            signal.alarm(self.config['loop_wait'])
 
-    def sigalrm_handler(self, *_: Any) -> None:
-        """Handle SIGALRM signals.
+    def _start_sigterm_guard(self) -> None:
+        """Start a thread running :func:`_sigterm_guard`.
 
-        Interrupt the main loop by raising :exc:`SystemExit` if it is still running, i.e. it didn't exit in time after
-        SIGTERM. The daemon is shut down afterwards, see :func:`abstract_main`. Stray SIGALRM signals, received before
-        SIGTERM, are ignored.
+        The C-level signal handler writes the number of every signal that has a Python handler to the socket registered
+        with :func:`signal.set_wakeup_fd` immediately, even if the main thread is blocked in C code and therefore can't
+        run :func:`sigterm_handler`.
+
+        .. note::
+            Must be called from the main thread.
         """
-        if self._main_loop_running and self._received_sigterm:
-            self._main_loop_interrupted = True
-            sys.exit()
+        self._sigterm_guard_rsock, wsock = socket.socketpair()
+        wsock.setblocking(False)
+        self._sigterm_guard_wsock = wsock
+        self._prev_wakeup_fd = signal.set_wakeup_fd(wsock.fileno())
+        Thread(target=self._sigterm_guard, name='sigterm-guard', daemon=True).start()
+
+    def _stop_sigterm_guard(self) -> None:
+        """Restore the previous wakeup fd and make :func:`_sigterm_guard` exit by closing the write end of its socket.
+
+        .. note::
+            Must be called from the main thread.
+        """
+        signal.set_wakeup_fd(self._prev_wakeup_fd)
+        self._sigterm_guard_wsock.close()
+
+    def _sigterm_guard(self) -> None:
+        """Terminate the daemon if the main loop is still running ``loop_wait`` seconds after SIGTERM.
+
+        Runs in a separate thread, because Python runs signal handlers only in the main thread and only between
+        bytecode instructions. When the main loop hangs in C code, for example in libpq, which retries system calls
+        interrupted by signals, :func:`sigterm_handler` doesn't run at all. Calls :func:`_emergency_exit` on timeout.
+
+        Exits when the main loop closes the socket, see :func:`_stop_sigterm_guard`.
+        """
+        sock = self._sigterm_guard_rsock
+        deadline = None
+        with sock:
+            while True:
+                if deadline is None:
+                    sock.settimeout(None)
+                else:
+                    timeout = deadline - time.monotonic()
+                    if timeout <= 0:
+                        break
+                    sock.settimeout(timeout)
+                try:
+                    data = sock.recv(64)
+                except socket.timeout:
+                    break
+                if not data:
+                    return
+                if deadline is None and signal.SIGTERM in data:
+                    deadline = time.monotonic() + self.config['loop_wait']
+            if self._main_loop_running:
+                self._emergency_exit()
+
+    def _emergency_exit(self) -> None:
+        """Terminate the daemon process immediately, because its main loop hangs after SIGTERM.
+
+        Log a critical message, call :func:`_emergency_shutdown`, give the logger thread up to a second to write queued
+        records, and exit with :func:`os._exit`.
+
+        .. note::
+            The regular :func:`shutdown` can't be used: the main loop could hold locks that it needs, and
+            :exc:`SystemExit` raised in the main thread could leak them, see :func:`sigterm_handler`.
+
+            The stack of the main thread isn't logged: formatting it reads source files, and a stalled filesystem could
+            be the reason why the main loop hangs.
+        """
+        # The default action of SIGALRM terminates the process in the kernel, without a thread or the GIL, if the steps
+        # below block anyway, e.g. while reading postmaster.pid or waiting for killed processes.
+        signal.alarm(5)
+        logger.critical('The main loop did not exit within %s seconds after SIGTERM, terminating the process',
+                        self.config['loop_wait'])
+        try:
+            self._emergency_shutdown()
+        except Exception:
+            logger.exception('Emergency shutdown failed')
+        self.logger.flush(1)
+        os._exit(1)
+
+    def _emergency_shutdown(self) -> None:
+        """Define what the daemon should do before :func:`_emergency_exit` terminates the process.
+
+        .. note::
+            Called from the :func:`_sigterm_guard` thread while the main loop is still running, therefore it must not
+            take locks that the main thread could hold. Does nothing by default.
+        """
 
     def enable_graceful_sigterm(self) -> None:
         """Make SIGTERM shut down the daemon gracefully.
@@ -190,21 +267,19 @@ class AbstractPatroniDaemon(abc.ABC):
     def setup_signal_handlers(self) -> None:
         """Set up daemon signal handlers.
 
-        Set up SIGHUP, SIGALRM and SIGTERM signal handlers.
+        Set up SIGHUP and SIGTERM signal handlers.
 
         .. note::
 
-            SIGHUP and SIGALRM are only handled in non-Windows environments.
+            SIGHUP is only handled in non-Windows environments.
         """
         self._received_sighup = False
         self._sigterm_lock = Lock()
         self._received_sigterm = False
         self._graceful_sigterm = False
         self._main_loop_running = False
-        self._main_loop_interrupted = False
         if os.name != 'nt':
             signal.signal(signal.SIGHUP, self.sighup_handler)
-            signal.signal(signal.SIGALRM, self.sigalrm_handler)
         signal.signal(signal.SIGTERM, self.sigterm_handler)
 
     @property
@@ -212,8 +287,8 @@ class AbstractPatroniDaemon(abc.ABC):
         """If daemon was signaled with SIGTERM.
 
         .. note::
-            The main thread must not take ``_sigterm_lock``: if :func:`sigalrm_handler` raised :exc:`SystemExit`
-            while it is held, the lock would be leaked and :func:`shutdown` would deadlock.
+            The main thread must not take ``_sigterm_lock``: if :exc:`KeyboardInterrupt` was raised by SIGINT while it
+            is held, the lock would be leaked and :func:`shutdown` would deadlock.
         """
         return self._received_sigterm
 
@@ -242,6 +317,8 @@ class AbstractPatroniDaemon(abc.ABC):
         """
         notify_systemd("READY=1")
         self.logger.start()
+        if os.name != 'nt':
+            self._start_sigterm_guard()
         self._main_loop_running = True
         try:
             while not self.received_sigterm:
@@ -254,10 +331,9 @@ class AbstractPatroniDaemon(abc.ABC):
 
                 self._run_cycle()
         finally:
-            # SIGALRM must neither interrupt the shutdown nor kill the process after Python restores default handlers
             self._main_loop_running = False
             if os.name != 'nt':
-                signal.alarm(0)
+                self._stop_sigterm_guard()
 
     @abc.abstractmethod
     def _shutdown(self) -> None:
@@ -271,9 +347,6 @@ class AbstractPatroniDaemon(abc.ABC):
         self._received_sigterm = True
         notify_systemd("STOPPING=1")
         self._shutdown()
-        if self._main_loop_interrupted:
-            # logged only now, because the interruption could have leaked a lock needed for logging
-            logger.warning('The main loop did not exit within loop_wait seconds after SIGTERM and was interrupted')
         self.logger.shutdown()
 
 
