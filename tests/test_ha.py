@@ -25,7 +25,7 @@ from patroni.postgresql.rewind import Rewind, REWIND_STATUS
 from patroni.postgresql.slots import SlotsHandler
 from patroni.postgresql.sync import _SyncState
 from patroni.thread_pool import PatroniThreadPoolExecutor
-from patroni.utils import tzutc
+from patroni.utils import SyncCrossSiteMode, tzutc
 from patroni.watchdog import Watchdog
 
 from . import MockPostmaster, PostgresInit, psycopg_connect, requests_get
@@ -59,7 +59,8 @@ def get_cluster_bootstrapping_without_leader(cluster_config=None):
     return get_cluster("", None, [], None, SyncState.empty(), cluster_config)
 
 
-def get_cluster_initialized_without_leader(leader=False, failover=None, sync=None, cluster_config=None, failsafe=False):
+def get_cluster_initialized_without_leader(leader=False, failover=None, sync=None, cluster_config=None, failsafe=False,
+                                           cross_site_mode=SyncCrossSiteMode.ANY):
     m1 = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
                                   'api_url': 'http://127.0.0.1:8008/patroni', 'xlog_location': 4,
                                   'role': PostgresqlRole.PRIMARY, 'state': 'running', 'site': 'dc1'})
@@ -73,7 +74,7 @@ def get_cluster_initialized_without_leader(leader=False, failover=None, sync=Non
                                  'scheduled_restart': {'schedule': "2100-01-01 10:53:07.560445+00:00",
                                                        'postgres_version': '99.0.0'}})
     syncstate = SyncState(0 if sync else None, sync and sync[0],
-                          sync and sync[1], sync[2] if sync and len(sync) > 2 else 0)
+                          sync and sync[1], sync[2] if sync and len(sync) > 2 else 0, cross_site_mode)
     failsafe = {m.name: m.api_url for m in (m1, m2)} if failsafe else None
     return get_cluster(SYSID, leader, [m1, m2], failover, syncstate, cluster_config, failsafe)
 
@@ -1872,6 +1873,25 @@ class TestHa(PostgresInit):
         self.assertEqual(mock_set_sync.call_count, 1)
         self.assertEqual(mock_set_sync.call_args_list[0][0][0], CaseInsensitiveSet(['foo']))
 
+        # strict mode, no nodes available, switching from prefer_local to local_only
+        self.ha.cluster = get_cluster_initialized_without_leader(leader=True, sync=('leader', None),
+                                                                 cross_site_mode=SyncCrossSiteMode.PREFER_LOCAL)
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 1,
+                                                                         CaseInsensitiveSet(),
+                                                                         CaseInsensitiveSet(),
+                                                                         CaseInsensitiveSet()))
+        self.ha.dcs.write_sync_state.reset_mock()
+        mock_set_sync.reset_mock()
+        self.p._site = 'dc1'
+        with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)), \
+             patch.object(global_config.__class__, 'sync_cross_site_mode',
+                          PropertyMock(return_value=SyncCrossSiteMode.LOCAL_ONLY)):
+            self.ha.run_cycle()
+        self.assertEqual(self.ha.dcs.write_sync_state.call_count, 1)
+        self.assertEqual(self.ha.dcs.write_sync_state.call_args_list[0][0], ('leader', CaseInsensitiveSet(), 0))
+        self.assertEqual(mock_set_sync.call_count, 1)
+        self.assertEqual(mock_set_sync.call_args_list[0][0], (CaseInsensitiveSet(), 1))
+
         # Test the value configured by the user for synchronous_standby_names is used when synchronous mode is disabled
         self.ha.is_synchronous_mode = false
 
@@ -2305,7 +2325,8 @@ class TestHa(PostgresInit):
         self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': None})
         self.assertEqual(mock_set_sync.call_count, 0)
 
-        mock_write_sync = self.ha.dcs.write_sync_state = Mock(side_effect=[SyncState(None, self.p.name, None, 0), None])
+        mock_write_sync = self.ha.dcs.write_sync_state = Mock(side_effect=[SyncState(None, self.p.name, None, 0,
+                                                                                     SyncCrossSiteMode.ANY), None])
         # Test /sync key is attempted to set and succeed when missing or invalid
         with patch.object(SyncState, 'is_empty', Mock(side_effect=[True, False])):
             self.ha.run_cycle()
@@ -2322,7 +2343,8 @@ class TestHa(PostgresInit):
                                                               _SyncState('quorum', 1, CaseInsensitiveSet(['foo']),
                                                                          CaseInsensitiveSet(['foo']),
                                                                          CaseInsensitiveSet(['foo']))])
-        mock_write_sync = self.ha.dcs.write_sync_state = Mock(return_value=SyncState(1, 'leader', 'foo', 0))
+        mock_write_sync = self.ha.dcs.write_sync_state = Mock(return_value=SyncState(1, 'leader', 'foo',
+                                                                                     0, SyncCrossSiteMode.ANY))
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'foo'))
         # Test the sync node is removed from voters, added to ssn
         with patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='other')), \
@@ -2376,6 +2398,61 @@ class TestHa(PostgresInit):
         mock_write_sync.assert_not_called()
         self.assertEqual(mock_set_sync.call_count, 1)
         self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 1 (foo)',))
+
+        # strict mode, no nodes available, switching from prefer_local to local_only
+        self.ha.cluster = get_cluster_initialized_without_leader(leader=True, sync=('leader', None),
+                                                                 cross_site_mode=SyncCrossSiteMode.PREFER_LOCAL)
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('quorum', 1,
+                                                                         CaseInsensitiveSet(),
+                                                                         CaseInsensitiveSet(),
+                                                                         CaseInsensitiveSet()))
+        mock_set_sync.reset_mock()
+        self.p._site = 'dc1'
+        with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)), \
+             patch.object(global_config.__class__, 'sync_cross_site_mode',
+                          PropertyMock(return_value=SyncCrossSiteMode.LOCAL_ONLY)):
+            self.ha.run_cycle()
+        self.assertEqual(mock_write_sync.call_count, 1)
+        self.assertEqual(mock_write_sync.call_args_list[0][0], ('leader', CaseInsensitiveSet(), 0))
+        self.assertEqual(mock_set_sync.call_count, 1)
+        self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 1 (__patroni_strict_sync_replica_placeholder__)',))
+
+        # A voter that becomes local after failover no longer satisfies remote_only.
+        self.p.name = 'leader'
+        self.p._site = 'dc2'
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'old_primary,local_replica', 1))
+        self.ha.cluster.members[0].data['site'] = 'dc2'
+        self.ha.cluster.members.extend([
+            Member(0, 'old_primary', 28, {'site': 'dc1'}),
+            Member(0, 'local_replica', 28, {'site': 'dc2'}),
+        ])
+        dcs_state = SyncState(0, 'leader', 'old_primary,local_replica', 1, SyncCrossSiteMode.REMOTE_ONLY)
+        set_sync = self.p.sync_handler.set_synchronous_standby_names = Mock()
+        replication_state = _SyncState('quorum', 1, CaseInsensitiveSet(dcs_state.voters),
+                                       CaseInsensitiveSet(), CaseInsensitiveSet())
+        mock_write_sync.reset_mock()
+
+        with patch.object(global_config.__class__, 'sync_cross_site_mode',
+                          PropertyMock(return_value=SyncCrossSiteMode.REMOTE_ONLY)), \
+                patch.object(global_config.__class__, 'min_synchronous_nodes', PropertyMock(return_value=1)), \
+                patch.object(self.ha, 'quorum_commit_mode_is_active', Mock(return_value=True)):
+            self.ha._handle_synchronous_strict_mode(dcs_state, replication_state)
+
+        mock_write_sync.assert_called_once_with('leader', CaseInsensitiveSet(), 1, version=0)
+        set_sync.assert_called_once_with(CaseInsensitiveSet(), 1)
+
+        # A siteless primary uses the effective any mode, regardless of configuration.
+        self.p._site = None
+        mock_write_sync.reset_mock()
+        dcs_state = SyncState(0, 'leader', 'old_primary', 0, SyncCrossSiteMode.ANY)
+        replication_state = _SyncState('quorum', 1, CaseInsensitiveSet(dcs_state.voters),
+                                       CaseInsensitiveSet(), CaseInsensitiveSet())
+        with patch.object(global_config.__class__, 'sync_cross_site_mode',
+                          PropertyMock(return_value=SyncCrossSiteMode.REMOTE_ONLY)), \
+                patch.object(global_config.__class__, 'min_synchronous_nodes', PropertyMock(return_value=1)), \
+                patch.object(self.ha, 'quorum_commit_mode_is_active', Mock(return_value=True)):
+            self.ha._handle_synchronous_strict_mode(dcs_state, replication_state)
+        mock_write_sync.assert_not_called()
 
     def test_is_failover_possible(self):
         self.p._major_version = 140000  # supports_multiple_sync

@@ -22,7 +22,7 @@ from ..exceptions import PatroniAssertionError, PatroniFatalException
 from ..interrupt import Interrupter
 from ..site import ClusterSite
 from ..tags import Tags
-from ..utils import deep_compare, parse_int, uri
+from ..utils import deep_compare, parse_int, SyncCrossSiteMode, uri
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
@@ -597,12 +597,14 @@ class SyncState(NamedTuple):
     :ivar quorum: if the node from :attr:`~SyncState.sync_standby` list is doing a leader race it should
                   see at least :attr:`~SyncState.quorum` other nodes from the
                   :attr:`~SyncState.sync_standby` + :attr:`~SyncState.leader` list.
+    :ivar cross_site_mode: synchronous_cross_site mode applied.
     """
 
     version: Optional[_Version]
     leader: Optional[str]
     sync_standby: Optional[str]
     quorum: int
+    cross_site_mode: SyncCrossSiteMode
 
     @staticmethod
     def from_node(version: Optional[_Version], value: Union[str, Dict[str, Any], None]) -> 'SyncState':
@@ -640,7 +642,12 @@ class SyncState(NamedTuple):
                 raise PatroniAssertionError('not a dict')
             leader = value.get('leader')
             quorum = value.get('quorum')
-            return SyncState(version, leader, value.get('sync_standby'), int(quorum) if leader and quorum else 0)
+            try:
+                cross_site_mode = SyncCrossSiteMode(value.get('cross_site_mode') or 'any')
+            except ValueError:
+                cross_site_mode = SyncCrossSiteMode.ANY
+            return SyncState(version, leader, value.get('sync_standby'),
+                             int(quorum) if leader and quorum else 0, cross_site_mode)
         except (PatroniAssertionError, TypeError, ValueError):
             return SyncState.empty(version)
 
@@ -652,7 +659,7 @@ class SyncState(NamedTuple):
 
         :returns: empty synchronisation state object.
         """
-        return SyncState(version, None, None, 0)
+        return SyncState(version, None, None, 0, SyncCrossSiteMode.ANY)
 
     @property
     def is_empty(self) -> bool:
@@ -694,7 +701,7 @@ class SyncState(NamedTuple):
                   the sync state.
 
         :Example:
-            >>> s = SyncState(1, 'foo', 'bar,zoo', 0)
+            >>> s = SyncState(1, 'foo', 'bar,zoo', 0, 'any')
 
             >>> s.matches('foo')
             False
@@ -2142,7 +2149,7 @@ class AbstractDCS(ClusterSite, abc.ABC):
 
     @staticmethod
     def sync_state(leader: Optional[str], sync_standby: Optional[Collection[str]],
-                   quorum: Optional[int]) -> Dict[str, Any]:
+                   quorum: Optional[int], cross_site_mode: Optional[SyncCrossSiteMode]) -> Dict[str, Any]:
         """Build ``sync_state`` dictionary.
 
         :param leader: name of the leader node that manages ``/sync`` key.
@@ -2150,11 +2157,13 @@ class AbstractDCS(ClusterSite, abc.ABC):
         :param quorum: if the node from :attr:`~SyncState.sync_standby` list is doing a leader race it should
                        see at least :attr:`~SyncState.quorum` other nodes from the
                        :attr:`~SyncState.sync_standby` + :attr:`~SyncState.leader` list
+        :param cross_site_mode: synchronous_cross_site mode applied.
 
         :returns: dictionary that later could be serialized to JSON or saved directly to DCS.
         """
         return {'leader': leader, 'quorum': quorum,
-                'sync_standby': ','.join(sorted(sync_standby)) if sync_standby else None}
+                'sync_standby': ','.join(sorted(sync_standby)) if sync_standby else None,
+                'cross_site_mode': cross_site_mode.value if cross_site_mode else None}
 
     def write_sync_state(self, leader: Optional[str], sync_standby: Optional[Collection[str]],
                          quorum: Optional[int], version: Optional[Any] = None) -> Optional[SyncState]:
@@ -2172,7 +2181,8 @@ class AbstractDCS(ClusterSite, abc.ABC):
 
         :returns: the new :class:`SyncState` object or ``None``.
         """
-        sync_value = self.sync_state(leader, sync_standby, quorum)
+        cross_site_mode = global_config.sync_cross_site_mode if self.site else SyncCrossSiteMode.ANY
+        sync_value = self.sync_state(leader, sync_standby, quorum, cross_site_mode)
         ret = self.set_sync_state_value(json.dumps(sync_value, separators=(',', ':')), version)
         if not isinstance(ret, bool):
             return SyncState.from_node(ret, sync_value)
