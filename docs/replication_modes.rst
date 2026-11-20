@@ -136,6 +136,8 @@ When in synchronous mode Patroni maintains synchronization state in the DCS (``/
 
 Patroni will only assign one or more synchronous standby nodes based on ``synchronous_node_count`` parameter to ``synchronous_standby_names``.
 
+A standby is published as synchronous in the ``/sync`` key only after Patroni has verified that the new value of ``synchronous_standby_names`` is effectively applied: ``pg_stat_replication`` reports the expected ``sync_state`` and the standby has caught up with the primary's WAL position at the time of the change.
+
 On each HA loop iteration Patroni re-evaluates synchronous standby nodes choice. If the current list of synchronous standby nodes are connected and has not requested its synchronous status to be removed it remains picked. Otherwise the cluster members available for sync that are furthest ahead in replication are picked.
 
 Example:
