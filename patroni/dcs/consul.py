@@ -17,10 +17,11 @@ from consul import base, Check, ConsulException, NotFound
 from urllib3.exceptions import HTTPError
 
 from ..exceptions import DCSError
+from ..interrupt import make_interruptible, WatchInterrupted
 from ..postgresql.misc import PostgresqlRole, PostgresqlState
 from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare, parse_bool, Retry, RetryFailedError, split_host_port, uri, USER_AGENT
-from . import AbstractDCS, catch_return_false_exception, Cluster, ClusterConfig, \
+from . import AbstractLongPollingDCS, catch_return_false_exception, Cluster, ClusterConfig, \
     Failover, Leader, Member, ReturnFalseException, Status, SyncState, TimelineHistory
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -71,7 +72,7 @@ class HTTPClient(object):
         if ca_cert:
             kwargs['ca_certs'] = ca_cert
         kwargs['cert_reqs'] = ssl.CERT_REQUIRED if verify or ca_cert else ssl.CERT_NONE
-        self.http = urllib3.PoolManager(num_pools=10, maxsize=10, headers={}, **kwargs)
+        self.http = make_interruptible(urllib3.PoolManager(num_pools=10, maxsize=10, headers={}, **kwargs))
         self._ttl = 30
 
     def set_read_timeout(self, timeout: float) -> None:
@@ -234,7 +235,7 @@ def service_name_from_scope_name(scope_name: str) -> str:
     return service_name[0:230]
 
 
-class Consul(AbstractDCS):
+class Consul(AbstractLongPollingDCS):
 
     def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
         super(Consul, self).__init__(config, mpp)
@@ -698,12 +699,18 @@ class Consul(AbstractDCS):
             self.__do_not_watch = False
             return True
 
-        if leader_version:
+        # wakeup() sets the event before it interrupts, so dropping old interruptions can't miss a new wakeup
+        self._watch_interrupter.clear()
+        if leader_version and not self.event.is_set():
             end_time = time.monotonic() + timeout
             while timeout >= 1:
                 try:
-                    idx, _ = self._client.kv.get(self.leader_path, index=leader_version, wait=str(timeout) + 's')
+                    with self._watch_interrupter.armed():
+                        idx, _ = self._client.kv.get(self.leader_path, index=leader_version, wait=str(timeout) + 's')
                     return str(idx) != str(leader_version)
+                except WatchInterrupted:
+                    self.event.clear()
+                    return True
                 except (ConsulException, HTTPException, HTTPError, socket.error, socket.timeout):
                     logger.exception('watch')
 
