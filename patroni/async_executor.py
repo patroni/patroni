@@ -98,7 +98,13 @@ class AsyncExecutor(object):
         self._scheduled_action: Optional[str] = None
         self._scheduled_action_lock = RLock()
         self._is_cancelled = False
+        self._is_shut_down = False
+        # Number of tasks being executed and an event that is set when there are none.
+        # Usually there is at most one task, but it is possible to get more, for example when a pending REST API
+        # restart gets cancelled by a forced reinitialize and starts afterwards anyway.
+        self._running = 0
         self._finish_event = Event()
+        self._finish_event.set()
         self.critical_task = CriticalTask()
 
     @property
@@ -113,19 +119,28 @@ class AsyncExecutor(object):
             Must be called before executing a task.
 
         .. note::
-            *action* can only be scheduled if there is no other action currently scheduled.
+            *action* can only be scheduled if there is no other action currently scheduled, and the executor isn't
+            shut down.
 
         :param action: action to be executed.
 
-        :returns: ``None`` if *action* has been successfully scheduled, or the previously scheduled action, if any.
+        :returns: ``None`` if *action* has been successfully scheduled, ``shutdown`` if the executor is shut down, or
+            the previously scheduled action, if any.
         """
         with self._scheduled_action_lock:
+            if self._is_shut_down:
+                return 'shutdown'
             if self._scheduled_action is not None:
                 return self._scheduled_action
             self._scheduled_action = action
             self._is_cancelled = False
-            self._finish_event.set()
         return None
+
+    @property
+    def is_shut_down(self) -> bool:
+        """``True`` if the executor is shut down and refuses to schedule or run tasks."""
+        with self._scheduled_action_lock:
+            return self._is_shut_down
 
     @property
     def scheduled_action(self) -> Optional[str]:
@@ -152,17 +167,21 @@ class AsyncExecutor(object):
             of :func:`run` execution.
         :param args: arguments to be passed to *func*.
 
-        :returns: ``None`` if *func* execution has been cancelled or faced any exception, otherwise the result of
-            *func*.
+        :returns: ``None`` if *func* execution has been cancelled, the executor is shut down, or *func* faced any
+            exception, otherwise the result of *func*.
         """
         wakeup = False
+        started = False
         try:
             with self:
-                if self._is_cancelled:
+                if self._is_cancelled or self._is_shut_down:
                     return
+                self._running += 1
+                started = True
                 self._finish_event.clear()
+                # must be done while holding the lock, otherwise we could reset the cancellation done by cancel()
+                self._cancellable.reset_is_cancelled()
 
-            self._cancellable.reset_is_cancelled()
             # if the func returned something (not None) - wake up main HA loop
             wakeup = func(*args) if args else func()
             return wakeup
@@ -171,7 +190,10 @@ class AsyncExecutor(object):
         finally:
             with self:
                 self.reset_scheduled_action()
-                self._finish_event.set()
+                if started:
+                    self._running -= 1
+                if not self._running:
+                    self._finish_event.set()
                 with self.critical_task:
                     self.critical_task.reset()
             if wakeup is not None:
@@ -200,24 +222,47 @@ class AsyncExecutor(object):
             return self.run_async(func, args)
         return 'Failed to run {0}, {1} is already in progress'.format(action, prev)
 
-    def cancel(self) -> None:
-        """Request cancellation of a scheduled async task, if any.
+    def cancel(self, unless: Optional[Callable[[], bool]] = None) -> bool:
+        """Request cancellation of a scheduled async task and running tasks, if any.
 
         .. note::
-            Wait until task is cancelled before returning control to caller.
+            Wait until all running tasks are finished before returning control to caller. The lock isn't held while
+            waiting. Tasks scheduled meanwhile, for example a promotion by the HA loop, are not affected.
+
+        :param unless: called while holding the lock, right before the cancellation is requested. Nothing is cancelled
+            if it returns ``True``.
+
+        :returns: ``False`` if *unless* prevented the cancellation, otherwise ``True``.
         """
         with self:
+            if unless and unless():
+                return False
             with self._scheduled_action_lock:
-                if self._scheduled_action is None:
-                    return
-                logger.warning('Cancelling long running task %s', self._scheduled_action)
+                if self._scheduled_action is not None:
+                    logger.warning('Cancelling long running task %s', self._scheduled_action)
+                elif not self._running:
+                    return True
             self._is_cancelled = True
 
         self._cancellable.cancel()
         self._finish_event.wait()
 
+        with self, self._scheduled_action_lock:
+            # the flag is reset by schedule(), a task scheduled while waiting must stay scheduled
+            if self._is_cancelled:
+                self.reset_scheduled_action()
+        return True
+
+    def shutdown(self) -> None:
+        """Cancel the scheduled async task and running tasks, if any, and refuse to schedule or run new tasks.
+
+        .. note::
+            Wait until all running tasks are finished before returning control to caller.
+        """
         with self:
-            self.reset_scheduled_action()
+            with self._scheduled_action_lock:
+                self._is_shut_down = True
+        self.cancel()
 
     def __enter__(self) -> 'AsyncExecutor':
         """Acquire the thread lock when entering the context manager."""

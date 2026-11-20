@@ -528,8 +528,9 @@ class Ha(object):
                         data['timeline'] = timeline
                 except Exception:
                     pass
-            if self.patroni.scheduled_restart:
-                scheduled_restart_data = self.patroni.scheduled_restart.copy()
+            # REST API requests may concurrently replace the scheduled restart, therefore it is read only once
+            scheduled_restart_data = self.patroni.scheduled_restart.copy()
+            if scheduled_restart_data:
                 scheduled_restart_data['schedule'] = scheduled_restart_data['schedule'].isoformat()
                 data['scheduled_restart'] = scheduled_restart_data
 
@@ -2120,23 +2121,43 @@ class Ha(object):
             logger.info("not proceeding with the restart: %s", reason_to_cancel)
         return False
 
-    def schedule_future_restart(self, restart_data: Dict[str, Any]) -> bool:
-        with self._async_executor:
-            restart_data['postmaster_start_time'] = self.state_handler.postmaster_start_time()
-            if not self.patroni.scheduled_restart:
-                self.patroni.scheduled_restart = restart_data
-                self.touch_member()
-                return True
-        return False
+    def schedule_future_restart(self, restart_data: Dict[str, Any]) -> Optional[bool]:
+        """Schedule a restart of PostgreSQL.
 
-    def delete_future_restart(self) -> bool:
-        ret = False
+        :param restart_data: the request of the scheduled restart.
+
+        :returns: ``True`` if the restart was scheduled, ``False`` if another restart is scheduled, or ``None`` if
+            Patroni is shutting down.
+        """
+        # Ha.shutdown() takes the lock of the async executor before stopping PostgreSQL, therefore PostgreSQL is
+        # queried and the member data are published without holding it.
+        if self._async_executor.is_shut_down:
+            return None
+        restart_data['postmaster_start_time'] = self.state_handler.postmaster_start_time()
         with self._async_executor:
+            if self._async_executor.is_shut_down:
+                return None
             if self.patroni.scheduled_restart:
-                self.patroni.scheduled_restart = {}
-                self.touch_member()
-                ret = True
-        return ret
+                return False
+            self.patroni.scheduled_restart = restart_data
+        self.touch_member()
+        return True
+
+    def delete_future_restart(self) -> Optional[bool]:
+        """Delete the scheduled restart of PostgreSQL.
+
+        :returns: ``True`` if the scheduled restart was deleted, ``False`` if there is none, or ``None`` if Patroni is
+            shutting down.
+        """
+        # The member data are published without holding the lock of the async executor, see schedule_future_restart()
+        with self._async_executor:
+            if self._async_executor.is_shut_down:
+                return None
+            if not self.patroni.scheduled_restart:
+                return False
+            self.patroni.scheduled_restart = {}
+        self.touch_member()
+        return True
 
     def future_restart_scheduled(self) -> Dict[str, Any]:
         return self.patroni.scheduled_restart.copy()
@@ -2208,21 +2229,27 @@ class Ha(object):
             return self.clone(clone_member, "from {0} '{1}'".format(member_role, clone_member.name), from_leader)
 
     def reinitialize(self, force: bool = False, from_leader: bool = False) -> Optional[str]:
+        # Ha.shutdown() takes the lock of the async executor before stopping PostgreSQL, therefore the DCS is read
+        # without holding it. The cluster isn't stored in self.cluster, it belongs to the HA loop.
+        cluster = self.dcs.get_cluster()
+        if cluster.is_unlocked() and self.is_failsafe_mode():
+            cluster = self._failsafe.update_cluster(cluster)
+
+        if cluster.is_unlocked():
+            return 'Cluster has no leader, can not reinitialize'
+
+        if cluster.leader_name == self.state_handler.name:
+            return 'I am the leader, can not reinitialize'
+
+        # The HA loop could acquire the leader lock while the DCS is read. It does that only while holding the lock of
+        # the async executor, therefore our leadership is checked again under this lock, right before the running task
+        # is cancelled and right before the reinitialize is scheduled.
+        if force and not self._async_executor.cancel(unless=self.is_leader):
+            return 'I am the leader, can not reinitialize'
+
         with self._async_executor:
-            self.load_cluster_from_dcs()
-
-            if self.cluster.is_unlocked():
-                return 'Cluster has no leader, can not reinitialize'
-
-            if self.has_lock(False):
+            if self.is_leader():
                 return 'I am the leader, can not reinitialize'
-
-            cluster = self.cluster
-
-        if force:
-            self._async_executor.cancel()
-
-        with self._async_executor:
             action = self._async_executor.schedule('reinitialize')
             if action is not None:
                 return '{0} already in progress'.format(action)
@@ -2609,7 +2636,8 @@ class Ha(object):
                 return 'Unexpected exception raised, please report it as a BUG'
 
     def shutdown(self) -> None:
-        self._async_executor.cancel()
+        # REST API requests may still be running, they must not be able to restart or reinitialize PostgreSQL
+        self._async_executor.shutdown()
         if self.is_paused():
             logger.info('Leader key is not deleted and Postgresql is not stopped due paused state')
             self.watchdog.disable()
@@ -2620,6 +2648,9 @@ class Ha(object):
             # We probably need to something smarter here.
             disable_wd = self.watchdog.disable if self.watchdog.is_running else None
 
+            # Remember our leader key: the key of a new leader must never be removed, and Consul checks only its version
+            cluster = self.cluster
+            leader = cluster.leader if cluster.leader and cluster.leader.name == self.state_handler.name else None
             status = {'deleted': False}
 
             def _on_shutdown(checkpoint_location: int, prev_location: int) -> None:
@@ -2630,7 +2661,7 @@ class Ha(object):
                     # location, we can remove the leader key and allow them to start leader race.
                     time.sleep(1)  # give replicas some more time to catch up
                     if self.is_failover_possible(cluster_lsn=checkpoint_location):
-                        self.dcs.delete_leader(self.cluster.leader, prev_location)
+                        self.dcs.delete_leader(leader, prev_location)
                         status['deleted'] = True
                     else:
                         self.dcs.write_leader_optime(prev_location)
@@ -2647,7 +2678,7 @@ class Ha(object):
             if not self.state_handler.is_running():
                 if self.is_leader() and not status['deleted']:
                     _, prev_location = self.state_handler.latest_checkpoint_locations()
-                    self.dcs.delete_leader(self.cluster.leader, prev_location)
+                    self.dcs.delete_leader(leader, prev_location)
                 self.touch_member()
             else:
                 # XXX: what about when Patroni is started as the wrong user that has access to the watchdog device

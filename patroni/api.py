@@ -28,6 +28,7 @@ from . import global_config, psycopg
 from .__main__ import Patroni
 from .dcs import Cluster
 from .exceptions import PostgresConnectionException, PostgresException
+from .interrupt import Interrupter, interruptible_call, interruptible_reader, RequestInterrupted
 from .postgresql.misc import postgres_version_to_int, PostgresqlRole, PostgresqlState
 from .thread_pool import PatroniThreadPoolExecutor
 from .utils import cluster_as_json, deep_compare, enable_keepalive, getaddrinfo, parse_bool, \
@@ -988,7 +989,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 * exception is faced while performing an immediate restart.
 
             * ``409``: if another restart was already previously scheduled; or
-            * ``503``: if any issue was found while performing an immediate restart; or
+            * ``503``: if any issue was found while performing an immediate restart, or Patroni is shutting down; or
             * HTTP status returned by :func:`parse_schedule`, if any error was observed while parsing the schedule.
 
         .. note::
@@ -1045,9 +1046,13 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     logger.exception('Exception during restart')
                     status_code = 400
             else:
-                if self.server.patroni.ha.schedule_future_restart(request):
+                scheduled = self.server.patroni.ha.schedule_future_restart(request)
+                if scheduled:
                     data = "Restart scheduled"
                     status_code = 202
+                elif scheduled is None:
+                    data = 'shutdown already in progress'
+                    status_code = 503
                 else:
                     data = "Another restart is already scheduled"
                     status_code = 409
@@ -1066,11 +1071,16 @@ class RestApiHandler(BaseHTTPRequestHandler):
         Response HTTP status codes:
 
             * ``200``: if a scheduled restart was removed; or
-            * ``404``: if no scheduled restart could be found.
+            * ``404``: if no scheduled restart could be found; or
+            * ``503``: if Patroni is shutting down.
         """
-        if self.server.patroni.ha.delete_future_restart():
+        deleted = self.server.patroni.ha.delete_future_restart()
+        if deleted:
             data = "scheduled restart deleted"
             code = 200
+        elif deleted is None:
+            data = 'shutdown already in progress'
+            code = 503
         else:
             data = "no restarts are scheduled"
             code = 404
@@ -1345,11 +1355,17 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         If the :func:`do_<REQUEST_METHOD>_<first_part_url>` method does not exist we'll fall back to original behavior.
 
+        After :func:`RestApiServer.shutdown` the request is rejected with HTTP status ``503``, because Patroni is
+        stopping and doesn't wait for the handler.
+
         :returns: ``True`` for success, ``False`` for failure; on failure, any relevant error response has already been
                   sent back.
 
         """
         ret = BaseHTTPRequestHandler.parse_request(self)
+        if ret and self.server.shutting_down:
+            self.send_error(503)
+            return False
         if ret:
             urlpath = urlparse(self.path)
             self.path = urlpath.path
@@ -1500,12 +1516,17 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def setup(self) -> None:
         """Prepare the connection to handle a request.
 
-        Wrapper for :func:`~socketserver.StreamRequestHandler.setup` that additionally arms a timeout on
-        the connection. Without it a client that connects and then stays silent, or that never reads
-        the response, holds one of the ``restapi.thread_pool_size`` workers forever.
+        Wrapper for :func:`~socketserver.StreamRequestHandler.setup` that additionally:
+
+            * arms a timeout on the connection. Without it a client that connects and then stays silent, or that never
+              reads the response, holds one of the ``restapi.thread_pool_size`` workers forever;
+            * makes reads of the request interruptible by :func:`RestApiServer.shutdown`.
         """
         super(RestApiHandler, self).setup()
         self.connection.settimeout(self.server.request_timeout)
+        if isinstance(self.connection, socket.socket):
+            self.rfile.close()
+            self.rfile = interruptible_reader(self.connection, self.server.interrupter)
 
     def handle_one_request(self) -> None:
         """Parse and dispatch a request to the appropriate ``do_*`` method.
@@ -1563,6 +1584,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
             thread_pool_size = 5
         logger.info('REST API thread_pool_size = %d', thread_pool_size)
         self._executor = PatroniThreadPoolExecutor(max_workers=thread_pool_size + 1, thread_name_prefix='RestAPI')
+        self.interrupter = Interrupter()
+        self.shutting_down = False
         self.__ssl_options: Dict[str, Any] = {}
         self.__ssl_serial_number = None
         self.__ssl_not_after: Optional[int] = None
@@ -1901,13 +1924,13 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
                     # blocks this worker forever, and `restapi.thread_pool_size`. Such clients are enough
                     # to make the REST API stop answering until Patroni is restarted.
                     request.settimeout(self.__handshake_timeout)
-                    request.do_handshake()
-                except OSError as e:
+                    interruptible_call(request, request.do_handshake, self.interrupter)
+                except (OSError, RequestInterrupted) as e:
                     # The client may reset the connection (or otherwise fail the TLS handshake, e.g.
-                    # ssl.SSLError or a timeout -- all OSError subclasses) before we even start handling
-                    # the request. In that case the parent process_request_thread(), which is responsible
-                    # for closing the socket, is never reached, so we shut the request down ourselves and
-                    # log at DEBUG instead of leaking it.
+                    # ssl.SSLError or a timeout -- all OSError subclasses), or shutdown() may interrupt
+                    # the handshake, before we even start handling the request. In that case the parent
+                    # process_request_thread(), which is responsible for closing the socket, is never
+                    # reached, so we shut the request down ourselves and log at DEBUG instead of leaking it.
                     logger.debug('Connection from %s:%s was reset during the SSL handshake: %r',
                                  client_address[0], client_address[1], e)
                     self.shutdown_request(request)
@@ -1929,7 +1952,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
         connection reset or broken pipe on a plain socket, or an :class:`ssl.SSLError` on a TLS one
         (all :class:`OSError` subclasses). There is nothing we can do about it, and it is not worth
         letting it propagate to :func:`handle_error`, which would pollute the log with a WARNING and a
-        stack trace, so we just log it at the DEBUG level.
+        stack trace, so we just log it at the DEBUG level. The same applies to
+        :exc:`~patroni.interrupt.RequestInterrupted`, raised if :func:`shutdown` interrupted reading the request.
 
         :param request: socket to handle the client request.
         :param client_address: tuple containing the client IP and port.
@@ -1938,9 +1962,27 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
             super(RestApiServer, self).finish_request(request, client_address)
         except OSError as e:
             logger.debug('Connection from %s:%s was reset: %r', client_address[0], client_address[1], e)
+        except RequestInterrupted:
+            logger.debug('Request from %s:%s was interrupted by the shutdown', client_address[0], client_address[1])
 
     def shutdown(self) -> None:
+        """Stop the REST API without waiting for clients.
+
+        Patroni stops the REST API before PostgreSQL, and the HA loop doesn't run in between. If the stop waited for
+        clients, the leader key could expire while PostgreSQL still accepts writes.
+
+        Interrupt the workers that wait for the client: for the TLS handshake, for the request, or for the TLS
+        ``close_notify`` alert in :func:`shutdown_request`, and stop accepting connections. The workers that run a
+        handler can still send the response, but they are not waited for. A request that was already received, but
+        isn't handled yet, is rejected with HTTP status ``503``.
+        """
+        self.shutting_down = True
+        self.interrupter.interrupt()
         super(RestApiServer, self).shutdown()
+        self._executor.shutdown(wait=False)
+
+    def wait_for_requests(self) -> None:
+        """Wait for the requests that were still being handled when the REST API was shut down."""
         self._executor.shutdown(wait=True)
 
     def shutdown_request(self, request: Union[socket.socket, Tuple[bytes, socket.socket]]) -> None:
@@ -1956,8 +1998,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
             try:
                 from ssl import SSLSocket
                 if isinstance(request, SSLSocket):  # pyright
-                    request.unwrap()
-            except Exception as e:
+                    interruptible_call(request, request.unwrap, self.interrupter)
+            except (Exception, RequestInterrupted) as e:
                 logger.debug('Failed to shutdown SSL connection: %r', e)
         super(RestApiServer, self).shutdown_request(request)
 

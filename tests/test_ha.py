@@ -2,11 +2,13 @@ import datetime
 import os
 import sys
 
+from threading import Event, Thread
 from unittest.mock import MagicMock, Mock, mock_open, patch, PropertyMock
 
 import etcd
 
 from patroni import global_config
+from patroni.async_executor import AsyncExecutor
 from patroni.collections import CaseInsensitiveSet
 from patroni.config import Config
 from patroni.dcs import Cluster, ClusterConfig, Failover, get_dcs, \
@@ -742,8 +744,48 @@ class TestHa(PostgresInit):
             self.assertTrue(mock_logger.call_args[0][0].startswith('Cancelling bootstrap because'
                                                                    ' watchdog activation failed'))
 
+    def test_reinitialize_new_leader(self):
+        # The HA loop could acquire the leader lock while the REST API request works with an old snapshot of the DCS
+        cluster = get_cluster_initialized_with_leader()
+
+        def acquire_lock(promote=False):
+            with self.ha._async_executor:
+                self.ha.set_is_leader(True)
+                if promote:
+                    self.ha._async_executor.schedule('promote')
+            return cluster
+
+        def finish_and_acquire_lock():
+            self.ha._async_executor.reset_scheduled_action()
+            acquire_lock(True)
+
+        with patch.object(self.ha, '_do_reinitialize') as mock_reinitialize:
+            # the promotion is finished while the DCS is read
+            self.ha.dcs.get_cluster = Mock(side_effect=acquire_lock)
+            self.assertEqual(self.ha.reinitialize(), 'I am the leader, can not reinitialize')
+
+            # the promotion is pending, it must not be cancelled
+            self.ha.set_is_leader(False)
+            self.ha.dcs.get_cluster = Mock(side_effect=lambda: acquire_lock(True))
+            self.assertEqual(self.ha.reinitialize(True), 'I am the leader, can not reinitialize')
+            self.assertEqual(self.ha._async_executor.scheduled_action, 'promote')
+            promote = Mock()
+            self.ha._async_executor.run(promote)
+            promote.assert_called_once()
+
+            # the cancelled task finishes and the promotion is scheduled while the request waits for the task
+            self.ha.set_is_leader(False)
+            self.ha.dcs.get_cluster = Mock(return_value=cluster)
+            self.ha._async_executor.schedule('restart')
+            with patch.object(self.ha._async_executor, '_finish_event',
+                              Mock(wait=Mock(side_effect=finish_and_acquire_lock))):
+                self.assertEqual(self.ha.reinitialize(True), 'I am the leader, can not reinitialize')
+            self.assertEqual(self.ha._async_executor.scheduled_action, 'promote')
+        mock_reinitialize.assert_not_called()
+
     @patch('patroni.psycopg.connect', psycopg_connect)
     def test_reinitialize(self):
+        self.ha.dcs.get_cluster = Mock(side_effect=lambda: self.ha.cluster)
         self.assertIsNotNone(self.ha.reinitialize())
 
         self.ha.cluster = get_cluster_initialized_with_leader()
@@ -2049,15 +2091,76 @@ class TestHa(PostgresInit):
     def test_shutdown(self):
         self.p.is_running = false
         self.ha.is_leader = true
+        self.p.name = 'leader'
+        cluster = get_cluster_initialized_with_leader()
+        # self.cluster could be replaced while PostgreSQL is stopped, the leader key of the next leader must stay
+        next_leader = get_cluster(SYSID, Leader(42, 28, cluster.members[1]), cluster.members, None, SyncState.empty())
 
         def stop(*args, **kwargs):
+            self.ha.cluster = next_leader
             kwargs['on_shutdown'](123, 120)
 
         self.p.stop = stop
-        self.ha.shutdown()
+        self.ha.dcs.delete_leader = Mock()
+        for failover_possible in (False, True):
+            self.ha.cluster = cluster
+            self.ha.is_failover_possible = Mock(return_value=failover_possible)
+            self.ha.shutdown()
+            self.ha.dcs.delete_leader.assert_called_once()
+            self.assertEqual(self.ha.dcs.delete_leader.call_args[0][0], cluster.leader)
+            self.ha.dcs.delete_leader.reset_mock()
 
-        self.ha.is_failover_possible = true
-        self.ha.shutdown()
+    def test_scheduled_restart_does_not_delay_shutdown(self):
+        # REST API requests publish the scheduled restart, PostgreSQL must be stopped meanwhile
+        self.p.is_running = false
+        publishing, release, published = Event(), Event(), Event()
+        stopped_while_publishing = []
+
+        def touch_member(*args):
+            publishing.set()
+            ret = release.wait(5)
+            published.set()
+            return ret
+
+        def stop(*args, **kwargs):
+            stopped_while_publishing.append(not published.is_set())
+            release.set()
+            return True
+
+        self.ha.dcs.touch_member = Mock(side_effect=touch_member)
+        self.p.stop = Mock(side_effect=stop)
+        for request in (self.ha.delete_future_restart,
+                        lambda: self.ha.schedule_future_restart({'schedule': future_restart_time})):
+            for event in (publishing, release, published):
+                event.clear()
+            self.ha._async_executor = AsyncExecutor(self.p.cancellable, self.ha.wakeup)
+            thread = Thread(target=request, daemon=True)
+            thread.start()
+            self.assertTrue(publishing.wait(5))
+            self.ha.shutdown()
+            thread.join(5)
+        self.assertEqual(stopped_while_publishing, [True, True])
+
+    def test_restart_after_shutdown(self):
+        # REST API requests may still be running after Ha.shutdown(), they must not start PostgreSQL
+        self.p.is_running = false
+        self.ha.patroni.scheduled_restart = {}
+        # Ha.shutdown() could be called while PostgreSQL is queried
+        with patch.object(self.p, 'postmaster_start_time', Mock(side_effect=self.ha.shutdown)):
+            self.assertIsNone(self.ha.schedule_future_restart({'schedule': future_restart_time}))
+        with patch.object(self.p, 'postmaster_start_time') as mock_postmaster_start_time:
+            self.assertIsNone(self.ha.schedule_future_restart({'schedule': future_restart_time}))
+        mock_postmaster_start_time.assert_not_called()
+        self.assertEqual(self.ha.patroni.scheduled_restart, {})
+        self.ha.patroni.scheduled_restart = {'schedule': future_restart_time}
+        self.assertIsNone(self.ha.delete_future_restart())
+        with patch.object(self.p, 'restart') as mock_restart:
+            self.assertEqual(self.ha.restart({}), (False, 'shutdown already in progress'))
+        mock_restart.assert_not_called()
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        with patch.object(self.ha, '_do_reinitialize') as mock_reinitialize:
+            self.assertEqual(self.ha.reinitialize(True), 'shutdown already in progress')
+        mock_reinitialize.assert_not_called()
 
     @patch('patroni.postgresql.mpp.AbstractMPPHandler.is_coordinator', Mock(return_value=False))
     def test_shutdown_citus_worker(self):
