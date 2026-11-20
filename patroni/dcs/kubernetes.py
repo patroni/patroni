@@ -13,7 +13,7 @@ import time
 from collections import defaultdict
 from copy import deepcopy
 from http.client import HTTPException
-from threading import Condition, Lock, Thread
+from threading import Condition, Lock
 from typing import Any, Callable, cast, Collection, Dict, List, Optional, Tuple, Type, TYPE_CHECKING, Union
 
 import urllib3
@@ -23,6 +23,7 @@ from urllib3.exceptions import HTTPError
 
 from ..collections import EMPTY_DICT
 from ..exceptions import DCSError
+from ..interrupt import make_interruptible, WatchInterrupted, WatchStreamThread
 from ..postgresql.misc import PostgresqlRole, PostgresqlState
 from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare, iter_response_objects, \
@@ -240,7 +241,7 @@ class K8sClient(object):
 
         def __init__(self, bypass_api_service: Optional[bool] = False) -> None:
             self._bypass_api_service = bypass_api_service
-            self.pool_manager = urllib3.PoolManager(**k8s_config.pool_config)
+            self.pool_manager = make_interruptible(urllib3.PoolManager(**k8s_config.pool_config))
             self._base_uri = k8s_config.server
             self._api_servers_cache = [k8s_config.server]
             self._api_servers_cache_updated = float('-inf')
@@ -595,20 +596,15 @@ def catch_kubernetes_errors(func: Callable[..., Any]) -> Callable[..., Any]:
     return wrapper
 
 
-class ObjectCache(Thread):
+class ObjectCache(WatchStreamThread):
 
     def __init__(self, dcs: 'Kubernetes', func: Callable[..., Any], retry: Retry,
                  condition: Condition, name: Optional[str] = None) -> None:
-        super(ObjectCache, self).__init__()
-        self.daemon = True
+        super(ObjectCache, self).__init__(condition)
         self._dcs = dcs
         self._func = func
         self._retry = retry
-        self._condition = condition
         self._name = name  # name of this pod
-        self._is_ready = False
-        self._response: Union[urllib3.HTTPResponse, bool, None] = None  # needs to be accessible from the `kill_stream`
-        self._response_lock = Lock()  # protect the `self._response` from concurrent access
         self._object_cache: Dict[str, K8sObject] = {}
         self._object_cache_lock = Lock()
         self._annotations_map = {self._dcs.leader_path: getattr(self._dcs, '_LEADER'),
@@ -680,63 +676,34 @@ class ObjectCache(Thread):
             if value_changed or name == self._dcs.leader_path and self._name != new_value:
                 self._dcs.event.set()
 
-    @staticmethod
-    def _finish_response(response: urllib3.HTTPResponse) -> None:
-        try:
-            response.close()
-        finally:
-            response.release_conn()
-
     def _do_watch(self, resource_version: str) -> None:
-        with self._response_lock:
-            self._response = None
-        response = self._watch(resource_version)
-        with self._response_lock:
-            if self._response is None:
-                self._response = response
-
-        if not self._response:
-            return self._finish_response(response)
-
-        for event in iter_response_objects(response):
-            if event['object'].get('code') == 410:
-                break
-            self._process_event(event)
+        with self._watch_interrupter.armed():
+            response = self._watch(resource_version)
+        try:
+            for event in iter_response_objects(response):
+                if event['object'].get('code') == 410:
+                    break
+                self._process_event(event)
+        finally:
+            self._finish_response(response)
 
     def _build_cache(self) -> None:
+        self._watch_interrupter.clear()
         objects = self._list()
-        with self._object_cache_lock:
+        with self._condition, self._object_cache_lock:
+            if self._watch_interrupter.is_set():
+                return
             self._object_cache = {item.metadata.name: item for item in objects.items}
-        with self._condition:
             self._is_ready = True
-            self._condition.notify()
+            self._condition.notify_all()
 
         try:
             self._do_watch(objects.metadata.resource_version)
+        except WatchInterrupted:
+            logger.debug('Watch request interrupted')
         finally:
             with self._condition:
                 self._is_ready = False
-            with self._response_lock:
-                response, self._response = self._response, None
-            if isinstance(response, urllib3.HTTPResponse):
-                self._finish_response(response)
-
-    def kill_stream(self) -> None:
-        sock = None
-        with self._response_lock:
-            if isinstance(self._response, urllib3.HTTPResponse):
-                try:
-                    sock = self._response.connection.sock if self._response.connection else None
-                except Exception:
-                    sock = None
-            else:
-                self._response = False
-        if sock:
-            try:
-                sock.shutdown(socket.SHUT_RDWR)
-                sock.close()
-            except Exception as e:
-                logger.debug('Error on socket.shutdown: %r', e)
 
     def run(self) -> None:
         while True:

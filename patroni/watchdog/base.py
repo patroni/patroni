@@ -134,12 +134,30 @@ class Watchdog(object):
         # timeout still protects the leader key, see needs_immediate_keepalive.
         if self.active:
             return
-        if self._impl_pending or self.config.mode != self.active_config.mode or \
-                self.config.driver != self.active_config.driver or \
-                self.config.driver_config != self.active_config.driver_config or \
-                self.config.fallback != self.active_config.fallback:
-            self.impl = self.config.get_impl()
-            self._impl_pending = False
+        self._apply_inactive_config()
+
+    def _device_changed(self) -> bool:
+        return self.config.driver != self.active_config.driver or \
+            self.config.driver_config != self.active_config.driver_config
+
+    def _fallback_requires_replacement(self) -> bool:
+        """After a fallback change the device is acquired again, if it was replaced with NullWatchdog."""
+        return self.config.fallback != self.active_config.fallback and self.impl.is_null
+
+    def _impl_outdated(self) -> bool:
+        """The configuration requires a new implementation, but replacing it might have been deferred."""
+        return self._impl_pending or self.config.mode != self.active_config.mode or self._device_changed() or \
+            self._fallback_requires_replacement()
+
+    def _apply_inactive_config(self) -> None:
+        """Apply the configuration while the watchdog is inactive, the implementation is opened on activation."""
+        if self._impl_outdated():
+            if self.impl.is_running:
+                # Closing it failed, so the next activation has to disable it before replacing it
+                self._impl_pending = True
+            else:
+                self.impl = self.config.get_impl()
+                self._impl_pending = False
         self.active_config = self.config
 
     @synchronized
@@ -150,9 +168,9 @@ class Watchdog(object):
         :returns False if a safe watchdog could not be configured, but is required.
         """
         self.active = True
-        # A configuration change might have been deferred to a keepalive that was never sent
-        if self._impl_pending or self.config.mode != self.active_config.mode or \
-                self.config.fallback != self.active_config.fallback and self.impl.is_null:
+        # A configuration change might have been deferred to a keepalive that was never sent. The HA loop doesn't
+        # disable a watchdog that isn't running, so it might still be active after losing the leader key.
+        if self._impl_outdated():
             if not self._replace_impl():
                 return self.config.mode != MODE_REQUIRED
         if self._activate():
@@ -271,6 +289,8 @@ class Watchdog(object):
     def disable(self) -> None:
         self._close_impl()
         self.active = False
+        # Changes deferred to the next keepalive would be lost otherwise
+        self._apply_inactive_config()
 
     def wait_for_thread_expiry(self) -> None:
         """Unlike a device, the watchdog thread can't outlive Patroni, so block while it is armed or firing."""
@@ -308,13 +328,10 @@ class Watchdog(object):
             self._close_impl()
             self.active = self._activate()
             return
-        device_changed = self.config.driver != self.active_config.driver or \
-            self.config.driver_config != self.active_config.driver_config
         mode_requires_replacement = self.config.mode != self.active_config.mode and \
             (self.impl is self._fallback or not self.impl.is_running)
-        fallback_requires_replacement = self.config.fallback != self.active_config.fallback and self.impl.is_null
-        needs_replacement = self._impl_pending or device_changed or mode_requires_replacement or \
-            fallback_requires_replacement
+        needs_replacement = self._impl_pending or self._device_changed() or mode_requires_replacement or \
+            self._fallback_requires_replacement()
 
         if needs_replacement and self._replace_impl():
             self._activate()
@@ -368,8 +385,9 @@ class Watchdog(object):
     def is_healthy(self) -> bool:
         if self.config.mode != MODE_REQUIRED:
             return True
-        return self.config.timing_slack >= 0 and self.config.mode == self.active_config.mode and \
-            not self._unsafe_timeout and self.impl.is_healthy
+        # The implementation the next activation would use, see activate()
+        impl = self.config.get_impl() if self._impl_outdated() else self.impl
+        return self.config.timing_slack >= 0 and not self._unsafe_timeout and impl.is_healthy
 
 
 class WatchdogBase(abc.ABC):

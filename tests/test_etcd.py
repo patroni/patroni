@@ -15,7 +15,7 @@ from patroni.exceptions import DCSError
 from patroni.postgresql.mpp import get_mpp
 from patroni.utils import Retry
 
-from . import MockResponse, requests_get, SleepException
+from . import HangingHTTPServer, MockResponse, requests_get, SleepException
 
 
 def etcd_watch(self, key, index=None, timeout=None, recursive=None):
@@ -389,6 +389,34 @@ class TestEtcd(unittest.TestCase):
         with patch.object(AbstractDCS, 'watch', Mock()):
             self.assertTrue(self.etcd.watch(20729, 19.5))
             self.assertRaises(SleepException, self.etcd.watch, 20729, 9.5)
+        self.etcd.wakeup()
+        with patch.object(EtcdClient, 'watch') as mock_watch:
+            self.assertTrue(self.etcd.watch(20729, 9.5))
+            mock_watch.assert_not_called()
+        self.assertFalse(self.etcd.event.is_set())
+
+    def test_wakeup(self):
+        timeout = urllib3.Timeout(connect=5, read=5)
+        with HangingHTTPServer(on_request=self.etcd.wakeup) as server, \
+                patch('socket.getaddrinfo', Mock(return_value=[(socket.AF_INET, 1, 6, '', server.server_address)])), \
+                patch.object(EtcdClient, 'watch', Mock(side_effect=lambda *_, **__: self.etcd._client.http.urlopen(
+                    'GET', server.url, retries=False, timeout=timeout))) as mock_watch:
+            self.assertTrue(self.etcd.watch(20729, 10))
+            mock_watch.assert_called_once()
+            server.on_request = self.etcd._watch_interrupter.interrupt
+            with patch.object(self.etcd._watch_interrupter, 'interrupt'):
+                self.etcd.wakeup()
+            self.assertTrue(self.etcd.watch(20729, 10))
+            self.assertFalse(self.etcd.event.is_set())
+            with patch.object(self.etcd.event, 'wait') as wait:
+                self.assertTrue(self.etcd.watch(20729, 10))
+                wait.assert_not_called()
+            self.assertEqual(mock_watch.call_count, 2)
+        self.assertFalse(self.etcd.event.is_set())
+        # the wakeup was consumed, the next watch waits for the leader key again
+        with patch.object(EtcdClient, 'watch', Mock(side_effect=etcd.EtcdWatchTimedOut)) as mock_watch:
+            self.assertFalse(self.etcd.watch(20729, 10))
+            mock_watch.assert_called_once()
 
     def test_other_exceptions(self):
         self.etcd.retry = Mock(side_effect=AttributeError('foo'))
@@ -458,6 +486,19 @@ class TestConfigureTLS(unittest.TestCase):
             client = self._run({'hostname_checks_common_name': False})
         self.assertIs(client.http.pool_classes_by_scheme['https'],
                       EtcdHTTPSConnectionPool)
+
+    def test_cn_fallback_false_on_urllib3_1x_keeps_responses_interruptible(self):
+        from patroni.dcs.etcd import AbstractEtcdClientWithFailover, EtcdHTTPSConnectionPool
+        from patroni.interrupt import make_interruptible
+        http = make_interruptible(urllib3.PoolManager())
+        connection_cls = http.connection_from_url('https://etcd:2379').ConnectionCls
+        http.clear()
+        client = Mock(_config={'hostname_checks_common_name': False}, http=http)
+        with patch('patroni.dcs.etcd.urllib3.__version__', '1.26.20'):
+            AbstractEtcdClientWithFailover._configure_tls(client)
+        pool = http.connection_from_url('https://etcd:2379')
+        self.assertIsInstance(pool, EtcdHTTPSConnectionPool)
+        self.assertIs(pool.ConnectionCls, connection_cls)
 
     def test_cn_fallback_true_on_urllib3_2x(self):
         # urllib3 2.x + cn_fallback=True -> builds a custom ssl_context.

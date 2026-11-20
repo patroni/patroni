@@ -1,7 +1,10 @@
-from .connection import HTTPSConnection
+from typing import Type
+
+from .connection import HTTPConnection, HTTPSConnection
 
 
-class HTTPConnectionPool: ...
+class HTTPConnectionPool:
+    ConnectionCls: Type[HTTPConnection]
 
 
 class HTTPSConnectionPool(HTTPConnectionPool):

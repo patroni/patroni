@@ -382,6 +382,11 @@ class Ha(object):
             logger.exception('Unexpected exception raised from acquire_leader_lock, please report it as a BUG')
             ret = False
         self.set_is_leader(ret)
+        # The watchdog is still armed if we were running as a primary while the leader key was missing. Don't call
+        # keepalive() otherwise, it would apply deferred config changes ignoring activation failures. A device left
+        # armed with an unsafe timeout would make enforce_primary_role() skip the activation and promote.
+        if ret and self.watchdog.is_running:
+            self.watchdog.keepalive()
         return ret
 
     def _failsafe_config(self) -> Optional[Dict[str, str]]:
@@ -427,6 +432,39 @@ class Ha(object):
         if ret:
             self.watchdog.keepalive()
         return ret
+
+    def _disable_watchdog_unless_primary(self) -> None:
+        """Disable the watchdog unless PostgreSQL is running as a primary or is being promoted.
+
+        .. note::
+            Only the leader key holder feeds the watchdog. Without the leader key the watchdog is needed only to
+            fence a primary, otherwise it would eventually reset a healthy replica.
+
+            The ``demoted`` role is treated as a primary, because :meth:`demote` sets it even if it failed to stop
+            PostgreSQL, while :meth:`Postgresql.is_primary` falls back to the cached role if it can't connect.
+        """
+        if self.watchdog.is_running and self._async_executor.scheduled_action != 'promote' \
+                and self.state_handler.role not in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED,
+                                                    PostgresqlRole.DEMOTED) \
+                and not self.state_handler.is_primary():
+            self.watchdog.disable()
+
+    def _cancel_promotion(self) -> bool:
+        """Cancel the promotion running in the background, unless it is too late.
+
+        :returns: ``True`` if the promotion was cancelled.
+        """
+        if self._async_executor.scheduled_action == 'promote':
+            with self._async_response:
+                cancel = self._async_response.cancel()
+            if cancel:
+                self.state_handler.cancellable.cancel()
+                # The cancelled task won't promote PostgreSQL, and nobody will feed the watchdog anymore.
+                # Keep it armed only if PostgreSQL is a primary anyway, e.g. it was promoted manually.
+                if not self.state_handler.is_primary():
+                    self.watchdog.disable()
+                return True
+        return False
 
     def has_lock(self, info: bool = True) -> bool:
         lock_owner = self.cluster.leader and self.cluster.leader.name
@@ -1240,6 +1278,10 @@ class Ha(object):
                     logger.warning("Releasing the leader key voluntarily because the pre-promote script failed")
                     self._released_leader_key_timestamp = time.monotonic()
                     self.release_leader_key_voluntarily()
+                    if not self.state_handler.is_primary():
+                        # the leader key is gone and nobody will feed the watchdog anymore,
+                        # disarm it to avoid a reset while the node is in the backoff as a replica
+                        self.watchdog.disable()
                     # discard the result of the failed pre-promote script to be able to re-try promote
                     self._async_response.reset()
                     return 'Promotion cancelled because the pre-promote script failed'
@@ -1959,11 +2001,14 @@ class Ha(object):
 
     def process_unhealthy_cluster(self) -> str:
         """Cluster has no leader key"""
-        # First, we want to handle primary_race_backoff. Do it only for non-standby cluster,
-        # not in maintenance mode and when there is no manual failover/switchover to a candidate in progress.
+        # First, we want to handle primary_race_backoff. Do it only on replicas of a non-standby cluster, not in
+        # maintenance mode and when there is no manual failover/switchover to a candidate in progress. The primary
+        # takes the leader key back right away: replicas postpone the race for it, and its watchdog is fed only
+        # while it holds the leader key.
         if not self.is_paused() and not self.is_standby_cluster() and \
                 not (self.cluster.failover and self.cluster.failover.candidate) and \
-                global_config.primary_race_backoff > 0 and self._prev_wal_lsn is not None:
+                global_config.primary_race_backoff > 0 and self._prev_wal_lsn is not None and \
+                not self.state_handler.is_primary():
             if self._primary_race_backoff_timestamp == float('-inf'):
                 self._primary_race_backoff_timestamp = time.monotonic()
             time_left = self._primary_race_backoff_timestamp + global_config.primary_race_backoff - time.monotonic()
@@ -2059,6 +2104,7 @@ class Ha(object):
                     self.demote('immediate-nolock')
                     return 'demoted self because failed to update leader lock in DCS'
                 else:
+                    self._disable_watchdog_unless_primary()
                     return 'not promoting because failed to update leader lock in DCS'
         else:
             logger.debug('does not have lock')
@@ -2239,12 +2285,8 @@ class Ha(object):
             return 'updated leader lock during {0}'.format(self._async_executor.scheduled_action)
         elif not self.state_handler.bootstrapping and not self.is_paused():
             # Don't have lock, make sure we are not promoting or starting up a primary in the background
-            if self._async_executor.scheduled_action == 'promote':
-                with self._async_response:
-                    cancel = self._async_response.cancel()
-                if cancel:
-                    self.state_handler.cancellable.cancel()
-                    return 'lost leader before promote'
+            if self._cancel_promotion():
+                return 'lost leader before promote'
 
             if self.state_handler.role == PostgresqlRole.PRIMARY:
                 logger.info('Demoting primary during %s', self._async_executor.scheduled_action)
@@ -2256,6 +2298,9 @@ class Ha(object):
                             self.state_handler.terminate_starting_postmaster(postmaster=task.result)
                 self.demote('immediate-nolock')
                 return 'lost leader lock during {0}'.format(self._async_executor.scheduled_action)
+            # The task might have been started before we noticed that the leader key was lost, e.g. a forced
+            # reinitialize cancelled the promotion, and _run_cycle() doesn't disable the watchdog while it runs
+            self._disable_watchdog_unless_primary()
         if self.cluster.is_unlocked():
             logger.info('not healthy enough for leader race')
 
@@ -2304,7 +2349,8 @@ class Ha(object):
             return ret or 'running post_bootstrap'
 
         self.state_handler.bootstrapping = False
-        if not self.watchdog.activate():
+        # A standby leader isn't a primary, enforce_follow_remote_member() doesn't activate the watchdog either
+        if not self.is_standby_cluster() and not self.watchdog.activate():
             logger.error('Cancelling bootstrap because watchdog activation failed')
             self.cancel_initialization()
 
@@ -2513,6 +2559,10 @@ class Ha(object):
                 # try to start dead postgres
                 return self.recover()
 
+            # The watchdog might be still armed after losing the leader key before PostgreSQL was promoted
+            if not self.has_lock(False):
+                self._disable_watchdog_unless_primary()
+
             if self.cluster.is_unlocked():
                 ret = self.process_unhealthy_cluster()
             else:
@@ -2566,6 +2616,11 @@ class Ha(object):
                 self.demote('offline')
                 return 'demoted self because DCS is not accessible and I was a leader'
             else:
+                # We can't renew the leader key, and without failsafe mode we would demote right after the promotion.
+                # Cancel it while still possible, otherwise the armed watchdog resets the node if it takes too long.
+                if not self.is_failsafe_mode() and self._cancel_promotion():
+                    return 'cancelled promotion because DCS is not accessible'
+                self._disable_watchdog_unless_primary()
                 self._sync_replication_slots(True)
         return 'DCS is not accessible'
 
@@ -2668,10 +2723,8 @@ class Ha(object):
         return self.dcs.watch(leader_version, timeout)
 
     def wakeup(self) -> None:
-        """Trigger the next run of HA loop if there is no "active" leader watch request in progress.
-
-        This usually happens on the leader or if the node is running async action"""
-        self.dcs.event.set()
+        """Trigger the next run of HA loop, see :func:`~patroni.dcs.AbstractDCS.wakeup`."""
+        self.dcs.wakeup()
 
     def get_remote_member(self, member: Union[Leader, Member, None] = None) -> RemoteMember:
         """Get remote member node to stream from.
