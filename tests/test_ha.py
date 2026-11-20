@@ -559,9 +559,11 @@ class TestHa(PostgresInit):
             self.assertEqual(self.ha.run_cycle(),
                              'no action. I am (postgresql0), a secondary, and following a leader ()')
             mock_disable.assert_called_once_with()
-            self.p.set_role(PostgresqlRole.PROMOTED)
-            self.ha.run_cycle()
-            mock_disable.assert_called_once_with()
+            # the promotion has not completed yet, see test_long_promote
+            for role in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED):
+                self.p.set_role(role)
+                self.ha.run_cycle()
+                mock_disable.assert_called_once_with()
             # e.g. pg_ctl stop failed during demote and is_primary() fell back to the cached role
             self.p.set_role(PostgresqlRole.DEMOTED)
             self.ha._disable_watchdog_unless_primary()
