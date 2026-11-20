@@ -212,7 +212,7 @@ class TestPatroni(unittest.TestCase):
 
     def test_schedule_next_run_for_watchdog(self):
         self.p.next_run = time.monotonic()
-        with patch.object(self.p, 'watchdog', Mock(keepalive_interval=2.5)), \
+        with patch.object(self.p.ha, 'watchdog', Mock(keepalive_interval=2.5)), \
                 patch.object(self.p.ha, 'watch', Mock(return_value=False)) as mock_watch:
             self.p.schedule_next_run()
         # the watchdog would expire before loop_wait

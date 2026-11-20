@@ -1133,6 +1133,15 @@ class TestHa(PostgresInit):
             self.assertEqual('no action. I am (postgresql0), the leader with the lock', self.ha.run_cycle())
             self.assertIn('Awaiting %s at %s (in %.0f seconds)', mock_info.call_args_list[0][0])
 
+        # within loop_wait, but the watchdog has to be fed before
+        with patch.object(Watchdog, 'keepalive_interval', PropertyMock(return_value=6)), \
+                patch('patroni.ha.logger.info') as mock_info, patch('time.sleep') as mock_sleep:
+            soon = datetime.datetime.now(tzutc) + datetime.timedelta(seconds=8)
+            self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, self.p.name, 'blabla', soon, None))
+            self.assertEqual('no action. I am (postgresql0), the leader with the lock', self.ha.run_cycle())
+            self.assertIn('Awaiting %s at %s (in %.0f seconds)', mock_info.call_args_list[0][0])
+            mock_sleep.assert_not_called()
+
         # stale value
         with patch('patroni.ha.logger.warning') as mock_warning:
             scheduled = scheduled + datetime.timedelta(seconds=-600)
@@ -2536,6 +2545,17 @@ class TestHa(PostgresInit):
         with patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='ANY 1 (foo)')), \
                 patch('time.monotonic', Mock(side_effect=[30, 60, 90, 120, 150])):
             self.ha.process_sync_replication()
+
+        # Nor longer than the watchdog allows
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', None))
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('quorum', 1, CaseInsensitiveSet(['foo']),
+                                                                         CaseInsensitiveSet(['foo']),
+                                                                         CaseInsensitiveSet(['foo'])))
+        mock_write_sync.reset_mock()
+        with patch.object(Watchdog, 'keepalive_interval', PropertyMock(return_value=6)), \
+                patch('time.monotonic', Mock(side_effect=[30, 37, 44])):
+            self.ha.process_sync_replication()
+        mock_write_sync.assert_not_called()
 
         # Test foo -> ANY 1 (foo) transition
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'foo'))

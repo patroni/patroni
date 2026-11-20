@@ -51,12 +51,14 @@ class WatchdogConfig(object):
         self.mode = parse_mode(watchdog_config.get('mode', 'automatic'))
         self.ttl = config['ttl']
         self.loop_wait = config['loop_wait']
+        self.retry_timeout = config.get('retry_timeout', 10)
         self.safety_margin = watchdog_config.get('safety_margin', 5)
         self.driver = watchdog_config.get('driver', 'default')
         self.driver_config = dict((k, v) for k, v in watchdog_config.items()
                                   if k not in ['mode', 'safety_margin', 'driver'])
 
     def __eq__(self, other: Any) -> bool:
+        # retry_timeout doesn't affect the device, only how often it has to be fed, see Watchdog.keepalive_interval
         return isinstance(other, WatchdogConfig) and \
             all(getattr(self, attr) == getattr(other, attr) for attr in
                 ['mode', 'ttl', 'loop_wait', 'safety_margin', 'driver', 'driver_config'])
@@ -99,6 +101,8 @@ class Watchdog(object):
         # The last activation or configuration change resulted in a watchdog that is safe to lead with, see is_activated
         self._activated = False
         self._impl_pending = False
+        # The last known timeout of the open implementation, see keepalive_interval
+        self._timeout: Optional[int] = None
 
         if self.config.mode == MODE_OFF:
             self.impl = NullWatchdog()
@@ -192,6 +196,8 @@ class Watchdog(object):
             # Reacquire the configured device once a configuration change fixes the timing.
             self._impl_pending = True
 
+        # Opening a new descriptor, e.g. after the device was replaced
+        self._timeout = None
         try:
             self.impl.open()
             actual_timeout = self._set_timeout()
@@ -214,7 +220,7 @@ class Watchdog(object):
         if self.is_running:
             logger.info("%s activated with %s second timeout, timing slack %s seconds",
                         self.impl.describe(), actual_timeout, self.config.timing_slack)
-            self._check_loop_wait(actual_timeout)
+            self._check_keepalive_interval(actual_timeout)
         elif self.config.mode == MODE_REQUIRED:
             logger.error("Configuration requires watchdog, but watchdog could not be activated")
             return False
@@ -244,13 +250,26 @@ class Watchdog(object):
     def _set_timeout(self) -> int:
         if self.impl.has_set_timeout():
             self.impl.set_timeout(self.config.timeout)
-        return self.impl.get_timeout()
+            # The best guess if reading it back fails
+            self._timeout = self.config.timeout
+        return self._get_timeout()
 
-    def _check_loop_wait(self, actual_timeout: int) -> None:
-        """A device might not accept a timeout that covers ``loop_wait``, see keepalive_interval."""
-        if actual_timeout < self.config.loop_wait:
-            logger.warning('Watchdog timeout of %s seconds is shorter than loop_wait of %s seconds, running the HA loop'
-                           ' every %s seconds', actual_timeout, self.config.loop_wait, actual_timeout / 2.0)
+    def _get_timeout(self) -> int:
+        self._timeout = self.impl.get_timeout()
+        return self._timeout
+
+    def _keepalive_interval(self, timeout: int) -> Optional[float]:
+        """See keepalive_interval."""
+        interval = max(timeout - self.config.retry_timeout, timeout / 2.0)
+        return interval if interval < self.config.loop_wait else None
+
+    def _check_keepalive_interval(self, actual_timeout: int) -> None:
+        """A device might not accept a timeout that leaves the HA loop enough time, see keepalive_interval."""
+        interval = self._keepalive_interval(actual_timeout)
+        if interval is not None:
+            logger.warning('Watchdog timeout of %s seconds does not leave retry_timeout of %s seconds after loop_wait'
+                           ' of %s seconds, running the HA loop every %s seconds', actual_timeout,
+                           self.config.retry_timeout, self.config.loop_wait, interval)
 
     @synchronized
     def disable(self) -> None:
@@ -312,12 +331,12 @@ class Watchdog(object):
     def _update_timeout(self) -> bool:
         """Apply the configuration to the running implementation, see _activate()."""
         timeout_changed = self.config.timeout != self.active_config.timeout
-        actual_timeout = self._set_timeout() if timeout_changed else self.impl.get_timeout()
+        actual_timeout = self._set_timeout() if timeout_changed else self._get_timeout()
         if timeout_changed:
             logger.info("%s updated with %s second timeout, timing slack %s seconds",
                         self.impl.describe(), actual_timeout, self.config.timing_slack)
         # Same checks as on activation, e.g. a device might not accept a timeout that covers the new loop_wait.
-        self._check_loop_wait(actual_timeout)
+        self._check_keepalive_interval(actual_timeout)
         return self._check_timeout(actual_timeout)
 
     def _apply_unsafe_timing(self) -> None:
@@ -372,23 +391,29 @@ class Watchdog(object):
     @property
     @synchronized
     def keepalive_interval(self) -> Optional[float]:
-        """Seconds between HA loop runs needed to feed the watchdog, if it expires before ``loop_wait`` does.
+        """Seconds between HA loop runs needed to feed the watchdog in time, if that is shorter than ``loop_wait``.
 
-        A device might not accept a timeout that covers ``loop_wait``. Or the timeout armed for the previous
-        configuration stays in effect until the keepalive following the leader key update with the new TTL applies
-        the new one. Also a watchdog that isn't safe to lead with has to be fed until it is disabled.
+        The HA loop has to complete before the watchdog expires, including a DCS request that takes up to
+        ``retry_timeout``. A device might not accept a timeout that leaves that much time after ``loop_wait``. Or the
+        timeout armed for the previous configuration stays in effect until the keepalive following the leader key
+        update with the new TTL applies the new one. Also a watchdog that isn't safe to lead with has to be fed until it
+        is disabled.
 
-        :returns: half of the actual timeout if it is shorter than ``loop_wait``, otherwise ``None``.
+        :returns: the actual timeout minus ``retry_timeout``, but at least half of the timeout, if that is shorter than
+                  ``loop_wait``, otherwise ``None``.
         """
         if not self.active or not self.impl.is_running:
             return None
         try:
             # The actual timeout, because a device might not have accepted the configured one.
-            timeout = self.impl.get_timeout()
+            timeout = self._get_timeout()
         except WatchdogError:
-            # E.g. the device was removed, then running the HA loop more often doesn't help
-            return None
-        return timeout / 2.0 if timeout < self.config.loop_wait else None
+            if not self.impl.is_running or self._timeout is None:
+                # E.g. the device was removed, then running the HA loop more often doesn't help
+                return None
+            # E.g. a transient I/O error, the descriptor is still open and the last known timeout still armed
+            timeout = self._timeout
+        return self._keepalive_interval(timeout)
 
     @property
     @synchronized

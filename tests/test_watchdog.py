@@ -511,7 +511,7 @@ class TestWatchdog(unittest.TestCase):
                     # follows the leader key update with the new TTL. Until then the old timeout protects it.
                     watchdog.reload_config(dict(config, ttl=20))
                     self.assertTrue(device.armed)
-                    self.assertIsNone(watchdog.keepalive_interval)
+                    self.assertEqual(watchdog.keepalive_interval, 8.5)
                     watchdog.keepalive()
                     self.assertFalse(device.open)
                     self.assertFalse(device.armed)
@@ -591,6 +591,39 @@ class TestWatchdog(unittest.TestCase):
         watchdog.active = True
         with patch.object(LinuxWatchdogDevice, 'is_running', PropertyMock(return_value=True)):
             self.assertIsNone(watchdog.keepalive_interval)
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    def test_keepalive_interval_retained_on_get_timeout_error(self):
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 15})
+        try:
+            self.assertTrue(watchdog.activate())
+            self.assertEqual(watchdog.keepalive_interval, 14)
+            # The descriptor is still open, so the last known timeout is still armed
+            with patch('fcntl.ioctl', Mock(side_effect=OSError(errno.EIO, 'Input/output error'))):
+                self.assertEqual(watchdog.keepalive_interval, 14)
+            self.assertTrue(watchdog.is_running)
+            # The descriptor is released once the device is removed
+            with patch('fcntl.ioctl', Mock(side_effect=OSError(errno.ENODEV, 'No such device'))):
+                self.assertIsNone(watchdog.keepalive_interval)
+            self.assertFalse(watchdog.is_running)
+        finally:
+            watchdog.disable()
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
+    @patch.object(LinuxWatchdogDevice, 'has_set_timeout', Mock(return_value=False))
+    def test_keepalive_interval_leaves_retry_timeout(self):
+        for timeout, loop_wait, retry_timeout, interval in ((15, 15, 3, 12), (15, 15, 10, 7.5), (13, 10, 3, None)):
+            with self.subTest(timeout=timeout, loop_wait=loop_wait, retry_timeout=retry_timeout):
+                watchdog = Watchdog({'ttl': 30, 'loop_wait': loop_wait, 'retry_timeout': retry_timeout})
+                try:
+                    with patch.object(LinuxWatchdogDevice, 'get_timeout', Mock(return_value=timeout)):
+                        with patch('patroni.watchdog.base.logger.warning') as mock_warning:
+                            self.assertTrue(watchdog.activate())
+                        self.assertEqual(mock_warning.called, interval is not None)
+                        self.assertEqual(watchdog.keepalive_interval, interval)
+                finally:
+                    watchdog.disable()
 
     def test_exceptions(self):
         wd = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'bad'}})
@@ -759,13 +792,13 @@ class TestWatchdog(unittest.TestCase):
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
     def test_timing_reload(self):
-        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'safety_margin': 10}})
+        watchdog = Watchdog({'ttl': 35, 'loop_wait': 10, 'watchdog': {'safety_margin': 10}})
         self.assertTrue(watchdog.activate())
         device = mock_devices[-1]
         self.assertIsNone(watchdog.keepalive_interval)
-        # the new configuration is safe, but the armed timeout expires before the new loop_wait
+        # the new configuration is safe, but the armed timeout doesn't leave retry_timeout after the new loop_wait
         watchdog.reload_config({'ttl': 60, 'loop_wait': 25, 'watchdog': {'safety_margin': 10}})
-        self.assertEqual(watchdog.keepalive_interval, 9.5)
+        self.assertEqual(watchdog.keepalive_interval, 14)
         watchdog.keepalive()
         self.assertEqual(device.timeout, 49)
         self.assertIsNone(watchdog.keepalive_interval)
@@ -790,11 +823,14 @@ class TestWatchdog(unittest.TestCase):
                 config = {'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': mode}}
                 watchdog = Watchdog(config)
                 try:
-                    self.assertTrue(watchdog.activate())
+                    # The device doesn't accept a timeout that leaves retry_timeout after loop_wait, the HA loop runs
+                    # every half of the timeout instead.
+                    with self.assertLogs('patroni.watchdog.base', 'WARNING'):
+                        self.assertTrue(watchdog.activate())
                     device = mock_devices[-1]
-                    self.assertIsNone(watchdog.keepalive_interval)
-                    # The device doesn't accept a timeout that covers the new loop_wait. Disabling it would leave the
-                    # primary unprotected, or a timer that can't be stopped unfed. It stays armed and the HA loop runs
+                    self.assertEqual(watchdog.keepalive_interval, 6)
+                    # Neither does it accept one that covers the new loop_wait. Disabling it would leave the primary
+                    # unprotected, or a timer that can't be stopped unfed. It stays armed and the HA loop keeps running
                     # more often instead.
                     watchdog.reload_config(dict(config, loop_wait=15))
                     self.assertEqual(watchdog.keepalive_interval, 6)
@@ -807,7 +843,7 @@ class TestWatchdog(unittest.TestCase):
                     watchdog.reload_config(config)
                     watchdog.keepalive()
                     self.assertTrue(watchdog.is_activated)
-                    self.assertIsNone(watchdog.keepalive_interval)
+                    self.assertEqual(watchdog.keepalive_interval, 6)
                     self.assertIs(mock_devices[-1], device)
                     self.assertTrue(device.open)
                     self.assertTrue(device.armed)

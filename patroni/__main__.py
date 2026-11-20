@@ -210,13 +210,10 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
         """Schedule the next run of the ``patroni`` daemon main loop.
 
         Next run is scheduled based on previous run plus value of ``loop_wait`` configuration from DCS, or more often
-        if the active watchdog would expire before. If that has already been exceeded, run the next cycle immediately.
+        if the active watchdog has to be fed before, see :attr:`~patroni.ha.Ha.effective_loop_wait`. If that has
+        already been exceeded, run the next cycle immediately.
         """
-        loop_wait = self.dcs.loop_wait
-        keepalive_interval = self.watchdog.keepalive_interval
-        if keepalive_interval is not None:
-            loop_wait = min(loop_wait, keepalive_interval)
-        self.next_run += loop_wait
+        self.next_run += self.ha.effective_loop_wait
         current_time = time.monotonic()
         nap_time = self.next_run - current_time
         if nap_time <= 0:

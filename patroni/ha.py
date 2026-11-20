@@ -314,6 +314,17 @@ class Ha(object):
         with self._leader_expiry_lock:
             self._leader_expiry = time.monotonic() + self.dcs.ttl if value else float('-inf')
 
+    @property
+    def effective_loop_wait(self) -> float:
+        """``loop_wait``, or less if the watchdog has to be fed more often.
+
+        The HA loop must not wait longer between cycles, nor within a cycle after the leader key was updated, see
+        :attr:`~patroni.watchdog.base.Watchdog.keepalive_interval`.
+        """
+        keepalive_interval = self.watchdog.keepalive_interval
+        loop_wait = self.dcs.loop_wait
+        return loop_wait if keepalive_interval is None else min(loop_wait, keepalive_interval)
+
     def sync_mode_is_active(self) -> bool:
         """Check whether synchronous replication is requested and already active.
 
@@ -993,9 +1004,10 @@ class Ha(object):
             return
 
         leader = sync.leader
+        loop_wait = self.effective_loop_wait
 
         def _check_timeout(offset: float = 0) -> bool:
-            return time.monotonic() - start_time + offset >= self.dcs.loop_wait
+            return time.monotonic() - start_time + offset >= loop_wait
 
         while True:
             transition = 'break'  # we need define transition value if `QuorumStateResolver` produced no changes
@@ -1942,7 +1954,8 @@ class Ha(object):
             try:
                 delta = (scheduled_at - now).total_seconds()
 
-                if delta > self.dcs.loop_wait:
+                # Waiting longer could let the watchdog expire, the next HA cycle feeds it in time
+                if delta > self.effective_loop_wait:
                     logger.info('Awaiting %s at %s (in %.0f seconds)',
                                 action_name, scheduled_at.isoformat(), delta)
                     return False
