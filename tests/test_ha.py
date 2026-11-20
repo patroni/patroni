@@ -173,6 +173,7 @@ zookeeper:
         self.failover_priority = 1
         self.sync_priority = 1
         self.site = 'dc1'
+        self.received_sigterm = False
 
 
 def run_async(self, func, args=()):
@@ -421,6 +422,33 @@ class TestHa(PostgresInit):
         self.ha.is_healthiest_node = true
         self.p.is_primary = false
         self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
+
+    @patch('patroni.psycopg.connect', psycopg_connect)
+    def test_leader_race_after_sigterm(self):
+        self.p.is_primary = false
+
+        def is_healthiest_node():
+            self.ha.patroni.received_sigterm = True  # received while checking other members
+            return True
+
+        self.ha.is_healthiest_node = is_healthiest_node
+        with patch.object(self.ha, 'acquire_lock', wraps=self.ha.acquire_lock) as mock_acquire_lock, \
+                patch.object(self.p, 'promote') as mock_promote:
+            self.assertEqual(self.ha.run_cycle(), 'not taking the leader lock because Patroni is shutting down')
+            mock_acquire_lock.assert_not_called()
+            # a running primary retakes the lock, so that replicas don't promote while it is still running
+            self.p.is_primary = true
+            self.assertEqual(self.ha.run_cycle(), 'acquired session lock as a leader')
+        mock_promote.assert_not_called()
+
+    @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
+    def test_no_promote_after_sigterm(self):
+        self.ha.has_lock = true
+        self.p.is_primary = false
+        self.ha.patroni.received_sigterm = True
+        with patch.object(self.p, 'promote') as mock_promote:
+            self.assertEqual(self.ha.run_cycle(), 'Not promoting self because Patroni is shutting down')
+        mock_promote.assert_not_called()
 
     def test_promotion_cancelled_after_pre_promote_failed(self):
         self.p.is_primary = false

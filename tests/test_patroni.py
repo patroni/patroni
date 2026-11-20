@@ -5,9 +5,10 @@ import socket
 import sys
 import time
 import unittest
+import warnings
 
 from http.server import HTTPServer
-from threading import Event, Thread
+from threading import Event, get_ident, Thread
 from unittest.mock import MagicMock, Mock, patch, PropertyMock
 
 import etcd
@@ -217,7 +218,6 @@ class TestPatroni(unittest.TestCase):
     @patch('patroni.config.Config.set_dynamic_configuration', Mock(return_value=False))
     @patch.object(Postgresql, 'reload_config', Mock())
     def test_graceful_sigterm(self):
-        self.p.enable_graceful_sigterm()
         self.p.api.start = Mock()
         self.p.logger.start = Mock()
         self.p.ha.dcs.watch = Mock(side_effect=SleepException)
@@ -238,94 +238,182 @@ class TestPatroni(unittest.TestCase):
 
     def test_sigterm_guard(self):
         self.p._emergency_exit = Mock()
-        for data, main_loop_running, loop_wait in ((b'', True, 0),  # the main loop has exited and closed the socket
-                                                   (bytes([signal.SIGINT]), True, 0),  # only SIGTERM arms the guard
-                                                   (bytes([signal.SIGTERM, signal.SIGINT]), True, 0),
-                                                   (bytes([signal.SIGTERM]), True, 0.01),
-                                                   (bytes([signal.SIGTERM]), False, 0.01)):  # the main loop has exited
+        self.p._wakeup = Mock(side_effect=Exception)  # must not prevent the emergency exit
+        for data, received_sigterm, running, loop_wait in (
+                (b'', False, True, 0),  # run() has returned and closed the socket
+                (bytes([signal.SIGINT]), False, True, 0),  # only SIGTERM arms the guard
+                (bytes([signal.SIGTERM, signal.SIGINT]), False, True, 0),
+                (bytes([signal.SIGTERM]), False, True, 0.01),
+                (bytes([signal.SIGTERM]), False, False, 0.01),  # run() has returned
+                (b'', True, True, 0.01)):  # SIGTERM was received before the wakeup fd was set
             self.p._sigterm_guard_rsock, wsock = socket.socketpair()
-            self.p._main_loop_running = main_loop_running
+            self.p._received_sigterm = received_sigterm
+            self.p._running = running
             with wsock, patch.object(self.p, 'config', {'loop_wait': loop_wait}):
                 wsock.sendall(data)
-                if signal.SIGTERM not in data:
+                if not received_sigterm and signal.SIGTERM not in data:
                     wsock.shutdown(socket.SHUT_WR)  # the guard exits on EOF
                 self.p._sigterm_guard()
-        self.assertEqual(self.p._emergency_exit.call_count, 2)
+        self.assertEqual(self.p._emergency_exit.call_count, 3)
+        self.assertEqual(self.p._wakeup.call_count, 3)  # the main thread might not have been interrupted by SIGTERM
 
     @unittest.skipIf(os.name == 'nt', "Windows not supported")
     def test_sigterm_guard_terminates_hanging_main_loop(self):
-        self.p.enable_graceful_sigterm()
         self.p.api.start = Mock()
         self.p.logger.start = Mock()
         exited = Event()
-        sigalrm_handlers = []
-
-        def emergency_exit():
-            sigalrm_handlers.append(signal.getsignal(signal.SIGALRM))
-            exited.set()
-
-        self.p._emergency_exit = Mock(side_effect=emergency_exit)
+        self.p._emergency_exit = Mock(side_effect=exited.set)
 
         def run_cycle():
+            # SIGALRM is left alone, e.g. ignored, because it was ignored by the parent process
+            self.assertEqual(signal.getsignal(signal.SIGALRM), signal.SIG_IGN)
             os.kill(os.getpid(), signal.SIGTERM)
             self.assertTrue(exited.wait(5))  # the main loop hangs after SIGTERM until terminated
 
         self.p._run_cycle = Mock(side_effect=run_cycle)
         handler = signal.signal(signal.SIGTERM, self.p.sigterm_handler)
-        sigalrm_handler = signal.signal(signal.SIGALRM, signal.SIG_IGN)  # e.g. inherited from the parent process
+        sigalrm_handler = signal.signal(signal.SIGALRM, signal.SIG_IGN)
         try:
             with patch.object(self.p, 'config', {'loop_wait': 0.1}):
                 self.p.run()
-            self.assertEqual(signal.getsignal(signal.SIGALRM), signal.SIG_IGN)  # the previous handler is restored
         finally:
             signal.signal(signal.SIGTERM, handler)
             signal.signal(signal.SIGALRM, sigalrm_handler)
-        self.assertEqual(sigalrm_handlers, [signal.SIG_DFL])  # the alarm in _emergency_exit() can terminate the process
+        self.p._run_cycle.assert_called_once()
         self.assertEqual(signal.set_wakeup_fd(-1), -1)  # the previous wakeup fd is restored
 
     @unittest.skipIf(os.name == 'nt', "Windows not supported")
-    @patch('os._exit')
-    @patch('signal.alarm')
-    @patch('signal.pthread_sigmask')
-    def test_emergency_exit(self, mock_sigmask, mock_alarm, mock_exit):
-        self.p.logger.flush = Mock()
+    def test_sigterm_during_startup(self):
+        self.p.api.start = Mock()
+        self.p._run_cycle = Mock()
+        exited = Event()
+        self.p._emergency_exit = Mock(side_effect=exited.set)
+
+        def start():
+            os.kill(os.getpid(), signal.SIGTERM)  # doesn't raise SystemExit
+            self.assertTrue(exited.wait(5))  # the startup hangs after SIGTERM until terminated
+
+        self.p.logger.start = Mock(side_effect=start)
+        handler = signal.signal(signal.SIGTERM, self.p.sigterm_handler)
+        try:
+            with patch.object(self.p, 'config', {'loop_wait': 0.1}):
+                self.p.run()
+        finally:
+            signal.signal(signal.SIGTERM, handler)
+        self.p._run_cycle.assert_not_called()
+
+    @unittest.skipIf(os.name == 'nt', "Windows not supported")
+    def test_sigterm_guard_wakes_up_ha_loop(self):
+        self.p.api.start = Mock()
+        self.p.logger.start = Mock()
+        self.p._emergency_exit = Mock()
+
+        def kill():
+            Event().wait(0.1)  # the main thread is waiting for the next HA cycle
+            signal.pthread_kill(get_ident(), signal.SIGTERM)  # doesn't interrupt the main thread
+
+        def run_cycle():
+            self.p.dcs.event.clear()
+            Thread(target=kill).start()
+            start = time.monotonic()
+            self.assertTrue(self.p.dcs.watch(None, 10))
+            self.assertLess(time.monotonic() - start, 5)
+
+        self.p._run_cycle = Mock(side_effect=run_cycle)
+        handler = signal.signal(signal.SIGTERM, self.p.sigterm_handler)
+        try:
+            self.p.run()
+        finally:
+            signal.signal(signal.SIGTERM, handler)
+        self.p._run_cycle.assert_called_once()
+        self.p._emergency_exit.assert_not_called()
+
+    @unittest.skipIf(not hasattr(os, 'register_at_fork'), 'os.register_at_fork() is not available')
+    def test_sigterm_guard_detached_in_forked_child(self):
+        status = []
+
+        def fork():  # from another thread, like pysyncobj does to write Raft snapshots
+            pid = os.fork()
+            if pid == 0:
+                try:
+                    os.kill(os.getpid(), signal.SIGTERM)  # terminates the child
+                finally:
+                    os._exit(0)
+            status.append(os.waitpid(pid, 0)[1])
+
+        handler = signal.signal(signal.SIGTERM, self.p.sigterm_handler)
+        with patch('patroni.daemon.Thread'):  # nothing reads the socket of the guard
+            self.p._start_sigterm_guard()
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', DeprecationWarning)  # forking a multi-threaded process
+                thread = Thread(target=fork)
+                thread.start()
+                thread.join()
+            self.p._sigterm_guard_rsock.setblocking(False)
+            self.assertRaises(BlockingIOError, self.p._sigterm_guard_rsock.recv, 1)  # the parent got nothing
+        finally:
+            self.p._stop_sigterm_guard()
+            self.p._sigterm_guard_rsock.close()
+            signal.signal(signal.SIGTERM, handler)
+        self.assertTrue(os.WIFSIGNALED(status[0]))
+        self.assertEqual(os.WTERMSIG(status[0]), signal.SIGTERM)
+
+    @unittest.skipIf(os.name == 'nt', "Windows not supported")
+    def test_emergency_exit(self):
+        events = Mock()
         postmaster = MockPostmaster()
+        postmaster.signal_stop = events.signal_stop
+        postmaster.signal_kill = events.signal_kill
         self.p.postgresql.is_running = Mock(return_value=postmaster)
-        with patch('patroni.daemon.logger.critical') as mock_critical:
-            self.p._emergency_exit()
-        mock_sigmask.assert_called_once_with(signal.SIG_UNBLOCK, [signal.SIGALRM])  # the mask could be inherited
-        mock_alarm.assert_called_once_with(5)  # the kernel terminates the process if the emergency exit blocks
-        mock_critical.assert_called_once()
-        postmaster.signal_stop.assert_called_once_with('fast', self.p.postgresql.pgcommand('pg_ctl'))
-        postmaster.signal_kill.assert_not_called()
-        self.p.logger.flush.assert_called_once_with(1)
-        mock_exit.assert_called_once_with(1)
+        self.p.logger.flush = events.flush
+        rfd, wfd = os.pipe()
+        self.addCleanup(os.close, rfd)
+        self.addCleanup(os.close, wfd)
 
-        postmaster.signal_stop.return_value = False
-        self.p._emergency_exit()
-        postmaster.signal_kill.assert_called_once()
+        def emergency_exit(**kwargs):
+            events.reset_mock()
+            with patch('os.pipe', Mock(return_value=(rfd, wfd), **kwargs)), \
+                    patch('faulthandler.dump_traceback_later', events.dump_traceback_later), \
+                    patch('patroni.daemon.logger', events.daemon_logger), \
+                    patch('patroni.__main__.logger', events.logger), patch('os._exit', events.exit):
+                self.p._emergency_exit()
+            return [name for name, _, _ in events.mock_calls]
 
-        postmaster.signal_stop.reset_mock()
+        # Postgres is signaled before anything is logged, because logging could block
+        self.assertEqual(emergency_exit(), ['dump_traceback_later', 'signal_stop', 'logger.info',
+                                            'daemon_logger.critical', 'flush', 'exit'])
+        events.dump_traceback_later.assert_called_once_with(5, exit=True, file=wfd)
+        events.signal_stop.assert_called_once_with('fast', self.p.postgresql.pgcommand('pg_ctl'))
+        events.flush.assert_called_once_with(1)
+        events.exit.assert_called_once_with(1)
+
+        events.signal_stop.return_value = False
+        events.signal_kill.return_value = True
+        self.assertEqual(emergency_exit(), ['dump_traceback_later', 'signal_stop', 'signal_kill', 'logger.critical',
+                                            'daemon_logger.critical', 'flush', 'exit'])
+        events.logger.critical.assert_called_once_with('Could not request fast shutdown, %s PostgreSQL', 'killed')
+        events.signal_kill.return_value = False
+        emergency_exit()
+        events.logger.critical.assert_called_once_with('Could not request fast shutdown, %s PostgreSQL',
+                                                       'failed to kill')
+
         with patch('patroni.ha.Ha.is_paused', Mock(return_value=True)):
-            self.p._emergency_exit()
-        postmaster.signal_stop.assert_not_called()
+            self.assertEqual(emergency_exit(), ['dump_traceback_later', 'logger.info', 'daemon_logger.critical',
+                                                'flush', 'exit'])
 
-        with patch('patroni.daemon.logger.critical', Mock(side_effect=Exception)):  # logging is best effort
-            self.p._emergency_exit()
-        postmaster.signal_stop.assert_called_once()
+        error = Exception()
+        self.p.postgresql.is_running.side_effect = error
+        events.flush.side_effect = Exception
+        self.assertEqual(emergency_exit(), ['dump_traceback_later', 'daemon_logger.critical', 'daemon_logger.error',
+                                            'flush', 'exit'])
+        events.daemon_logger.error.assert_called_once_with('Emergency shutdown failed', exc_info=error)
 
-        self.p.postgresql.is_running = Mock(side_effect=Exception)
-        with patch('patroni.daemon.logger.exception') as mock_exception:
-            self.p._emergency_exit()
-        mock_exception.assert_called_once()
-
-        self.p.logger.flush.side_effect = Exception
-        self.assertRaises(Exception, self.p._emergency_exit)  # only because os._exit() is mocked and returns
-        self.assertEqual(mock_exit.call_count, 6)
+        events.daemon_logger.critical.side_effect = Exception
+        self.assertEqual(emergency_exit(side_effect=OSError), ['daemon_logger.critical', 'exit'])
 
     @patch('patroni.config.Config.reload_local_configuration', Mock(return_value=False))
     def test_sigterm_during_sighup_reload(self):
-        self.p.enable_graceful_sigterm()
         self.p.logger.start = Mock()
         self.p._run_cycle = Mock()
         self.p.sighup_handler()

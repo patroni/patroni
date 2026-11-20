@@ -228,14 +228,10 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
         elif self.ha.watch(nap_time):
             self.next_run = time.monotonic()
 
-    def run(self) -> None:
-        """Run ``patroni`` daemon process main loop.
-
-        Start the REST API and keep running HA cycles every ``loop_wait`` seconds.
-        """
+    def _startup(self) -> None:
+        """Start the REST API and schedule the first HA loop cycle."""
         self.api.start()
         self.next_run = time.monotonic()
-        super(Patroni, self).run()
 
     def _run_cycle(self) -> None:
         """Run a cycle of the ``patroni`` daemon main loop.
@@ -273,7 +269,7 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
         .. note::
             :func:`~patroni.ha.Ha.wakeup` only sets :class:`~patroni.interrupt.SignalSafeEvent` and, if the DCS
             long-polls, interrupts the request with :func:`~patroni.interrupt.Interrupter.interrupt`, which only
-            writes to a socket. Both are safe to do in the signal handler.
+            writes to a socket. Both are safe to do in the signal handler and in other threads.
         """
         self.ha.wakeup()
 
@@ -281,6 +277,8 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
         """Request fast shutdown of Postgres, unless paused, without waiting for it. Kill Postgres if it fails.
 
         .. note::
+            Postgres is signaled before anything is logged, because logging could block.
+
             Unlike :func:`~patroni.ha.Ha.shutdown`, doesn't run callbacks, doesn't wait for synchronous standbys and
             doesn't remove the leader key, which expires after ``ttl`` seconds.
         """
@@ -289,11 +287,13 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
             return
         postmaster = self.postgresql.is_running()
         if postmaster:
-            logger.info('Requesting fast shutdown of PostgreSQL')
             if postmaster.signal_stop('fast', self.postgresql.pgcommand('pg_ctl')) is False:
                 # A primary left running after Patroni exits would keep accepting writes after the leader key expires.
-                logger.critical('Could not request fast shutdown, killing PostgreSQL')
-                postmaster.signal_kill()
+                killed = postmaster.signal_kill()
+                logger.critical('Could not request fast shutdown, %s PostgreSQL',
+                                'killed' if killed else 'failed to kill')
+            else:
+                logger.info('Requested fast shutdown of PostgreSQL')
 
     def _shutdown(self) -> None:
         """Perform shutdown of ``patroni`` daemon process.
