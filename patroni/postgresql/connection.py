@@ -165,3 +165,15 @@ def get_connection_cursor(**kwargs: Any) -> Generator[Union['cursor', 'Cursor[An
     with conn.cursor() as cur:
         yield cur
     conn.close()
+
+
+def relax_localhost_sslmode(conn_kwargs: Dict[str, Any]) -> None:
+    """Relax ``sslmode`` from ``verify-full`` to ``verify-ca`` for localhost connections.
+
+    Patroni connects to the local PostgreSQL instance using ``localhost`` or a loopback IP,
+    which usually does not match the server certificate's subject/SAN.
+
+    :param conn_kwargs: connection keyword arguments dictionary to update in place.
+    """
+    if conn_kwargs.get('host') in ('localhost', '127.0.0.1', '::1') and conn_kwargs.get('sslmode') == 'verify-full':
+        conn_kwargs['sslmode'] = 'verify-ca'
