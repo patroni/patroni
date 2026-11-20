@@ -54,6 +54,10 @@ F.A.Q.
 
   Patroni could be configured to create the new replica from the backup even when the cluster doesn't have a leader. But, if the new member isn't present in the ``/failsafe`` key, it will not be able to grab the leader lock and promote.
 
+- When exactly is the Failsafe Mode triggered?
+
+  Only when Patroni fails to communicate with DCS, that is, when the DCS client raises an error (``DCSError``), for example because all DCS nodes are unreachable or because requests to DCS time out and the retry deadline is exceeded. If DCS is reachable and responds, but the response is an error (for example, with Etcd, an authentication error like ``invalid auth token``), or if the leader lock update was rejected (version/value/index mismatch), the leader lock update is treated as failed and the primary is demoted without running the failsafe check. Patroni can't tell whether such an error is reported only to this node or to all nodes of the cluster, and therefore it doesn't treat it as a DCS outage.
+
 - What will happen if the primary lost access to DCS while replicas didn't?
 
   The primary will execute the failsafe code and contact all known replicas. These replicas will use this information as an indicator that the primary is alive and will not start the leader race even if the leader lock in DCS has expired.
