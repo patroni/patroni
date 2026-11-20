@@ -455,7 +455,9 @@ class TestHa(PostgresInit):
             self.assertEqual(self.ha.run_cycle(), 'Promotion cancelled because the pre-promote script failed')
             mock_disable.assert_not_called()
 
+    @patch.object(Watchdog, 'is_running', PropertyMock(return_value=True))
     def test_lost_leader_lock_during_promote(self):
+        self.p.is_primary = false
         with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)), \
                 patch.object(Watchdog, 'disable') as mock_disable:
             self.ha._async_executor.schedule('promote')
