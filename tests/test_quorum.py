@@ -17,12 +17,13 @@ class QuorumTest(unittest.TestCase):
 
     def check_state_transitions(self, leader: str, quorum: int, voters: Set[str], numsync: int, sync: Set[str],
                                 numsync_confirmed: int, active: Set[str], sync_wanted: int, leader_wanted: str,
-                                expected: List[Tuple[str, str, int, Set[str]]]) -> None:
+                                expected: List[Tuple[str, str, int, Set[str]]], quorum_catchup: bool = False) -> None:
         self.nesting += 1
         kwargs = {
             'leader': leader, 'quorum': quorum, 'voters': voters,
             'numsync': numsync, 'sync': sync, 'numsync_confirmed': numsync_confirmed,
-            'active': active, 'sync_wanted': sync_wanted, 'leader_wanted': leader_wanted
+            'active': active, 'sync_wanted': sync_wanted, 'leader_wanted': leader_wanted,
+            'quorum_catchup': quorum_catchup
         }
         state = {k: v for k, v in kwargs.items()}
         result = list(QuorumStateResolver(**kwargs))
@@ -579,4 +580,53 @@ class QuorumTest(unittest.TestCase):
                                      sync_wanted=1, leader_wanted=leader, expected=[
             ('quorum', leader, 2, set('bcd')),  # increase quorum before reducing replication factor
             ('sync', leader, 1, set('bcd')),    # reduce replication factor
+        ])
+
+    def test_quorum_catchup_preserves_election_guarantees(self):
+        self.check_state_transitions(leader='a', quorum=2, voters=set('bcd'),
+                                     numsync=1, sync=set('bc'), numsync_confirmed=0, active=set('bc'),
+                                     sync_wanted=1, leader_wanted='a', quorum_catchup=True, expected=[
+            ('restart', 'a', 2, set('bcd')),
+        ])
+        # A mismatched state must not be repaired using unverified durability.
+        self.check_state_transitions(leader='a', quorum=1, voters=set('bc'),
+                                     numsync=1, sync=set('bd'), numsync_confirmed=0, active=set('bd'),
+                                     sync_wanted=1, leader_wanted='a', quorum_catchup=True, expected=[
+            ('restart', 'a', 1, set('bc')),
+        ])
+
+    def test_quorum_catchup_adds_replacements(self):
+        for numsync in (1, 2):
+            with self.subTest(numsync=numsync):
+                self.check_state_transitions(leader='a', quorum=1, voters=set('bc'),
+                                             numsync=numsync, sync=set('b'), numsync_confirmed=0, active=set('bd'),
+                                             sync_wanted=2, leader_wanted='a', quorum_catchup=True, expected=[
+                    ('quorum', 'a', 2, set('bcd')),
+                    ('sync', 'a', numsync, set('bd')),
+                    ('restart', 'a', 2, set('bcd')),
+                ])
+        self.check_state_transitions(leader='a', quorum=2, voters=set('bcd'),
+                                     numsync=1, sync=set('b'), numsync_confirmed=0, active=set('bd'),
+                                     sync_wanted=1, leader_wanted='a', quorum_catchup=True, expected=[
+            ('sync', 'a', 1, set('bd')),
+            ('restart', 'a', 2, set('bcd')),
+        ])
+
+    def test_quorum_catchup_with_empty_voters(self):
+        self.check_state_transitions(leader='a', quorum=0, voters=set(),
+                                     numsync=1, sync=set('b'), numsync_confirmed=0, active=set('bd'),
+                                     sync_wanted=1, leader_wanted='a', quorum_catchup=True, expected=[
+            ('quorum', 'a', 1, set('d')),
+            ('sync', 'a', 1, set('bd')),
+            ('restart', 'a', 1, set('d')),
+        ])
+
+    def test_quorum_catchup_changes_leader(self):
+        # the former leader replaces the new one in voters, quorum is preserved
+        self.check_state_transitions(leader='a', quorum=1, voters=set('bc'),
+                                     numsync=1, sync=set('b'), numsync_confirmed=0, active=set('ab'),
+                                     sync_wanted=1, leader_wanted='c', quorum_catchup=True, expected=[
+            ('quorum', 'c', 1, set('ab')),
+            ('sync', 'c', 1, set('ab')),
+            ('restart', 'c', 1, set('ab')),
         ])

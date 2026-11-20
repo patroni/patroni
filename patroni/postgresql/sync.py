@@ -184,12 +184,14 @@ class _SyncState(NamedTuple):
                           confirmed to be synchronous according to the ``pg_stat_replication`` view.
                           Only nodes that caught up with the :attr:`SyncHandler._primary_flush_lsn` are counted.
     :ivar active: collection of node names that are streaming and have no restrictions to become synchronous.
+    :ivar quorum_catchup: whether only conservative quorum membership additions are allowed until replicas catch up.
     """
     sync_type: str
     numsync: int
     sync: CaseInsensitiveSet
     sync_confirmed: CaseInsensitiveSet
     active: CaseInsensitiveSet
+    quorum_catchup: bool = False
 
 
 class _Replica(NamedTuple):
@@ -326,6 +328,8 @@ class SyncHandler(object):
         self._checkpoint_retry_at = 0.0
         # value that checkpointer was verified to enforce by wait_for_checkpointer() right before promote
         self._checkpointer_verified = ''
+        # quorum became stricter and remaining members must catch up before they could be counted as synchronous
+        self._quorum_catchup = False
 
     @property
     def checkpointer_pending(self) -> bool:
@@ -390,8 +394,16 @@ END;$$""")
 
             # It takes some time before synchronous_standby_names names change propagates via checkpointer.
             # Only previously verified members can remain active while the new value is pending.
-            self._set_active_synchronous_standby_names_members(
-                CaseInsensitiveSet(self._active_synchronous_standby_names_members & ssn_data.members))
+            active = CaseInsensitiveSet(self._active_synchronous_standby_names_members & ssn_data.members)
+            if not global_config.is_quorum_commit_mode or not ssn_data.members or ssn_data.has_star:
+                self._quorum_catchup = False
+            elif not self._ssn_data.members or not self._ssn_data.has_star \
+                    and (self._ssn_data.members - ssn_data.members or ssn_data.num > self._ssn_data.num):
+                # After restart the previous value is unknown. Transactions might exist only on removed nodes
+                # or on fewer than num nodes, so verify catch-up before relaxing the election quorum.
+                self._quorum_catchup = True
+                active = CaseInsensitiveSet()
+            self._set_active_synchronous_standby_names_members(active)
 
             self._ssn_data = ssn_data
             self._synchronous_standby_names_pending = bool(ssn_data.members)
@@ -407,9 +419,16 @@ END;$$""")
              if self._ssn_data.sync_type == 'priority' and row['sync_state'] in ('potential', 'sync')
                 or self._ssn_data.sync_type == 'quorum' and row['sync_state'] == 'quorum'])
 
+        members = self._ssn_data.members
+        if self._quorum_catchup:
+            # Members that are not streaming can't acknowledge commits and will use the new value after (re)connect.
+            # Don't wait for them, otherwise remaining nodes would never be checked against _primary_flush_lsn.
+            streaming = CaseInsensitiveSet([row['application_name'] for row in pg_stat_replication])
+            members = CaseInsensitiveSet(members & streaming)
+
         # Nodes listed in synchronous_standby_names should have corresponding sync_state in pg_stat_replication.
         # Only from this moment we count synchronous_standby_names effectively applied.
-        if replication != self._ssn_data.members:
+        if replication != members:
             # If some (not ALL) nodes were removed from synchronous_standby_names we need to notify caller
             # that it has to wait until synchronous_standby_names change becomes active after reload.
             return bool(self._ssn_data.members and not self._ssn_data.has_star
@@ -636,7 +655,8 @@ END;$$""")
         :param cluster: current cluster topology from DCS
 
         :returns: current synchronous replication state as a :class:`_SyncState` object or `None` in case if we detect
-                  that some nodes were removed from synchronous_standby_names and change is not yet active after reload.
+                  that some nodes were removed from synchronous_standby_names and change is not yet active after reload,
+                  or while application of a stricter quorum setting is still being verified.
         """
         if self._handle_synchronous_standby_names_change():
             return None
@@ -668,11 +688,24 @@ END;$$""")
                     if len(active) >= sync_node_count:
                         break
 
+        # Preserve the election quorum while catching up, but expose active candidates so that the HA loop can
+        # admit replacements without relaxing the existing election guarantees.
+        quorum_catchup = False
+        if not global_config.is_quorum_commit_mode:
+            self._quorum_catchup = False
+        elif self._quorum_catchup:
+            if self._synchronous_standby_names_pending:
+                return None
+            if len(sync_confirmed) >= min(self._ssn_data.num, sync_node_count):
+                self._quorum_catchup = False
+            elif (active & self._ssn_data.members) - sync_confirmed:
+                quorum_catchup = True
+
         # We need to handle old case of synchronous_standby_names='*' and when Patroni is restarted while PostgreSQL
         # is running and replace it with __patroni_strict_sync_replica_placeholder__. It requires having non-empty
         # value of _SyncState.sync which doesn't match any exiting cluster members.
         sync = CaseInsensitiveSet([SYNC_STRICT_PLACEHOLDER]) if self._ssn_data.has_star else self._ssn_data.members
-        return _SyncState(self._ssn_data.sync_type, self._ssn_data.num, sync, sync_confirmed, active)
+        return _SyncState(self._ssn_data.sync_type, self._ssn_data.num, sync, sync_confirmed, active, quorum_catchup)
 
     def set_synchronous_standby_names(self, sync: Collection[str], num: Optional[int] = None) -> Optional[bool]:
         """Constructs and sets ``synchronous_standby_names`` GUC value.
@@ -684,7 +717,8 @@ END;$$""")
         :param num: specifies number of nodes to sync to. The *num* is set only in case if quorum commit is enabled
 
         :returns: `True` if caller needs to wait until synchronous_standby_names change becomes active after reload
-                  (including enforcement by checkpointer).
+                  (including enforcement by checkpointer), or until remaining nodes caught up after quorum became
+                  stricter.
         """
         # Update synchronized_standby_slots in _server_parameters first (no reload yet) so
         # that the subsequent set_synchronous_standby_names() reload picks up both changes.
@@ -738,4 +772,4 @@ END;$$""")
         if self._postgresql.get_primary_timeline() > 0:
             # Reload could take longer than 100ms, in this case the new value is still not visible.
             return self._handle_synchronous_standby_names_change() or self._checkpoint_required\
-                or self._synchronous_standby_names != (sync_param or '')
+                or self._synchronous_standby_names != (sync_param or '') or self._quorum_catchup

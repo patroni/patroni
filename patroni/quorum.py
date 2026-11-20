@@ -106,11 +106,12 @@ class QuorumStateResolver:
                   and are eligible to be listed in ``synchronous_standby_names``.
     :ivar sync_wanted: desired number of synchronous nodes (``synchronous_node_count`` from the global configuration).
     :ivar leader_wanted: the desired leader (could be different from the :attr:`leader` right after a failover).
+    :ivar quorum_catchup: whether only conservative membership additions are allowed until replicas catch up.
     """
 
     def __init__(self, leader: str, quorum: int, voters: Collection[str],
                  numsync: int, sync: Collection[str], numsync_confirmed: int,
-                 active: Collection[str], sync_wanted: int, leader_wanted: str) -> None:
+                 active: Collection[str], sync_wanted: int, leader_wanted: str, quorum_catchup: bool = False) -> None:
         """Instantiate :class:``QuorumStateResolver`` based on input parameters.
 
         :param leader: name of the leader, according to the ``/sync`` key.
@@ -127,17 +128,20 @@ class QuorumStateResolver:
         :param sync_wanted: desired number of synchronous nodes
                             (``synchronous_node_count`` from the global configuration).
         :param leader_wanted: the desired leader (could be different from the *leader* right after a failover).
+        :param quorum_catchup: whether historical durability is still being verified after restart or a stricter SSN.
 
         """
-        self.leader = leader
+        self.leader: str = leader
         self.quorum = quorum
         self.voters = CaseInsensitiveSet(voters)
-        self.numsync = min(numsync, len(sync))  # numsync can't be bigger than number of listed synchronous nodes.
+        # While catch-up is pending, preserve the actual setting even if there are too few listed nodes.
+        self.numsync = numsync if quorum_catchup else min(numsync, len(sync))
         self.sync = CaseInsensitiveSet(sync)
         self.numsync_confirmed = numsync_confirmed
         self.active = CaseInsensitiveSet(active)
         self.sync_wanted = sync_wanted
         self.leader_wanted = leader_wanted
+        self.quorum_catchup = quorum_catchup
 
     def check_invariants(self) -> None:
         """Checks invariant of ``synchronous_standby_names`` and ``/sync`` key in DCS.
@@ -397,15 +401,44 @@ class QuorumStateResolver:
                                               adjust_quorum=self.sync_wanted > self.numsync_confirmed)
             yield from self.sync_update(self.numsync + sync_increase, self.sync)
 
+    def __handle_quorum_catchup(self) -> Iterator[Transition]:
+        """Grow membership without weakening the existing election requirement.
+
+        Bypass readiness adjustments and invariant repair while historical durability is unverified.
+        A quorum that temporarily prevents all elections must stay in place until catch-up completes.
+        """
+        if self.leader_wanted != self.leader:  # failover
+            # The former leader takes the place of the new one in voters, therefore the set of nodes that could
+            # vote and the quorum don't change. But the former leader must lose the privilege to be promoted without
+            # votes, because it might not have commits acknowledged after the failover.
+            self.voters = CaseInsensitiveSet((self.voters - CaseInsensitiveSet([self.leader_wanted]))
+                                             | CaseInsensitiveSet([self.leader]))
+            self.leader = self.leader_wanted
+            yield Transition('quorum', self.leader, self.quorum, self.voters)
+        added = CaseInsensitiveSet(self.active - self.sync)
+        added_voters = CaseInsensitiveSet(added - self.voters)
+        added_voters.discard(self.leader)  # The DCS leader is already an implicit member.
+        if added_voters:
+            self.quorum += len(added_voters)
+            self.voters = CaseInsensitiveSet(self.voters | added_voters)
+            yield Transition('quorum', self.leader, self.quorum, self.voters)
+        if added:
+            self.sync = CaseInsensitiveSet(self.sync | added)
+            yield Transition('sync', self.leader, self.numsync, self.sync)
+        yield Transition('restart', self.leader, self.quorum, self.voters)
+
     def _generate_transitions(self) -> Iterator[Transition]:
         """Produce a set of changes to safely transition from the current state to the desired.
 
         :yields: transitions as :class:`Transition` objects.
         """
         logger.debug("Quorum state: leader %s quorum %s, voters %s, numsync %s, sync %s, "
-                     "numsync_confirmed %s, active %s, sync_wanted %s leader_wanted %s",
+                     "numsync_confirmed %s, active %s, sync_wanted %s leader_wanted %s quorum_catchup %s",
                      self.leader, self.quorum, self.voters, self.numsync, self.sync,
-                     self.numsync_confirmed, self.active, self.sync_wanted, self.leader_wanted)
+                     self.numsync_confirmed, self.active, self.sync_wanted, self.leader_wanted, self.quorum_catchup)
+        if self.quorum_catchup:
+            yield from self.__handle_quorum_catchup()
+            return
         try:
             if self.leader_wanted != self.leader:  # failover
                 voters = (self.voters - CaseInsensitiveSet([self.leader_wanted])) | CaseInsensitiveSet([self.leader])
