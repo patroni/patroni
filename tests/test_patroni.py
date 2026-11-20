@@ -258,6 +258,17 @@ class TestPatroni(unittest.TestCase):
             self.p.shutdown()
         mock_warning.assert_called_once()
 
+    @patch('signal.alarm', create=True)
+    @patch('patroni.config.Config.reload_local_configuration', Mock(return_value=False))
+    def test_sigterm_during_sighup_reload(self, mock_alarm):
+        self.p.enable_graceful_sigterm()
+        self.p.logger.start = Mock()
+        self.p._run_cycle = Mock()
+        self.p.sighup_handler()
+        with patch.object(self.p, 'reload_config', Mock(side_effect=self.p.sigterm_handler)):
+            self.p.run()
+        self.p._run_cycle.assert_not_called()
+
     @unittest.skipIf(sys.thread_info.lock != 'semaphore', 'signals do not interrupt Lock.acquire()')
     def test_sigterm_wakes_up_ha_loop(self):
         self.p.enable_graceful_sigterm()

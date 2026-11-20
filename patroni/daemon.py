@@ -247,6 +247,8 @@ class AbstractPatroniDaemon(abc.ABC):
                     self._received_sighup = False
                     self.reload_config(True, self.config.reload_local_configuration())
                     notify_systemd("READY=1")
+                    if self.received_sigterm:  # don't start the next cycle if SIGTERM was received during the reload
+                        break
 
                 self._run_cycle()
         finally:
