@@ -1982,11 +1982,14 @@ class Ha(object):
 
     def process_unhealthy_cluster(self) -> str:
         """Cluster has no leader key"""
-        # First, we want to handle primary_race_backoff. Do it only for non-standby cluster,
-        # not in maintenance mode and when there is no manual failover/switchover to a candidate in progress.
+        # First, we want to handle primary_race_backoff. Do it only on replicas of a non-standby cluster, not in
+        # maintenance mode and when there is no manual failover/switchover to a candidate in progress. The primary
+        # takes the leader key back right away: replicas postpone the race for it, and its watchdog is fed only
+        # while it holds the leader key.
         if not self.is_paused() and not self.is_standby_cluster() and \
                 not (self.cluster.failover and self.cluster.failover.candidate) and \
-                global_config.primary_race_backoff > 0 and self._prev_wal_lsn is not None:
+                global_config.primary_race_backoff > 0 and self._prev_wal_lsn is not None and \
+                not self.state_handler.is_primary():
             if self._primary_race_backoff_timestamp == float('-inf'):
                 self._primary_race_backoff_timestamp = time.monotonic()
             time_left = self._primary_race_backoff_timestamp + global_config.primary_race_backoff - time.monotonic()

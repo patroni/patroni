@@ -416,7 +416,11 @@ class TestHa(PostgresInit):
     def test_acquire_lock_as_primary(self):
         with patch.object(Watchdog, 'keepalive') as mock_keepalive:
             self.assertEqual(self.ha.run_cycle(), 'acquired session lock as a leader')
-        mock_keepalive.assert_called_once_with()
+            mock_keepalive.assert_called_once_with()
+            # primary_race_backoff doesn't postpone the keepalive
+            with patch.object(global_config.__class__, 'primary_race_backoff', PropertyMock(return_value=3)):
+                self.assertEqual(self.ha.run_cycle(), 'acquired session lock as a leader')
+            self.assertEqual(mock_keepalive.call_count, 2)
 
     def test_leader_race_stale_primary(self):
         with patch.object(Postgresql, 'get_primary_timeline', Mock(return_value=1)), \
