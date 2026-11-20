@@ -426,17 +426,39 @@ class TestHa(PostgresInit):
         self.ha.is_healthiest_node = true
         self.p.is_primary = false
         self.ha.dcs.write_sync_state = Mock(return_value=True)
+        self.ha._async_executor._ha_wakeup = mock_wakeup = Mock()
         with patch.object(self.p.sync_handler, 'wait_for_checkpointer', Mock(return_value=False)) as mock_wait, \
+                patch('patroni.async_executor.AsyncExecutor.run_async', lambda s, func, args=(): s.run(func, args)), \
                 patch('patroni.ha.logger.warning') as mock_logger:
             self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
             mock_wait.assert_not_called()  # synchronous_mode is off
+            self.assertEqual(self.p.role, PostgresqlRole.PROMOTED)
 
             self.p.set_role(PostgresqlRole.REPLICA)
-            with patch.object(global_config.__class__, 'is_synchronous_mode', PropertyMock(return_value=True)):
+            with patch.object(global_config.__class__, 'is_synchronous_mode', PropertyMock(return_value=True)), \
+                    patch('time.monotonic', Mock(return_value=100)) as mock_time:
+                # promote is postponed and retried while the leader lock is kept, failed without waiting:
+                # the next attempt is done by the next cycle, there is no reason to wake up HA loop
+                mock_wakeup.reset_mock()
                 self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
-            mock_wait.assert_called_once_with(self.ha.dcs.loop_wait)
-            self.assertTrue(mock_logger.call_args[0][0].startswith('Promoting although checkpointer'))
-            self.assertEqual(self.p.role, PostgresqlRole.PROMOTED)
+                mock_wait.assert_called_once_with(self.ha.dcs.loop_wait)
+                self.assertTrue(mock_logger.call_args[0][0].startswith('Postponing promote'))
+                self.assertEqual(self.p.role, PostgresqlRole.REPLICA)
+                mock_wakeup.assert_not_called()
+
+                # timed out: retry right away
+                def wait_for_checkpointer(timeout):
+                    mock_time.return_value += timeout
+                    return False
+                mock_wait.side_effect = wait_for_checkpointer
+                self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
+                self.assertEqual(self.p.role, PostgresqlRole.REPLICA)
+                mock_wakeup.assert_called_once()
+
+                mock_wait.side_effect = None
+                mock_wait.return_value = True
+                self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
+                self.assertEqual(self.p.role, PostgresqlRole.PROMOTED)
 
             # promote is still cancellable while waiting, e.g. if the leader lock was lost meanwhile
             self.p.set_role(PostgresqlRole.REPLICA)
@@ -2073,7 +2095,10 @@ class TestHa(PostgresInit):
                 mock_set_sync.assert_not_called()
         # still not verified after the grace period, e.g. the verification before promote didn't succeed in time
         self.p.sync_handler.current_state = Mock(return_value=unconfirmed)
-        self.ha.run_cycle()
+        with patch('time.sleep') as mock_sleep:
+            self.ha.run_cycle()
+        mock_sleep.assert_called_once_with(2)  # it was already done for the members of /sync
+        self.assertEqual(self.p.sync_handler.current_state.call_count, 2)
         self.ha.dcs.write_sync_state.assert_called_once()
         self.assertEqual(self.ha.dcs.write_sync_state.call_args[0][:2], ('leader', CaseInsensitiveSet()))
         self.ha.dcs.write_sync_state.reset_mock()

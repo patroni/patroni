@@ -849,7 +849,15 @@ class Postgresql(ClusterSite):
             return None
 
     def checkpoint(self, connect_kwargs: Optional[Dict[str, Any]] = None,
-                   timeout: Optional[float] = None) -> Optional[str]:
+                   timeout: Optional[float] = None, spread: bool = False) -> Optional[str]:
+        """Execute ``CHECKPOINT``.
+
+        :param connect_kwargs: connection parameters, if set it is also checked that the node isn't in recovery.
+        :param timeout: connection timeout.
+        :param spread: since PostgreSQL 19 request a spread checkpoint that doesn't speed up the running one.
+
+        :returns: ``None`` on success, otherwise the reason of the failure.
+        """
         check_not_is_in_recovery = connect_kwargs is not None
         conn_kwargs = {**(connect_kwargs or self.connection_pool.conn_kwargs),
                        'connect_timeout': timeout, 'options': '-c statement_timeout=0'}
@@ -860,7 +868,10 @@ class Postgresql(ClusterSite):
                     row = cur.fetchone()
                     if not row or row[0]:
                         return 'is_in_recovery=true'
-                cur.execute('CHECKPOINT (FLUSH_UNLOGGED)' if self.major_version >= 190000 else 'CHECKPOINT')
+                if self.major_version < 190000:
+                    cur.execute('CHECKPOINT')
+                else:
+                    cur.execute('CHECKPOINT (MODE SPREAD)' if spread else 'CHECKPOINT (FLUSH_UNLOGGED)')
         except psycopg.Error:
             logger.exception('Exception during CHECKPOINT')
             return 'not accessible or not healthy'

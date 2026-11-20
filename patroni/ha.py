@@ -1046,11 +1046,13 @@ class Ha(object):
                 return logger.warning("Updating sync state failed")
             voters = CaseInsensitiveSet()
 
+        waited = False
         if voters - allow_promote and voters <= picked and self.state_handler.sync_handler.checkpointer_pending:
             # Members of /sync are healthy, but not confirmed, because it isn't verified yet that checkpointer enforces
             # synchronous_standby_names. E.g., after Patroni restart it isn't possible until the configuration reload
             # executed on startup settles. Give it a chance, instead of removing them from /sync needlessly.
             time.sleep(2)
+            waited = True
             current_state = self.state_handler.sync_handler.current_state(self.cluster)
             if current_state is None:
                 return
@@ -1087,8 +1089,9 @@ class Ha(object):
         # Update postgresql.conf and wait 2 secs for changes to become active
         self.state_handler.sync_handler.set_synchronous_standby_names(picked)
 
-        if picked and allow_promote != picked:
+        if picked and allow_promote != picked and not waited:
             # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby
+            # (unless we already did it above, then newly added members are confirmed on the next cycle)
             time.sleep(2)
             current_state = self.state_handler.sync_handler.current_state(self.cluster)
             if current_state is None:
@@ -1305,10 +1308,13 @@ class Ha(object):
 
                 def promote() -> Optional[bool]:
                     # Wait before promote() completes self._async_response, so it can still be cancelled
-                    if self.is_synchronous_mode() \
-                            and not self.state_handler.sync_handler.wait_for_checkpointer(self.dcs.loop_wait):
-                        logger.warning('Promoting although checkpointer might not enforce synchronous_standby_names'
-                                       ' yet, transactions committed right after promote might not be replicated')
+                    if self.is_synchronous_mode():
+                        deadline = time.monotonic() + self.dcs.loop_wait
+                        if not self.state_handler.sync_handler.wait_for_checkpointer(self.dcs.loop_wait):
+                            logger.warning('Postponing promote because checkpointer might not enforce'
+                                           ' synchronous_standby_names yet')
+                            # Retry right away (wake up HA loop), unless it failed without waiting
+                            return False if time.monotonic() >= deadline else None
                     return self.state_handler.promote(self.dcs.loop_wait, self._async_response, before_promote)
 
                 with self._async_response:

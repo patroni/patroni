@@ -296,8 +296,13 @@ class TestPostgresql(BaseTestPostgresql):
     def test_checkpoint(self):
         with patch.object(MockCursor, 'fetchone', Mock(return_value=(True, ))):
             self.assertEqual(self.p.checkpoint({'user': 'postgres'}), 'is_in_recovery=true')
-        with patch.object(MockCursor, 'execute', Mock(return_value=None)):
+        with patch.object(MockCursor, 'execute', Mock(return_value=None)) as mock_execute:
             self.assertIsNone(self.p.checkpoint())
+            for version, spread, sql in ((180000, True, 'CHECKPOINT'), (190000, False, 'CHECKPOINT (FLUSH_UNLOGGED)'),
+                                         (190000, True, 'CHECKPOINT (MODE SPREAD)')):
+                with patch.object(Postgresql, 'major_version', PropertyMock(return_value=version)):
+                    self.assertIsNone(self.p.checkpoint(spread=spread))
+                mock_execute.assert_called_with(sql)
         self.assertEqual(self.p.checkpoint(timeout=10), 'not accessible or not healthy')
 
     @patch('patroni.postgresql.config.mtime', mock_mtime)
