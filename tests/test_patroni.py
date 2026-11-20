@@ -13,6 +13,7 @@ from threading import Event, get_ident, Thread
 from unittest.mock import MagicMock, Mock, patch, PropertyMock
 
 import etcd
+import psutil
 import urllib3
 
 import patroni.config as config
@@ -251,13 +252,25 @@ class TestPatroni(unittest.TestCase):
             self.p._sigterm_guard_rsock, wsock = socket.socketpair()
             self.p._received_sigterm = received_sigterm
             self.p._running = running
-            with wsock, patch.object(self.p, 'config', {'loop_wait': loop_wait}):
+            with wsock, patch.object(self.p, 'config', {'loop_wait': loop_wait, 'retry_timeout': 0}):
                 wsock.sendall(data)
                 if not received_sigterm and signal.SIGTERM not in data:
                     wsock.shutdown(socket.SHUT_WR)  # the guard exits on EOF
                 self.p._sigterm_guard()
         self.assertEqual(self.p._emergency_exit.call_count, 3)
         self.assertEqual(self.p._wakeup.call_count, 3)  # the main thread might not have been interrupted by SIGTERM
+
+    @patch('time.monotonic', Mock(return_value=100))
+    def test_sigterm_guard_timeout(self):
+        for received_sigterm in (False, True):
+            for loop_wait, retry_timeout, expected in ((2, 10, 20), (18, 3, 18)):
+                with self.subTest(received_sigterm=received_sigterm, loop_wait=loop_wait, retry_timeout=retry_timeout):
+                    self.p._received_sigterm = received_sigterm
+                    sock = self.p._sigterm_guard_rsock = MagicMock()
+                    sock.recv.side_effect = [b''] if received_sigterm else [bytes([signal.SIGTERM]), b'']
+                    with patch.object(self.p, 'config', {'loop_wait': loop_wait, 'retry_timeout': retry_timeout}):
+                        self.p._sigterm_guard()
+                    sock.settimeout.assert_called_with(expected)
 
     @unittest.skipIf(os.name == 'nt', "Windows not supported")
     def test_sigterm_guard_terminates_hanging_main_loop(self):
@@ -276,7 +289,7 @@ class TestPatroni(unittest.TestCase):
         handler = signal.signal(signal.SIGTERM, self.p.sigterm_handler)
         sigalrm_handler = signal.signal(signal.SIGALRM, signal.SIG_IGN)
         try:
-            with patch.object(self.p, 'config', {'loop_wait': 0.1}):
+            with patch.object(self.p, 'config', {'loop_wait': 0.1, 'retry_timeout': 0.05}):
                 self.p.run()
         finally:
             signal.signal(signal.SIGTERM, handler)
@@ -298,7 +311,7 @@ class TestPatroni(unittest.TestCase):
         self.p.logger.start = Mock(side_effect=start)
         handler = signal.signal(signal.SIGTERM, self.p.sigterm_handler)
         try:
-            with patch.object(self.p, 'config', {'loop_wait': 0.1}):
+            with patch.object(self.p, 'config', {'loop_wait': 0.1, 'retry_timeout': 0.05}):
                 self.p.run()
         finally:
             signal.signal(signal.SIGTERM, handler)
@@ -448,8 +461,10 @@ class TestPatroni(unittest.TestCase):
     def test_emergency_exit(self):
         events = Mock()
         postmaster = MockPostmaster()
+        events.signal_stop.return_value = None
         postmaster.signal_stop = events.signal_stop
         postmaster.signal_kill = events.signal_kill
+        postmaster.wait = events.wait
         self.p.postgresql.is_running = Mock(return_value=postmaster)
         self.p.logger.flush = events.flush
 
@@ -464,12 +479,25 @@ class TestPatroni(unittest.TestCase):
             return [name for name, _, _ in events.mock_calls]
 
         # Postgres is signaled before anything is logged, because logging could block
-        self.assertEqual(emergency_exit(), ['dump_traceback_later', 'signal_stop', 'logger.info',
+        self.assertEqual(emergency_exit(), ['dump_traceback_later', 'signal_stop', 'wait', 'logger.info',
                                             'daemon_logger.critical', 'flush', 'exit'])
-        events.dump_traceback_later.assert_called_once_with(5, exit=True, file=42)
+        events.dump_traceback_later.assert_called_once_with(15, exit=True, file=42)
         events.signal_stop.assert_called_once_with('fast', self.p.postgresql.pgcommand('pg_ctl'))
+        events.wait.assert_called_once_with(10)
+        events.daemon_logger.critical.assert_called_once_with(
+            'The main loop did not exit within %s seconds after SIGTERM, terminating the process', 20)
         events.flush.assert_called_once_with(1)
         events.exit.assert_called_once_with(1)
+
+        events.wait.side_effect = psutil.TimeoutExpired(10)
+        self.assertEqual(emergency_exit(), ['dump_traceback_later', 'signal_stop', 'wait', 'logger.warning',
+                                            'daemon_logger.critical', 'flush', 'exit'])
+        events.logger.warning.assert_called_once_with('PostgreSQL has not stopped within %s seconds after fast '
+                                                      'shutdown request', 10)
+
+        events.signal_stop.return_value = True
+        self.assertEqual(emergency_exit(), ['dump_traceback_later', 'signal_stop', 'daemon_logger.critical',
+                                            'flush', 'exit'])
 
         events.signal_stop.return_value = False
         events.signal_kill.return_value = True
@@ -505,6 +533,10 @@ class TestPatroni(unittest.TestCase):
                     patch.object(logging.Logger, 'callHandlers', events.callHandlers):
                 self.assertEqual(emergency_exit(armed=False, main_logger=main_logger),
                                  ['dump_traceback_later', 'signal_stop', 'signal_kill', 'exit'])
+                self.assertTrue(main_logger.disabled)
+                events.signal_stop.return_value = None
+                self.assertEqual(emergency_exit(armed=False, main_logger=main_logger),
+                                 ['dump_traceback_later', 'signal_stop', 'exit'])
         finally:
             for lgr, disabled in loggers.items():
                 lgr.disabled = disabled

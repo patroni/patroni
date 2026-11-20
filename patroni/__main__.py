@@ -12,6 +12,8 @@ import time
 from argparse import Namespace
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
+import psutil
+
 from patroni import global_config, MIN_PSYCOPG2, MIN_PSYCOPG3, parse_version
 from patroni.collections import EMPTY_DICT
 from patroni.daemon import abstract_main, AbstractPatroniDaemon, get_base_arg_parser
@@ -273,8 +275,10 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
         """
         self.ha.wakeup()
 
-    def _emergency_shutdown(self) -> None:
-        """Request fast shutdown of Postgres, unless paused, without waiting for it. Kill Postgres if it fails.
+    def _emergency_shutdown(self, timeout: float) -> None:
+        """Request fast shutdown of Postgres, unless paused. Kill Postgres if the request fails.
+
+        :param timeout: maximum seconds to wait after signaling the postmaster. Zero skips the wait and logging.
 
         .. note::
             Postgres is signaled before anything is logged, because logging could block.
@@ -283,17 +287,25 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
             doesn't remove the leader key, which expires after ``ttl`` seconds.
         """
         if self.ha.is_paused():
-            logger.info('PostgreSQL is not stopped due to paused state')
+            if timeout:
+                logger.info('PostgreSQL is not stopped due to paused state')
             return
         postmaster = self.postgresql.is_running()
         if postmaster:
-            if postmaster.signal_stop('fast', self.postgresql.pgcommand('pg_ctl')) is False:
+            stopped = postmaster.signal_stop('fast', self.postgresql.pgcommand('pg_ctl'))
+            if stopped is False:
                 # A primary left running after Patroni exits would keep accepting writes after the leader key expires.
                 killed = postmaster.signal_kill()
-                logger.critical('Could not request fast shutdown, %s PostgreSQL',
-                                'killed' if killed else 'failed to kill')
-            else:
-                logger.info('Requested fast shutdown of PostgreSQL')
+                if timeout:
+                    logger.critical('Could not request fast shutdown, %s PostgreSQL',
+                                    'killed' if killed else 'failed to kill')
+            elif stopped is None and timeout:
+                try:
+                    postmaster.wait(timeout)
+                except psutil.TimeoutExpired:
+                    logger.warning('PostgreSQL has not stopped within %s seconds after fast shutdown request', timeout)
+                else:
+                    logger.info('PostgreSQL has stopped after fast shutdown request')
 
     def _shutdown(self) -> None:
         """Perform shutdown of ``patroni`` daemon process.

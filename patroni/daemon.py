@@ -192,7 +192,7 @@ class AbstractPatroniDaemon(abc.ABC):
         nothing to shut down gracefully yet.
 
         Afterwards, flag the daemon as "SIGTERM received" and wake up the main loop with :func:`_wakeup`. The main
-        loop exits and shuts down the daemon. If :func:`run` doesn't return within ``loop_wait`` seconds, for example
+        loop exits and shuts down the daemon. If :func:`run` doesn't return within :attr:`sigterm_timeout`, for example
         because the main loop hangs, :func:`_sigterm_guard` terminates the daemon with :func:`_emergency_exit`.
 
         .. note::
@@ -280,8 +280,17 @@ class AbstractPatroniDaemon(abc.ABC):
         self._sigterm_guard_wsock.close()
         signal.signal(signal.SIGTERM, signal.SIG_DFL)
 
+    @property
+    def sigterm_timeout(self) -> float:
+        """Grace period in seconds for the main loop to return after SIGTERM.
+
+        An in-flight HA cycle can still be retrying DCS and PostgreSQL operations. Allow for both retries without
+        shortening the existing ``loop_wait`` grace period.
+        """
+        return max(self.config['loop_wait'], 2 * self.config['retry_timeout'])
+
     def _sigterm_guard(self) -> None:
-        """Terminate the daemon if :func:`run` is still running ``loop_wait`` seconds after SIGTERM.
+        """Terminate the daemon if :func:`run` is still running :attr:`sigterm_timeout` seconds after SIGTERM.
 
         Runs in a separate thread, because Python runs signal handlers only in the main thread and only between
         bytecode instructions. When the main thread hangs in C code, for example in libpq, which retries system calls
@@ -294,7 +303,7 @@ class AbstractPatroniDaemon(abc.ABC):
         """
         sock = self._sigterm_guard_rsock
         # SIGTERM could have been received before the wakeup fd was set
-        deadline = time.monotonic() + self.config['loop_wait'] if self._received_sigterm else None
+        deadline = time.monotonic() + self.sigterm_timeout if self._received_sigterm else None
         with sock:
             while True:
                 if deadline is None:
@@ -311,7 +320,7 @@ class AbstractPatroniDaemon(abc.ABC):
                 if not data:
                     return
                 if deadline is None and signal.SIGTERM in data:
-                    deadline = time.monotonic() + self.config['loop_wait']
+                    deadline = time.monotonic() + self.sigterm_timeout
                     with suppress(Exception):  # must not prevent the emergency exit
                         self._wakeup()
             if self._running:
@@ -324,11 +333,11 @@ class AbstractPatroniDaemon(abc.ABC):
         records, and exit with :func:`os._exit`, even if any of these steps fails. Logging is best effort and happens
         last, because it could block, for example, if the main thread holds the lock of a log handler.
 
-        If the process doesn't exit within 5 seconds anyway, for example because reading ``postmaster.pid`` blocks,
-        the watchdog thread of :func:`faulthandler.dump_traceback_later` terminates it. The thread doesn't need the GIL
-        and doesn't depend on signal dispositions and masks, which could be inherited from the parent process. If the
-        watchdog can't be started, for example because the process is out of memory, all loggers are disabled before
-        :func:`_emergency_shutdown` is called, and nothing is logged.
+        Allow ``retry_timeout`` seconds for the managed service to stop, plus five seconds for the rest of the exit
+        path. If it blocks, for example while reading ``postmaster.pid``, the watchdog thread of
+        :func:`faulthandler.dump_traceback_later` terminates the process. It doesn't need the GIL or depend on signal
+    dispositions and masks inherited from the parent. If the watchdog can't be started, all loggers are disabled
+    before :func:`_emergency_shutdown` is called, and the optional wait is skipped.
 
         .. note::
             The regular :func:`shutdown` can't be used: the main loop could hold locks that it needs, and
@@ -340,9 +349,10 @@ class AbstractPatroniDaemon(abc.ABC):
             block, and a closed fd could be reused.
         """
         try:
+            timeout = self.config['retry_timeout']
             armed = False
             with suppress(Exception):
-                faulthandler.dump_traceback_later(5, exit=True, file=_traceback_dump_fd)
+                faulthandler.dump_traceback_later(timeout + 5, exit=True, file=_traceback_dump_fd)
                 armed = True
             if not armed:  # nothing would terminate the process if logging blocks
                 with suppress(Exception):  # logging.disable() would take the lock of the logging module
@@ -351,21 +361,24 @@ class AbstractPatroniDaemon(abc.ABC):
                             lgr.disabled = True
             error = None
             try:
-                self._emergency_shutdown()
+                self._emergency_shutdown(timeout if armed else 0)
             except Exception as e:
                 error = e
             if armed:
                 with suppress(Exception):
                     logger.critical('The main loop did not exit within %s seconds after SIGTERM, terminating the '
-                                    'process', self.config['loop_wait'])
+                                    'process', self.sigterm_timeout)
                     if error is not None:
                         logger.error('Emergency shutdown failed', exc_info=error)
                     self.logger.flush(1)
         finally:
             os._exit(1)
 
-    def _emergency_shutdown(self) -> None:
+    def _emergency_shutdown(self, timeout: float) -> None:
         """Define what the daemon should do before :func:`_emergency_exit` terminates the process.
+
+        :param timeout: seconds to wait for the service to stop. Zero skips the optional wait and logging when the
+                        exit watchdog couldn't be armed.
 
         .. note::
             Called from the :func:`_sigterm_guard` thread while the main loop is still running, therefore it must not
@@ -443,8 +456,8 @@ class AbstractPatroniDaemon(abc.ABC):
 
         .. note::
             Called by :func:`run` when SIGTERM already shuts down the daemon gracefully. If the daemon doesn't exit
-            within ``loop_wait`` seconds after SIGTERM, for example because this method hangs, :func:`_sigterm_guard`
-            terminates it.
+            within :attr:`sigterm_timeout` seconds after SIGTERM, for example because this method hangs,
+            :func:`_sigterm_guard` terminates it.
         """
 
     def run(self) -> None:
