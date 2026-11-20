@@ -510,6 +510,19 @@ class TestWatchdog(unittest.TestCase):
         self.assertTrue(watchdog.is_running)
         watchdog.disable()
 
+        # The HA loop doesn't disable a watchdog that isn't running when losing the leader key, so it stays active
+        # and the change is deferred to a keepalive. It must not keep the node out of the leader race.
+        watchdog.reload_config({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'off'}})
+        self.assertTrue(watchdog.activate())
+        watchdog.reload_config({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}})
+        self.assertTrue(watchdog.is_healthy)
+        with patch.object(LinuxWatchdogDevice, 'is_healthy', PropertyMock(return_value=False)):
+            self.assertFalse(watchdog.is_healthy)
+        with patch('os.open', Mock(side_effect=OSError(errno.EBUSY, 'Device or resource busy'))):
+            self.assertFalse(watchdog.activate())
+        # A failed activation is retried only after a configuration change
+        self.assertFalse(watchdog.is_healthy)
+
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
     def test_disable_applies_deferred_device_change(self):
