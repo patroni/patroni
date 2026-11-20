@@ -278,9 +278,9 @@ class TestPatroni(unittest.TestCase):
         handler = signal.signal(signal.SIGALRM, self.p.sigterm_handler)
         try:
             signal.setitimer(signal.ITIMER_REAL, 0.1)
-            start = time.time()
+            start = time.monotonic()
             self.assertTrue(self.p.dcs.watch(None, 10))
-            self.assertLess(time.time() - start, 5)
+            self.assertLess(time.monotonic() - start, 5)
         finally:
             signal.setitimer(signal.ITIMER_REAL, 0)
             signal.signal(signal.SIGALRM, handler)
