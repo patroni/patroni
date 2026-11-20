@@ -1047,7 +1047,7 @@ class Ha(object):
                 return
             # Here we consider two cases:
             # 1. synchronous_standby_names was transitioned from empty to non-empty and it may take
-            #    some time for nodes to become synchronous.
+            #    some time for checkpointer to enforce it and for nodes to become synchronous.
             # 2. some nodes were removed from synchronous_standby_names and we need to wait until
             #    this change becomes effective after reload.
             # In both cases we need to wait and restart state machine hoping that we can update
@@ -1084,6 +1084,18 @@ class Ha(object):
                 return logger.warning("Updating sync state failed")
             voters = CaseInsensitiveSet()
 
+        waited = False
+        if voters - allow_promote and voters <= picked and self.state_handler.sync_handler.checkpointer_pending:
+            # Members of /sync are healthy, but not confirmed, because it isn't verified yet that checkpointer enforces
+            # synchronous_standby_names. E.g., after Patroni restart it isn't possible until the configuration reload
+            # executed on startup settles. Give it a chance, instead of removing them from /sync needlessly.
+            time.sleep(2)
+            waited = True
+            current_state = self.state_handler.sync_handler.current_state(self.cluster)
+            if current_state is None:
+                return
+            picked, allow_promote = current_state.active, current_state.sync_confirmed
+
         if picked == voters and voters != allow_promote:
             logger.warning('Inconsistent state between synchronous_standby_names = %s and /sync = %s key '
                            'detected, updating synchronous replication key...', list(allow_promote), list(voters))
@@ -1115,8 +1127,9 @@ class Ha(object):
         # Update postgresql.conf and wait 2 secs for changes to become active
         self.state_handler.sync_handler.set_synchronous_standby_names(picked)
 
-        if picked and allow_promote != picked:
+        if picked and allow_promote != picked and not waited:
             # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby
+            # (unless we already did it above, then newly added members are confirmed on the next cycle)
             time.sleep(2)
             current_state = self.state_handler.sync_handler.current_state(self.cluster)
             if current_state is None:
@@ -1331,11 +1344,21 @@ class Ha(object):
                     self._rewind.reset_state()  # make sure we will trigger checkpoint after promote
                     self.notify_mpp_coordinator('before_promote')
 
+                def promote() -> Optional[bool]:
+                    # Wait before promote() completes self._async_response, so it can still be cancelled
+                    if self.is_synchronous_mode():
+                        deadline = time.monotonic() + self.dcs.loop_wait
+                        if not self.state_handler.sync_handler.wait_for_checkpointer(self.dcs.loop_wait):
+                            logger.warning('Postponing promote because checkpointer might not enforce'
+                                           ' synchronous_standby_names yet')
+                            # Retry right away (wake up HA loop), unless it failed without waiting
+                            return False if time.monotonic() >= deadline else None
+                    return self.state_handler.promote(self.dcs.loop_wait, self._async_response, before_promote)
+
                 with self._async_response:
                     self._async_response.reset()
 
-                self._async_executor.try_run_async('promote', self.state_handler.promote,
-                                                   args=(self.dcs.loop_wait, self._async_response, before_promote))
+                self._async_executor.try_run_async('promote', promote)
             return promote_message
 
     def fetch_node_status(self, member: Member) -> _MemberStatus:
