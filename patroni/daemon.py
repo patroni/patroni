@@ -134,7 +134,8 @@ class AbstractPatroniDaemon(abc.ABC):
 
         Afterwards, flag the daemon as "SIGTERM received" and wake up the main loop with :func:`_wakeup`. The main
         loop exits and shuts down the daemon. If the main loop doesn't exit within ``loop_wait`` seconds, for example
-        because it hangs, :func:`sigalrm_handler` terminates the daemon process.
+        because it hangs, :func:`sigalrm_handler` interrupts it by raising :exc:`SystemExit`, and the daemon is shut
+        down anyway.
 
         .. note::
             Python runs signal handlers in the main thread between arbitrary bytecode instructions. An exception
@@ -157,9 +158,12 @@ class AbstractPatroniDaemon(abc.ABC):
     def sigalrm_handler(self, *_: Any) -> None:
         """Handle SIGALRM signals.
 
-        Terminate the daemon process if the main loop is still running, i.e. it didn't exit in time after SIGTERM.
+        Interrupt the main loop by raising :exc:`SystemExit` if it is still running, i.e. it didn't exit in time after
+        SIGTERM. The daemon is shut down afterwards, see :func:`abstract_main`. Stray SIGALRM signals, received before
+        SIGTERM, are ignored.
         """
-        if self._main_loop_running:
+        if self._main_loop_running and self._received_sigterm:
+            self._main_loop_interrupted = True
             sys.exit()
 
     def enable_graceful_sigterm(self) -> None:
@@ -195,6 +199,7 @@ class AbstractPatroniDaemon(abc.ABC):
         self._received_sigterm = False
         self._graceful_sigterm = False
         self._main_loop_running = False
+        self._main_loop_interrupted = False
         if os.name != 'nt':
             signal.signal(signal.SIGHUP, self.sighup_handler)
             signal.signal(signal.SIGALRM, self.sigalrm_handler)
@@ -262,6 +267,9 @@ class AbstractPatroniDaemon(abc.ABC):
         self._received_sigterm = True
         notify_systemd("STOPPING=1")
         self._shutdown()
+        if self._main_loop_interrupted:
+            # logged only now, because the interruption could have leaked a lock needed for logging
+            logger.warning('The main loop did not exit within loop_wait seconds after SIGTERM and was interrupted')
         self.logger.shutdown()
 
 

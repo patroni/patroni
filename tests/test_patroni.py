@@ -237,14 +237,26 @@ class TestPatroni(unittest.TestCase):
         loop_wait = self.p.config['loop_wait']
         self.assertEqual(mock_alarm.call_args_list, [] if os.name == 'nt' else [((loop_wait,),), ((0,),)])
 
+    @patch.object(Thread, 'join', Mock())
     def test_sigalrm_handler(self):
         self.p.sigalrm_handler()  # doesn't raise SystemExit before the main loop has started
         self.p.api.start = Mock()
         self.p.logger.start = Mock()
-        # the main loop is stuck in the HA cycle when SIGALRM arrives
-        self.p.ha.run_cycle = Mock(side_effect=self.p.sigalrm_handler)
+
+        def run_cycle():
+            self.p.sigalrm_handler()  # doesn't raise SystemExit before SIGTERM was received
+            self.p._received_sigterm = True
+            self.p.sigalrm_handler()  # the main loop is stuck in the HA cycle after SIGTERM when SIGALRM arrives
+
+        self.p.ha.run_cycle = Mock(side_effect=run_cycle)
         self.assertRaises(SystemExit, self.p.run)
+        self.assertTrue(self.p.received_sigterm)
         self.p.sigalrm_handler()  # doesn't raise SystemExit after the main loop has exited
+        self.p.api.shutdown = Mock()
+        self.p.ha.shutdown = Mock()
+        with patch('patroni.daemon.logger.warning') as mock_warning:
+            self.p.shutdown()
+        mock_warning.assert_called_once()
 
     @unittest.skipIf(sys.thread_info.lock != 'semaphore', 'signals do not interrupt Lock.acquire()')
     def test_sigterm_wakes_up_ha_loop(self):
