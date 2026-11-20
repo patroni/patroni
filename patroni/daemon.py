@@ -12,6 +12,7 @@ import socket
 import sys
 import time
 
+from contextlib import suppress
 from threading import Lock, stack_size, Thread
 from typing import Any, Optional, Type, TYPE_CHECKING
 
@@ -163,6 +164,9 @@ class AbstractPatroniDaemon(abc.ABC):
         with :func:`signal.set_wakeup_fd` immediately, even if the main thread is blocked in C code and therefore can't
         run :func:`sigterm_handler`.
 
+        Also set the default action of SIGALRM, which :func:`_emergency_exit` relies on. ``SIG_IGN`` could be inherited
+        from the parent process.
+
         .. note::
             Must be called from the main thread.
         """
@@ -170,15 +174,19 @@ class AbstractPatroniDaemon(abc.ABC):
         wsock.setblocking(False)
         self._sigterm_guard_wsock = wsock
         self._prev_wakeup_fd = signal.set_wakeup_fd(wsock.fileno())
+        self._prev_sigalrm_handler = signal.signal(signal.SIGALRM, signal.SIG_DFL)
         Thread(target=self._sigterm_guard, name='sigterm-guard', daemon=True).start()
 
     def _stop_sigterm_guard(self) -> None:
-        """Restore the previous wakeup fd and make :func:`_sigterm_guard` exit by closing the write end of its socket.
+        """Restore the previous wakeup fd and SIGALRM handler, and make :func:`_sigterm_guard` exit by closing the write
+        end of its socket.
 
         .. note::
             Must be called from the main thread.
         """
         signal.set_wakeup_fd(self._prev_wakeup_fd)
+        if self._prev_sigalrm_handler is not None:  # None if the previous handler wasn't installed from Python
+            signal.signal(signal.SIGALRM, self._prev_sigalrm_handler)
         self._sigterm_guard_wsock.close()
 
     def _sigterm_guard(self) -> None:
@@ -216,7 +224,7 @@ class AbstractPatroniDaemon(abc.ABC):
         """Terminate the daemon process immediately, because its main loop hangs after SIGTERM.
 
         Log a critical message, call :func:`_emergency_shutdown`, give the logger thread up to a second to write queued
-        records, and exit with :func:`os._exit`.
+        records, and exit with :func:`os._exit`, even if any of these steps fails. Logging is best effort.
 
         .. note::
             The regular :func:`shutdown` can't be used: the main loop could hold locks that it needs, and
@@ -225,17 +233,22 @@ class AbstractPatroniDaemon(abc.ABC):
             The stack of the main thread isn't logged: formatting it reads source files, and a stalled filesystem could
             be the reason why the main loop hangs.
         """
-        # The default action of SIGALRM terminates the process in the kernel, without a thread or the GIL, if the steps
-        # below block anyway, e.g. while reading postmaster.pid or waiting for killed processes.
-        signal.alarm(5)
-        logger.critical('The main loop did not exit within %s seconds after SIGTERM, terminating the process',
-                        self.config['loop_wait'])
         try:
-            self._emergency_shutdown()
-        except Exception:
-            logger.exception('Emergency shutdown failed')
-        self.logger.flush(1)
-        os._exit(1)
+            # The default action of SIGALRM, set by _start_sigterm_guard(), terminates the process in the kernel,
+            # without a thread or the GIL, if the steps below block anyway, e.g. while reading postmaster.pid or
+            # waiting for killed processes. SIGALRM is unblocked in case the signal mask was inherited from the parent.
+            signal.pthread_sigmask(signal.SIG_UNBLOCK, [signal.SIGALRM])
+            signal.alarm(5)
+            with suppress(Exception):  # must not prevent the emergency shutdown
+                logger.critical('The main loop did not exit within %s seconds after SIGTERM, terminating the process',
+                                self.config['loop_wait'])
+            try:
+                self._emergency_shutdown()
+            except Exception:
+                logger.exception('Emergency shutdown failed')
+            self.logger.flush(1)
+        finally:
+            os._exit(1)
 
     def _emergency_shutdown(self) -> None:
         """Define what the daemon should do before :func:`_emergency_exit` terminates the process.

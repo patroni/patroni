@@ -258,7 +258,13 @@ class TestPatroni(unittest.TestCase):
         self.p.api.start = Mock()
         self.p.logger.start = Mock()
         exited = Event()
-        self.p._emergency_exit = Mock(side_effect=exited.set)
+        sigalrm_handlers = []
+
+        def emergency_exit():
+            sigalrm_handlers.append(signal.getsignal(signal.SIGALRM))
+            exited.set()
+
+        self.p._emergency_exit = Mock(side_effect=emergency_exit)
 
         def run_cycle():
             os.kill(os.getpid(), signal.SIGTERM)
@@ -266,22 +272,28 @@ class TestPatroni(unittest.TestCase):
 
         self.p._run_cycle = Mock(side_effect=run_cycle)
         handler = signal.signal(signal.SIGTERM, self.p.sigterm_handler)
+        sigalrm_handler = signal.signal(signal.SIGALRM, signal.SIG_IGN)  # e.g. inherited from the parent process
         try:
             with patch.object(self.p, 'config', {'loop_wait': 0.1}):
                 self.p.run()
+            self.assertEqual(signal.getsignal(signal.SIGALRM), signal.SIG_IGN)  # the previous handler is restored
         finally:
             signal.signal(signal.SIGTERM, handler)
-        self.p._emergency_exit.assert_called_once()
+            signal.signal(signal.SIGALRM, sigalrm_handler)
+        self.assertEqual(sigalrm_handlers, [signal.SIG_DFL])  # the alarm in _emergency_exit() can terminate the process
         self.assertEqual(signal.set_wakeup_fd(-1), -1)  # the previous wakeup fd is restored
 
+    @unittest.skipIf(os.name == 'nt', "Windows not supported")
     @patch('os._exit')
-    @patch('signal.alarm', create=True)
-    def test_emergency_exit(self, mock_alarm, mock_exit):
+    @patch('signal.alarm')
+    @patch('signal.pthread_sigmask')
+    def test_emergency_exit(self, mock_sigmask, mock_alarm, mock_exit):
         self.p.logger.flush = Mock()
         postmaster = MockPostmaster()
         self.p.postgresql.is_running = Mock(return_value=postmaster)
         with patch('patroni.daemon.logger.critical') as mock_critical:
             self.p._emergency_exit()
+        mock_sigmask.assert_called_once_with(signal.SIG_UNBLOCK, [signal.SIGALRM])  # the mask could be inherited
         mock_alarm.assert_called_once_with(5)  # the kernel terminates the process if the emergency exit blocks
         mock_critical.assert_called_once()
         postmaster.signal_stop.assert_called_once_with('fast', self.p.postgresql.pgcommand('pg_ctl'))
@@ -298,11 +310,18 @@ class TestPatroni(unittest.TestCase):
             self.p._emergency_exit()
         postmaster.signal_stop.assert_not_called()
 
+        with patch('patroni.daemon.logger.critical', Mock(side_effect=Exception)):  # logging is best effort
+            self.p._emergency_exit()
+        postmaster.signal_stop.assert_called_once()
+
         self.p.postgresql.is_running = Mock(side_effect=Exception)
         with patch('patroni.daemon.logger.exception') as mock_exception:
             self.p._emergency_exit()
         mock_exception.assert_called_once()
-        self.assertEqual(mock_exit.call_count, 4)
+
+        self.p.logger.flush.side_effect = Exception
+        self.assertRaises(Exception, self.p._emergency_exit)  # only because os._exit() is mocked and returns
+        self.assertEqual(mock_exit.call_count, 6)
 
     @patch('patroni.config.Config.reload_local_configuration', Mock(return_value=False))
     def test_sigterm_during_sighup_reload(self):
