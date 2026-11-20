@@ -382,8 +382,10 @@ class Ha(object):
             logger.exception('Unexpected exception raised from acquire_leader_lock, please report it as a BUG')
             ret = False
         self.set_is_leader(ret)
-        if ret:
-            # The watchdog is still armed if we were running as a primary while the leader key was missing
+        # The watchdog is still armed if we were running as a primary while the leader key was missing. Don't call
+        # keepalive() otherwise, it would apply deferred config changes ignoring activation failures. A device left
+        # armed with an unsafe timeout would make enforce_primary_role() skip the activation and promote.
+        if ret and self.watchdog.is_running:
             self.watchdog.keepalive()
         return ret
 

@@ -413,6 +413,7 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.run_cycle(), 'promoted self to leader because I had the session lock')
 
     @patch('patroni.psycopg.connect', psycopg_connect)
+    @patch.object(Watchdog, 'is_running', PropertyMock(return_value=True))
     def test_acquire_lock_as_primary(self):
         with patch.object(Watchdog, 'keepalive') as mock_keepalive:
             self.assertEqual(self.ha.run_cycle(), 'acquired session lock as a leader')
@@ -421,6 +422,24 @@ class TestHa(PostgresInit):
             with patch.object(global_config.__class__, 'primary_race_backoff', PropertyMock(return_value=3)):
                 self.assertEqual(self.ha.run_cycle(), 'acquired session lock as a leader')
             self.assertEqual(mock_keepalive.call_count, 2)
+
+    def test_leader_race_with_deferred_watchdog_config(self):
+        # After running as a primary with the watchdog mode off the watchdog stays active without a device,
+        # therefore switching to the required mode is deferred
+        self.assertTrue(self.ha.watchdog.activate())
+        self.ha.watchdog.reload_config({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}})
+        # a device with a fixed timeout that is too long for the ttl
+        device = Mock(is_null=False, is_running=False, can_be_disabled=True)
+        device.has_set_timeout.return_value = False
+        device.get_timeout.return_value = 60
+        device.open.side_effect = lambda: setattr(device, 'is_running', True)
+        device.close.side_effect = lambda: setattr(device, 'is_running', False)
+        # the watchdog isn't healthy, but a manual failover candidate skips the check
+        self.p.is_primary = false
+        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', self.p.name, None, None))
+        with patch('patroni.watchdog.base.WatchdogConfig.get_impl', Mock(return_value=device)):
+            self.assertEqual(self.ha.run_cycle(), 'Not promoting self because watchdog could not be activated')
+        self.assertFalse(device.is_running)
 
     def test_leader_race_stale_primary(self):
         with patch.object(Postgresql, 'get_primary_timeline', Mock(return_value=1)), \
