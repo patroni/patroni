@@ -19,6 +19,7 @@ import dateutil.parser
 from .. import global_config
 from ..dynamic_loader import iter_classes, iter_modules
 from ..exceptions import PatroniAssertionError, PatroniFatalException
+from ..interrupt import Interrupter
 from ..site import ClusterSite
 from ..tags import Tags
 from ..utils import deep_compare, parse_int, uri
@@ -2205,6 +2206,16 @@ class AbstractDCS(ClusterSite, abc.ABC):
         :returns: ``True`` if delete successful.
         """
 
+    def wakeup(self) -> None:
+        """Request an early HA cycle by waking :func:`watch`.
+
+        Sets :attr:`event` so a watch waiting on it returns ``True``. If no watch is running, the next one observes it.
+
+        Backends that long-poll also interrupt blocked HTTP response reads. DNS resolution, connection setup and TLS
+        negotiation are not interrupted, and the HTTP client may still consume data it has already buffered.
+        """
+        self.event.set()
+
     def watch(self, leader_version: Optional[Any], timeout: float) -> bool:
         """Sleep if the current node is a leader, otherwise, watch for changes of leader key with a given *timeout*.
 
@@ -2216,3 +2227,16 @@ class AbstractDCS(ClusterSite, abc.ABC):
         _ = leader_version
         self.event.wait(timeout)
         return self.event.is_set()
+
+
+class AbstractLongPollingDCS(AbstractDCS):
+    """Base class for DCS backends that long-poll the leader key in the HA loop."""
+
+    def __init__(self, config: Dict[str, Any], mpp: 'AbstractMPP') -> None:
+        super(AbstractLongPollingDCS, self).__init__(config, mpp)
+        self._watch_interrupter = Interrupter()
+
+    def wakeup(self) -> None:
+        """Set the HA event before interrupting an active leader watch."""
+        super(AbstractLongPollingDCS, self).wakeup()
+        self._watch_interrupter.interrupt()

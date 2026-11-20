@@ -9,16 +9,15 @@ import time
 
 from collections import defaultdict
 from enum import IntEnum
-from threading import Condition, Lock, Thread
+from threading import current_thread, Lock
 from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Tuple, Type, TYPE_CHECKING, Union
 
 import etcd
 import urllib3
 
-from urllib3.exceptions import ProtocolError, ReadTimeoutError
-
 from ..collections import EMPTY_DICT
 from ..exceptions import DCSError, PatroniException
+from ..interrupt import WatchInterrupted, WatchStreamThread
 from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare, enable_keepalive, iter_response_objects, \
     parse_bool, RetryFailedError, USER_AGENT, WHITESPACE_RE
@@ -504,8 +503,8 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         return self.deleterange(key, prefix_range_end(key), retry=retry)
 
     def watchrange(self, key: str, range_end: Union[bytes, str, None] = None,
-                   start_revision: Optional[str] = None, filters: Optional[List[Dict[str, Any]]] = None,
-                   read_timeout: Optional[float] = None) -> urllib3.response.HTTPResponse:
+                   start_revision: Optional[str] = None,
+                   filters: Optional[List[Dict[str, Any]]] = None) -> urllib3.response.HTTPResponse:
         """returns: response object"""
         params = build_range_request(key, range_end)
         if start_revision is not None:
@@ -513,35 +512,28 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         params['filters'] = filters or []
         kwargs = self._prepare_common_parameters(1, self.read_timeout)
         request_executor = self._prepare_request(kwargs, {'create_request': params})
-        kwargs.update(timeout=urllib3.Timeout(connect=kwargs['timeout'], read=read_timeout), retries=0)
+        kwargs.update(timeout=urllib3.Timeout(connect=kwargs['timeout'], read=None), retries=0)
         return request_executor(self._MPOST, self._base_uri + self.version_prefix + '/watch', **kwargs)
 
     def watchprefix(self, key: str, start_revision: Optional[str] = None,
-                    filters: Optional[List[Dict[str, Any]]] = None,
-                    read_timeout: Optional[float] = None) -> urllib3.response.HTTPResponse:
-        return self.watchrange(key, prefix_range_end(key), start_revision, filters, read_timeout)
+                    filters: Optional[List[Dict[str, Any]]] = None) -> urllib3.response.HTTPResponse:
+        return self.watchrange(key, prefix_range_end(key), start_revision, filters)
 
 
-class KVCache(StaleEtcdNodeGuard, Thread):
+class KVCache(StaleEtcdNodeGuard, WatchStreamThread):
 
     def __init__(self, dcs: 'Etcd3', client: 'PatroniEtcd3Client') -> None:
-        Thread.__init__(self)
+        WatchStreamThread.__init__(self)
         StaleEtcdNodeGuard.__init__(self)
-        self.daemon = True
         self._dcs = dcs
         self._client = client
-        self.condition = Condition()
         self._config_key = base64_encode(dcs.config_path)
         self._leader_key = base64_encode(dcs.leader_path)
         self._optime_key = base64_encode(dcs.leader_optime_path)
         self._status_key = base64_encode(dcs.status_path)
         self._name = base64_encode(getattr(dcs, '_name'))  # pyright
-        self._is_ready = False
-        self._response = None
-        self._response_lock = Lock()
         self._object_cache = {}
         self._object_cache_lock = Lock()
-        self.start()
 
     def set(self, value: Dict[str, Any], overwrite: bool = False) -> Tuple[bool, Optional[Dict[str, Any]]]:
         with self._object_cache_lock:
@@ -563,6 +555,13 @@ class KVCache(StaleEtcdNodeGuard, Thread):
     def copy(self) -> List[Dict[str, Any]]:
         with self._object_cache_lock:
             return [v.copy() for v in self._object_cache.values()]
+
+    def snapshot(self, timeout: float) -> List[Dict[str, Any]]:
+        """Wait up to *timeout* seconds for a ready cache and copy it before it can be invalidated."""
+        with self._condition:
+            if not self._condition.wait_for(self.is_ready, timeout):
+                raise RetryFailedError('Exceeded retry deadline')
+            return self.copy()
 
     def get(self, name: str) -> Optional[Dict[str, Any]]:
         with self._object_cache_lock:
@@ -605,60 +604,39 @@ class KVCache(StaleEtcdNodeGuard, Thread):
         for event in events:
             self._process_event(event)
 
-    @staticmethod
-    def _finish_response(response: urllib3.response.HTTPResponse) -> None:
-        try:
-            response.close()
-        finally:
-            response.release_conn()
-
     def _do_watch(self, revision: str) -> None:
-        with self._response_lock:
-            self._response = None
-        # We do most of requests with timeouts. The only exception /watch requests to Etcd v3.
-        # In order to interrupt the /watch request we do socket.shutdown() from the main thread,
-        # which doesn't work on Windows. Therefore we want to use the last resort, `read_timeout`.
-        # Setting it to TTL will help to partially mitigate the problem.
-        # Setting it to lower value is not nice because for idling clusters it will increase
-        # the numbers of interrupts and reconnects.
-        read_timeout = self._dcs.ttl if os.name == 'nt' else None
-        response = self._client.watchprefix(self._dcs.cluster_prefix, revision, read_timeout=read_timeout)
-        with self._response_lock:
-            if self._response is None:
-                self._response = response
-
-        if not self._response:
-            return self._finish_response(response)
-
-        for message in iter_response_objects(response):
-            self._process_message(message)
+        with self._watch_interrupter.armed():
+            response = self._client.watchprefix(self._dcs.cluster_prefix, revision)
+        try:
+            for message in iter_response_objects(response):
+                self._process_message(message)
+        finally:
+            self._finish_response(response)
 
     def _build_cache(self) -> None:
+        self._watch_interrupter.clear()
         result = self._dcs.retry(self._client.prefix, self._dcs.cluster_prefix)
         header = result.get('header', EMPTY_DICT)
-        with self._object_cache_lock:
+        with self._condition, self._object_cache_lock:
+            if self._watch_interrupter.is_set():
+                return
             self._reset_cluster_raft_term()
             self._object_cache = {node['key']: node for node in result.get('kvs', [])}
             self._check_cluster_raft_term(header.get('cluster_id'), header.get('raft_term'))
-        with self.condition:
             self._is_ready = True
-            self.condition.notify()
+            self._condition.notify_all()
 
         try:
             self._do_watch(result['header']['revision'])
         except Etcd3WatchCanceled:
             logger.info('Watch request canceled')
+        except WatchInterrupted:
+            logger.debug('Watch request interrupted')
         except Exception as e:
-            # Following exceptions are expected on Windows because the /watch request is done with `read_timeout`
-            if not (os.name == 'nt' and isinstance(e, (ReadTimeoutError, ProtocolError))):
-                logger.error('watchprefix failed: %r', e)
+            logger.error('watchprefix failed: %r', e)
         finally:
-            with self.condition:
+            with self._condition:
                 self._is_ready = False
-            with self._response_lock:
-                response, self._response = self._response, None
-            if isinstance(response, urllib3.response.HTTPResponse):
-                self._finish_response(response)
 
     def run(self) -> None:
         while True:
@@ -668,35 +646,12 @@ class KVCache(StaleEtcdNodeGuard, Thread):
                 logger.error('KVCache.run %r', e)
                 time.sleep(1)
 
-    def kill_stream(self) -> None:
-        conn_sock: Any = None
-        with self._response_lock:
-            if isinstance(self._response, urllib3.response.HTTPResponse):
-                try:
-                    conn_sock = self._response.connection.sock if self._response.connection else None
-                except Exception:
-                    conn_sock = None
-            else:
-                self._response = False
-        if conn_sock:
-            # python-etcd forces usage of pyopenssl if the last one is available.
-            # In this case HTTPConnection.socket is not inherited from socket.socket, but urllib3 uses custom
-            # class `WrappedSocket`, which shutdown() method could be incompatible with socket.shutdown().
-            # Therefore we use WrappedSocket.socket, which points to original `socket` object.
-            sock: socket.socket = conn_sock.socket if conn_sock.__class__.__name__ == 'WrappedSocket' else conn_sock
-            try:
-                sock.shutdown(socket.SHUT_RDWR)
-                sock.close()
-            except Exception as e:
-                logger.debug('Error on socket.shutdown: %r', e)
-
     def is_ready(self) -> bool:
-        """Must be called only when holding the lock on `condition`"""
+        """Must be called only when holding the lock on `_condition`"""
         if self._is_ready:
             try:
                 self._client._check_cluster_raft_term(self._cluster_id, self._raft_term)
             except StaleEtcdNode:
-                self._is_ready = False
                 self.kill_stream()
         return self._is_ready
 
@@ -713,28 +668,26 @@ class PatroniEtcd3Client(Etcd3Client):
     def start_watcher(self) -> None:
         if self._cluster_version >= (3, 1):
             self._kv_cache = KVCache(self._etcd3, self)
+            self._kv_cache.start()
 
     def _restart_watcher(self) -> None:
-        if self._kv_cache:
+        """Interrupt an external watch; the cache thread checks its own list endpoint after a retry."""
+        if self._kv_cache and self._kv_cache is not current_thread():
+            self._kv_cache.kill_stream()
+
+    def _on_successful_retry(self, base_uri: str) -> None:
+        """Discard the cache thread's list if refreshing membership selected a different watch endpoint."""
+        super()._on_successful_retry(base_uri)
+        if self._base_uri != base_uri and self._kv_cache and self._kv_cache is current_thread():
             self._kv_cache.kill_stream()
 
     def set_base_uri(self, value: str) -> None:
         super(PatroniEtcd3Client, self).set_base_uri(value)
         self._restart_watcher()
 
-    def _wait_cache(self, timeout: float) -> None:
-        stop_time = time.monotonic() + timeout
-        while self._kv_cache and not self._kv_cache.is_ready():
-            timeout = stop_time - time.monotonic()
-            if timeout <= 0:
-                raise RetryFailedError('Exceeded retry deadline')
-            self._kv_cache.condition.wait(timeout)
-
     def get_cluster(self, path: str) -> List[Dict[str, Any]]:
         if self._kv_cache and path.startswith(self._etcd3.cluster_prefix):
-            with self._kv_cache.condition:
-                self._wait_cache(self.read_timeout)
-                ret = self._kv_cache.copy()
+            ret = self._kv_cache.snapshot(self.read_timeout)
         else:
             serializable = not getattr(self._etcd3, '_ctl')  # use linearizable for patronictl
             ret = self._etcd3.retry(self.prefix, path, serializable).get('kvs', [])

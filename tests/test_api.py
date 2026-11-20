@@ -827,6 +827,27 @@ class TestRestApiServer(unittest.TestCase):
                                                   'allowlist': ['127.0.0.1', '::1/128', '::1/zxc'],
                                                   'allowlist_include_members': True, 'thread_pool_size': 'a'})
 
+    @patch.object(socket, 'getfqdn', side_effect=AssertionError('Unexpected reverse DNS lookup'))
+    def test_server_bind(self, mock_getfqdn):
+        for address in (('127.0.0.1', 8008), ('::1', 8008, 0, 0)):
+            with self.subTest(address=address):
+                requested_address = (address[0], 0) + address[2:]
+                self.srv.server_address = requested_address
+                self.srv.socket = Mock()
+                self.srv.socket.getsockname.return_value = address
+
+                self.srv.server_bind()
+
+                self.srv.socket.bind.assert_called_once_with(requested_address)
+                self.assertEqual(self.srv.server_address, address)
+                self.assertEqual(self.srv.server_name, address[0])
+                self.assertEqual(self.srv.server_port, address[1])
+
+        self.srv.socket.bind.side_effect = socket.error('bind failed')
+        with self.assertRaisesRegex(socket.error, 'bind failed'):
+            self.srv.server_bind()
+        mock_getfqdn.assert_not_called()
+
     @patch.object(HTTPServer, '__init__', Mock())
     def test_reload_config(self):
         bad_config = {'listen': 'foo'}
@@ -851,10 +872,18 @@ class TestRestApiServer(unittest.TestCase):
         self.assertIsNot(self.srv.check_access(mock_rh), True)
 
     def test_handle_error(self):
-        try:
-            raise Exception()
-        except Exception:
-            self.assertIsNone(self.srv.handle_error(None, ('127.0.0.1', 55555)))
+        error = ValueError('test error')
+        with self.assertLogs('patroni.api', level='WARNING') as captured_log:
+            try:
+                raise error
+            except ValueError:
+                self.assertIsNone(self.srv.handle_error(None, ('127.0.0.1', 55555)))
+
+        self.assertEqual(len(captured_log.records), 1)
+        record = captured_log.records[0]
+        self.assertEqual(record.getMessage(), 'Exception happened during processing of request from 127.0.0.1:55555')
+        self.assertIs(record.exc_info[1], error)
+        self.assertIn('ValueError: test error', captured_log.output[0])
 
     def test_finish_request_connection_reset(self):
         import ssl

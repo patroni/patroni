@@ -194,6 +194,10 @@ class TestPostmasterProcess(unittest.TestCase):
         mock_popen.side_effect = Exception
         self.assertIsNone(PostmasterProcess.start('true', '/tmp', '/tmp/test.conf', []))
 
+        # the child process died without sending anything
+        with patch.object(MockProcess, 'start', Mock()):
+            self.assertIsNone(PostmasterProcess.start('true', '/tmp', '/tmp/test.conf', []))
+
     @patch('psutil.Process.__init__', Mock(side_effect=psutil.NoSuchProcess(123)))
     def test_read_postmaster_pidfile(self):
         with patch('builtins.open', Mock(side_effect=IOError)):

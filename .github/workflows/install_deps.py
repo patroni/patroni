@@ -47,13 +47,12 @@ def install_packages(what):
 
     packages = {
         'zookeeper': ['zookeeper', 'zookeeper-bin', 'zookeeperd'],
-        'consul': ['consul'],
     }
     packages['exhibitor'] = packages['zookeeper']
     packages = packages.get(what, [])
     ver = versions.get(what)
-    if 15 <= float(ver) < 18:
-        packages += ['postgresql-{0}-citus-13.0'.format(ver)]
+    if 16 <= float(ver) < 19:
+        packages += ['postgresql-{0}-citus-14.3'.format(ver)]
     subprocess.call(['sudo', 'apt-get', 'update', '-y'])
     return subprocess.call(['sudo', 'apt-get', 'install', '-y', 'postgresql-' + ver, 'expect-dev'] + packages)
 
@@ -116,6 +115,13 @@ def install_etcd():
     return int(unpack(name, '{0}/etcd{1}'.format(dirname, ext)) is None)
 
 
+def install_consul():
+    version = os.environ.get('CONSULVERSION', '1.22.7')
+    name = 'consul_{0}_linux_amd64.zip'.format(version)
+    get_file('https://releases.hashicorp.com/consul/{0}/{1}'.format(version, name), name)
+    return int(unpack(name, 'consul') is None)
+
+
 def install_postgres():
     version = os.environ.get('PGVERSION', '16.1-1')
     platform = {'darwin': 'osx', 'win32': 'windows-x64', 'cygwin': 'windows-x64'}[sys.platform]
@@ -141,6 +147,8 @@ def main():
 
         if r == 0 and what.startswith('etcd'):
             r = install_etcd()
+        elif r == 0 and what == 'consul':
+            r = install_consul()
 
         if r != 0:
             return r

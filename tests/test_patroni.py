@@ -17,6 +17,7 @@ from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
 from patroni.dcs import Cluster, ClusterConfig, Member
 from patroni.dcs.etcd import AbstractEtcdClientWithFailover
+from patroni.dcs.kubernetes import Kubernetes
 from patroni.exceptions import DCSError
 from patroni.log import PatroniLogger
 from patroni.postgresql import Postgresql
@@ -284,6 +285,12 @@ class TestPatroni(unittest.TestCase):
         self.p._get_tags = Mock(side_effect=Exception)
         self.p.reload_config(local=True)
 
+    def test_reload_config_wakes_up_ha_for_watchdog(self):
+        with patch.object(self.p, 'watchdog', Mock(needs_immediate_keepalive=True)), \
+                patch.object(self.p.ha, 'wakeup') as mock_wakeup:
+            self.p.reload_config()
+        mock_wakeup.assert_called_once_with()
+
     def test_reload_config_checks_certificate_when_local_config_changed(self):
         """A renewed certificate must be detected even when the local config changed too."""
         self.p.api.reload_local_certificate = Mock(return_value=True)
@@ -443,6 +450,11 @@ class TestPatroni(unittest.TestCase):
         # Only if the api of the running node is reachable do we throw an error
         with patch('urllib3.PoolManager.request', Mock()):
             self.assertRaises(SystemExit, self.p.ensure_unique_name, bad_cluster)
+        # With the Kubernetes DCS the check is skipped, the api_url in the Pod annotation may be stale
+        with patch('urllib3.PoolManager.request', Mock()) as mock_request, \
+                patch.object(self.p, 'dcs', Mock(spec=Kubernetes)):
+            self.assertIsNone(self.p.ensure_unique_name(bad_cluster))
+            mock_request.assert_not_called()
 
     @patch('patroni.dcs.AbstractDCS.get_cluster', Mock(side_effect=[DCSError('foo'), DCSError('foo'), None]))
     def test_ensure_dcs_access(self):
