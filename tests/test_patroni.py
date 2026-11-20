@@ -10,6 +10,7 @@ from threading import Thread
 from unittest.mock import Mock, patch, PropertyMock
 
 import etcd
+import urllib3
 
 import patroni.config as config
 
@@ -25,7 +26,7 @@ from patroni.postgresql import Postgresql
 from patroni.postgresql.config import ConfigHandler
 from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 
-from . import psycopg_connect, SleepException
+from . import HangingHTTPServer, psycopg_connect, SleepException
 from .test_etcd import etcd_read, etcd_write
 from .test_postgresql import MockPostmaster
 
@@ -251,6 +252,28 @@ class TestPatroni(unittest.TestCase):
             start = time.time()
             self.assertTrue(self.p.dcs.watch(None, 10))
             self.assertLess(time.time() - start, 5)
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, handler)
+        self.assertTrue(self.p.received_sigterm)
+
+    @unittest.skipIf(os.name == 'nt', "Windows not supported")
+    def test_sigterm_interrupts_long_poll(self):
+        self.p.enable_graceful_sigterm()
+        self.p.dcs.event.clear()
+        handler = signal.signal(signal.SIGALRM, self.p.sigterm_handler)
+        http = self.p.dcs._client.http
+
+        def watch(*args, **kwargs):
+            signal.setitimer(signal.ITIMER_REAL, 0.1)
+            # without the interruption the long-poll fails with ReadTimeoutError
+            return http.urlopen('GET', server.url, retries=False, timeout=urllib3.Timeout(connect=5, read=5))
+
+        try:
+            with HangingHTTPServer() as server, \
+                 patch.object(etcd.Client, 'watch', Mock(side_effect=watch)) as mock_watch:
+                self.assertTrue(self.p.dcs.watch(20729, 10))
+                mock_watch.assert_called_once()
         finally:
             signal.setitimer(signal.ITIMER_REAL, 0)
             signal.signal(signal.SIGALRM, handler)

@@ -2266,6 +2266,9 @@ class AbstractDCS(ClusterSite, abc.ABC):
 
         Backends that long-poll also interrupt blocked HTTP response reads. DNS resolution, connection setup and TLS
         negotiation are not interrupted, and the HTTP client may still consume data it has already buffered.
+
+        .. note::
+            Also called from the SIGTERM handler, therefore it must not block, acquire locks or raise exceptions.
         """
         self.event.set()
 

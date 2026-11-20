@@ -271,8 +271,9 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
         """Wake up the HA loop if it is waiting for the next cycle in :func:`schedule_next_run`.
 
         .. note::
-            :func:`~patroni.ha.Ha.wakeup` only sets :class:`~patroni.dcs.SignalSafeEvent`, which is safe to do in
-            the signal handler.
+            :func:`~patroni.ha.Ha.wakeup` only sets :class:`~patroni.dcs.SignalSafeEvent` and, if the DCS long-polls,
+            interrupts the request with :func:`~patroni.interrupt.Interrupter.interrupt`, which only writes to a
+            socket. Both are safe to do in the signal handler.
         """
         self.ha.wakeup()
 
