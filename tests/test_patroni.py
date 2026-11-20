@@ -7,7 +7,7 @@ import unittest
 
 from http.server import HTTPServer
 from threading import Thread
-from unittest.mock import Mock, patch, PropertyMock
+from unittest.mock import MagicMock, Mock, patch, PropertyMock
 
 import etcd
 import urllib3
@@ -493,6 +493,17 @@ class TestPatroni(unittest.TestCase):
         self.p.api.shutdown = Mock(side_effect=Exception)
         self.p.ha.shutdown = Mock(side_effect=Exception)
         self.p.shutdown()
+
+    @patch.object(Thread, 'join', Mock())
+    def test_main_thread_does_not_take_sigterm_lock(self):
+        # SystemExit raised by sigalrm_handler() would leak the lock held by the main thread and deadlock shutdown()
+        self.p._sigterm_lock = MagicMock()
+        self.p._sigterm_lock.__enter__.side_effect = AssertionError('the main thread took _sigterm_lock')
+        self.assertFalse(self.p.received_sigterm)
+        self.p.api.shutdown = Mock()
+        self.p.ha.shutdown = Mock()
+        self.p.shutdown()
+        self.assertTrue(self.p.received_sigterm)
 
     def test_check_psycopg(self):
         with patch('builtins.__import__', Mock(side_effect=ImportError)):

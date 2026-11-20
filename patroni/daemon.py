@@ -113,6 +113,9 @@ class AbstractPatroniDaemon(abc.ABC):
 
         Flag the daemon as "SIGTERM received" with a lock-based approach.
 
+        .. note::
+            Only called by REST API threads, never by the main thread, see :attr:`received_sigterm`.
+
         :returns: ``True`` if the daemon was flagged as "SIGTERM received".
         """
         ret = False
@@ -199,9 +202,13 @@ class AbstractPatroniDaemon(abc.ABC):
 
     @property
     def received_sigterm(self) -> bool:
-        """If daemon was signaled with SIGTERM."""
-        with self._sigterm_lock:
-            return self._received_sigterm
+        """If daemon was signaled with SIGTERM.
+
+        .. note::
+            The main thread must not take ``_sigterm_lock``: if :func:`sigalrm_handler` raised :exc:`SystemExit`
+            while it is held, the lock would be leaked and :func:`shutdown` would deadlock.
+        """
+        return self._received_sigterm
 
     def reload_config(self, sighup: bool = False, local: Optional[bool] = False) -> None:
         """Reload configuration.
@@ -252,8 +259,7 @@ class AbstractPatroniDaemon(abc.ABC):
 
         Shut down the daemon process and the logger thread.
         """
-        with self._sigterm_lock:
-            self._received_sigterm = True
+        self._received_sigterm = True
         notify_systemd("STOPPING=1")
         self._shutdown()
         self.logger.shutdown()
