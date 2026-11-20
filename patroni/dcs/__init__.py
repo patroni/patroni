@@ -19,7 +19,7 @@ import dateutil.parser
 from .. import global_config
 from ..dynamic_loader import iter_classes, iter_modules
 from ..exceptions import PatroniAssertionError, PatroniFatalException
-from ..interrupt import Interrupter
+from ..interrupt import Interrupter, SignalSafeEvent
 from ..site import ClusterSite
 from ..tags import Tags
 from ..utils import deep_compare, parse_int, uri
@@ -1461,58 +1461,6 @@ def catch_return_false_exception(func: Callable[..., Any]) -> Any:
             return False
 
     return wrapper
-
-
-class SignalSafeEvent:
-    """Simplified :class:`threading.Event`, which can be set from a signal handler.
-
-    :class:`threading.Event` protects its flag with a non-reentrant lock, which the main thread holds while it is in
-    :func:`~threading.Event.wait` (but not blocked yet) or in :func:`~threading.Event.clear`. Python runs signal
-    handlers in the main thread, therefore :func:`~threading.Event.set` called from a handler could deadlock.
-
-    This event is set while its :class:`~threading.Lock` is unlocked. :func:`set` only calls ``Lock.release()``,
-    which never blocks. If a signal handler calls :func:`set` while :func:`wait` is blocked in ``Lock.acquire()``,
-    the latter returns as soon as the handler returns.
-
-    .. note::
-        Only one thread is supposed to call :func:`wait` and :func:`clear`: the event could remain set if another
-        thread clears it while :func:`wait` is returning.
-    """
-
-    def __init__(self) -> None:
-        """Create a new event, which is not set."""
-        self._lock = Lock()
-        self._lock.acquire()
-
-    def is_set(self) -> bool:
-        """Check if the event is set.
-
-        :returns: ``True`` if the event is set.
-        """
-        return not self._lock.locked()
-
-    def set(self) -> None:
-        """Set the event and wake up the thread waiting for it."""
-        try:
-            self._lock.release()
-        except RuntimeError:  # the event is already set
-            pass
-
-    def clear(self) -> None:
-        """Reset the event."""
-        self._lock.acquire(False)
-
-    def wait(self, timeout: Optional[float] = None) -> bool:
-        """Block until the event is set or *timeout* expires.
-
-        :param timeout: timeout in seconds, ``None`` means to wait forever.
-
-        :returns: ``True`` if the event is set.
-        """
-        if self._lock.acquire(timeout=-1 if timeout is None else max(timeout, 0)):
-            self.set()  # the event remains set until cleared
-            return True
-        return False
 
 
 class AbstractDCS(ClusterSite, abc.ABC):

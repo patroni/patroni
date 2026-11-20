@@ -11,11 +11,27 @@ import urllib3
 
 from urllib3.exceptions import ReadTimeoutError
 
-from patroni.interrupt import _InterruptibleSocketIO, Interrupter, make_interruptible, WatchInterrupted
+from patroni.interrupt import _InterruptibleSocketIO, Interrupter, make_interruptible, SignalSafeEvent, WatchInterrupted
 
 from . import HangingHTTPServer
 
 STREAM = b'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\n{}\n\r\n'
+
+
+class TestSignalSafeEvent(unittest.TestCase):
+
+    def test_signal_safe_event(self):
+        event = SignalSafeEvent()
+        self.assertFalse(event.is_set())
+        self.assertFalse(event.wait(-1))
+        Timer(0.1, event.set).start()
+        self.assertTrue(event.wait(5))
+        event.set()  # the event is already set
+        self.assertTrue(event.wait())
+        self.assertTrue(event.is_set())
+        event.clear()
+        self.assertFalse(event.is_set())
+        self.assertFalse(event.wait(0.01))
 
 
 class TestInterrupter(unittest.TestCase):
