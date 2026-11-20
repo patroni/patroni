@@ -12,6 +12,8 @@ import time
 from argparse import Namespace
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
+import psutil
+
 from patroni import global_config, MIN_PSYCOPG2, MIN_PSYCOPG3, parse_version
 from patroni.collections import EMPTY_DICT
 from patroni.daemon import abstract_main, AbstractPatroniDaemon, get_base_arg_parser
@@ -228,14 +230,10 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
         elif self.ha.watch(nap_time):
             self.next_run = time.monotonic()
 
-    def run(self) -> None:
-        """Run ``patroni`` daemon process main loop.
-
-        Start the REST API and keep running HA cycles every ``loop_wait`` seconds.
-        """
+    def _startup(self) -> None:
+        """Start the REST API and schedule the first HA loop cycle."""
         self.api.start()
         self.next_run = time.monotonic()
-        super(Patroni, self).run()
 
     def _run_cycle(self) -> None:
         """Run a cycle of the ``patroni`` daemon main loop.
@@ -263,7 +261,51 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
         if self.postgresql.role != PostgresqlRole.UNINITIALIZED:
             self.config.save_cache()
 
-        self.schedule_next_run()
+        # Don't wait for the next cycle if SIGTERM was received while running the current one.
+        if not self.received_sigterm:
+            self.schedule_next_run()
+
+    def _wakeup(self) -> None:
+        """Wake up the HA loop if it is waiting for the next cycle in :func:`schedule_next_run`.
+
+        .. note::
+            :func:`~patroni.ha.Ha.wakeup` only sets :class:`~patroni.interrupt.SignalSafeEvent` and, if the DCS
+            long-polls, interrupts the request with :func:`~patroni.interrupt.Interrupter.interrupt`, which only
+            writes to a socket. Both are safe to do in the signal handler and in other threads.
+        """
+        self.ha.wakeup()
+
+    def _emergency_shutdown(self, timeout: float) -> None:
+        """Request fast shutdown of Postgres, unless paused. Kill Postgres if the request fails.
+
+        :param timeout: maximum seconds to wait after signaling the postmaster. Zero skips the wait and logging.
+
+        .. note::
+            Postgres is signaled before anything is logged, because logging could block.
+
+            Unlike :func:`~patroni.ha.Ha.shutdown`, doesn't run callbacks, doesn't wait for synchronous standbys and
+            doesn't remove the leader key, which expires after ``ttl`` seconds.
+        """
+        if self.ha.is_paused():
+            if timeout:
+                logger.info('PostgreSQL is not stopped due to paused state')
+            return
+        postmaster = self.postgresql.is_running()
+        if postmaster:
+            stopped = postmaster.signal_stop('fast', self.postgresql.pgcommand('pg_ctl'))
+            if stopped is False:
+                # A primary left running after Patroni exits would keep accepting writes after the leader key expires.
+                killed = postmaster.signal_kill()
+                if timeout:
+                    logger.critical('Could not request fast shutdown, %s PostgreSQL',
+                                    'killed' if killed else 'failed to kill')
+            elif stopped is None and timeout:
+                try:
+                    postmaster.wait(timeout)
+                except psutil.TimeoutExpired:
+                    logger.warning('PostgreSQL has not stopped within %s seconds after fast shutdown request', timeout)
+                else:
+                    logger.info('PostgreSQL has stopped after fast shutdown request')
 
     def _shutdown(self) -> None:
         """Perform shutdown of ``patroni`` daemon process.

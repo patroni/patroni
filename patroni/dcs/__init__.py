@@ -9,7 +9,7 @@ import time
 from collections import defaultdict
 from copy import deepcopy
 from random import randint
-from threading import Event, Lock
+from threading import Lock
 from typing import Any, Callable, cast, Collection, Dict, Iterator, \
     List, NamedTuple, Optional, Set, Tuple, Type, TYPE_CHECKING, Union
 from urllib.parse import parse_qsl, urlparse, urlunparse
@@ -19,7 +19,7 @@ import dateutil.parser
 from .. import global_config
 from ..dynamic_loader import iter_classes, iter_modules
 from ..exceptions import PatroniAssertionError, PatroniFatalException
-from ..interrupt import Interrupter
+from ..interrupt import Interrupter, SignalSafeEvent
 from ..site import ClusterSite
 from ..tags import Tags
 from ..utils import deep_compare, parse_int, uri
@@ -1568,7 +1568,8 @@ class AbstractDCS(ClusterSite, abc.ABC):
         self._last_status: Dict[str, Any] = {'retain_slots': []}
         self._last_retain_slots: Dict[str, float] = {}
         self._last_failsafe: Optional[Dict[str, str]] = {}
-        self.event = Event()
+        # Wakes up the HA loop, the SIGTERM handler sets it as well.
+        self.event = SignalSafeEvent()
 
     @property
     def mpp(self) -> 'AbstractMPP':
@@ -2213,6 +2214,9 @@ class AbstractDCS(ClusterSite, abc.ABC):
 
         Backends that long-poll also interrupt blocked HTTP response reads. DNS resolution, connection setup and TLS
         negotiation are not interrupted, and the HTTP client may still consume data it has already buffered.
+
+        .. note::
+            Also called from the SIGTERM handler, therefore it must not block, acquire locks or raise exceptions.
         """
         self.event.set()
 

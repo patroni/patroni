@@ -1,16 +1,23 @@
+import errno
 import logging
 import os
 import signal
+import socket
+import sys
 import time
 import unittest
+import warnings
 
 from http.server import HTTPServer
-from threading import Thread
-from unittest.mock import Mock, patch, PropertyMock
+from threading import Event, get_ident, Thread
+from unittest.mock import MagicMock, Mock, patch, PropertyMock
 
 import etcd
+import psutil
+import urllib3
 
 import patroni.config as config
+import patroni.daemon as daemon
 
 from patroni.__main__ import check_psycopg, main as _main, Patroni
 from patroni.api import RestApiServer
@@ -24,7 +31,7 @@ from patroni.postgresql import Postgresql
 from patroni.postgresql.config import ConfigHandler
 from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 
-from . import psycopg_connect, SleepException
+from . import HangingHTTPServer, psycopg_connect, SleepException
 from .test_etcd import etcd_read, etcd_write
 from .test_postgresql import MockPostmaster
 
@@ -202,6 +209,385 @@ class TestPatroni(unittest.TestCase):
 
     def test_sigterm_handler(self):
         self.assertRaises(SystemExit, self.p.sigterm_handler)
+
+    def test_api_sigterm(self):
+        self.p.dcs.event.clear()
+        self.assertTrue(self.p.api_sigterm())
+        self.assertTrue(self.p.dcs.event.is_set())  # the main loop is woken up
+        self.assertFalse(self.p.api_sigterm())
+        self.p.sigterm_handler()  # doesn't raise SystemExit, because SIGTERM was already received
+
+    @patch('patroni.config.Config.save_cache', Mock())
+    @patch('patroni.config.Config.set_dynamic_configuration', Mock(return_value=False))
+    @patch.object(Postgresql, 'reload_config', Mock())
+    def test_graceful_sigterm(self):
+        self.p.api.start = Mock()
+        self.p.logger.start = Mock()
+        self.p.ha.dcs.watch = Mock(side_effect=SleepException)
+
+        def run_cycle():
+            event = self.p.dcs.event
+            event.clear()
+            with patch('threading.Condition.__enter__', side_effect=AssertionError('SIGTERM entered a condition')):
+                self.p.sigterm_handler()  # doesn't raise SystemExit anymore
+            self.assertTrue(event.is_set())
+            return 'no action'
+
+        # the main loop exits after the HA cycle, during which SIGTERM was received, without waiting for the next one
+        self.p.ha.run_cycle = Mock(side_effect=run_cycle)
+        self.p.run()
+        self.assertTrue(self.p.received_sigterm)
+        self.p.ha.dcs.watch.assert_not_called()
+
+    def test_sigterm_guard(self):
+        self.p._emergency_exit = Mock()
+        self.p._wakeup = Mock(side_effect=Exception)  # must not prevent the emergency exit
+        for data, received_sigterm, running, loop_wait in (
+                (b'', False, True, 0),  # run() has returned and closed the socket
+                (bytes([signal.SIGINT]), False, True, 0),  # only SIGTERM arms the guard
+                (bytes([signal.SIGTERM, signal.SIGINT]), False, True, 0),
+                (bytes([signal.SIGTERM]), False, True, 0.01),
+                (bytes([signal.SIGTERM]), False, False, 0.01),  # run() has returned
+                (b'', True, True, 0.01)):  # SIGTERM was received before the wakeup fd was set
+            self.p._sigterm_guard_rsock, wsock = socket.socketpair()
+            self.p._received_sigterm = received_sigterm
+            self.p._running = running
+            with wsock, patch.object(self.p, 'config', {'loop_wait': loop_wait, 'retry_timeout': 0}):
+                wsock.sendall(data)
+                if not received_sigterm and signal.SIGTERM not in data:
+                    wsock.shutdown(socket.SHUT_WR)  # the guard exits on EOF
+                self.p._sigterm_guard()
+        self.assertEqual(self.p._emergency_exit.call_count, 3)
+        self.assertEqual(self.p._wakeup.call_count, 3)  # the main thread might not have been interrupted by SIGTERM
+
+    @patch('time.monotonic', Mock(return_value=100))
+    def test_sigterm_guard_timeout(self):
+        for received_sigterm in (False, True):
+            for loop_wait, retry_timeout, expected in ((2, 10, 20), (18, 3, 18)):
+                with self.subTest(received_sigterm=received_sigterm, loop_wait=loop_wait, retry_timeout=retry_timeout):
+                    self.p._received_sigterm = received_sigterm
+                    sock = self.p._sigterm_guard_rsock = MagicMock()
+                    sock.recv.side_effect = [b''] if received_sigterm else [bytes([signal.SIGTERM]), b'']
+                    with patch.object(self.p, 'config', {'loop_wait': loop_wait, 'retry_timeout': retry_timeout}):
+                        self.p._sigterm_guard()
+                    sock.settimeout.assert_called_with(expected)
+
+    @unittest.skipIf(os.name == 'nt', "Windows not supported")
+    def test_sigterm_guard_terminates_hanging_main_loop(self):
+        self.p.api.start = Mock()
+        self.p.logger.start = Mock()
+        exited = Event()
+        self.p._emergency_exit = Mock(side_effect=exited.set)
+
+        def run_cycle():
+            # SIGALRM is left alone, e.g. ignored, because it was ignored by the parent process
+            self.assertEqual(signal.getsignal(signal.SIGALRM), signal.SIG_IGN)
+            os.kill(os.getpid(), signal.SIGTERM)
+            self.assertTrue(exited.wait(5))  # the main loop hangs after SIGTERM until terminated
+
+        self.p._run_cycle = Mock(side_effect=run_cycle)
+        handler = signal.signal(signal.SIGTERM, self.p.sigterm_handler)
+        sigalrm_handler = signal.signal(signal.SIGALRM, signal.SIG_IGN)
+        try:
+            with patch.object(self.p, 'config', {'loop_wait': 0.1, 'retry_timeout': 0.05}):
+                self.p.run()
+        finally:
+            signal.signal(signal.SIGTERM, handler)
+            signal.signal(signal.SIGALRM, sigalrm_handler)
+        self.p._run_cycle.assert_called_once()
+        self.assertEqual(signal.set_wakeup_fd(-1), -1)  # the previous wakeup fd is restored
+
+    @unittest.skipIf(os.name == 'nt', "Windows not supported")
+    def test_sigterm_during_startup(self):
+        self.p.api.start = Mock()
+        self.p._run_cycle = Mock()
+        exited = Event()
+        self.p._emergency_exit = Mock(side_effect=exited.set)
+
+        def start():
+            os.kill(os.getpid(), signal.SIGTERM)  # doesn't raise SystemExit
+            self.assertTrue(exited.wait(5))  # the startup hangs after SIGTERM until terminated
+
+        self.p.logger.start = Mock(side_effect=start)
+        handler = signal.signal(signal.SIGTERM, self.p.sigterm_handler)
+        try:
+            with patch.object(self.p, 'config', {'loop_wait': 0.1, 'retry_timeout': 0.05}):
+                self.p.run()
+        finally:
+            signal.signal(signal.SIGTERM, handler)
+        self.p._run_cycle.assert_not_called()
+
+    @unittest.skipIf(os.name == 'nt', "Windows not supported")
+    def test_sigterm_guard_wakes_up_ha_loop(self):
+        self.p.api.start = Mock()
+        self.p.logger.start = Mock()
+        self.p._emergency_exit = Mock()
+
+        def kill():
+            Event().wait(0.1)  # the main thread is waiting for the next HA cycle
+            signal.pthread_kill(get_ident(), signal.SIGTERM)  # doesn't interrupt the main thread
+
+        def run_cycle():
+            self.p.dcs.event.clear()
+            Thread(target=kill).start()
+            start = time.monotonic()
+            self.assertTrue(self.p.dcs.watch(None, 10))
+            self.assertLess(time.monotonic() - start, 5)
+
+        self.p._run_cycle = Mock(side_effect=run_cycle)
+        handler = signal.signal(signal.SIGTERM, self.p.sigterm_handler)
+        try:
+            self.p.run()
+        finally:
+            signal.signal(signal.SIGTERM, handler)
+        self.p._run_cycle.assert_called_once()
+        self.p._emergency_exit.assert_not_called()
+
+    @unittest.skipIf(not hasattr(os, 'register_at_fork'), 'os.register_at_fork() is not available')
+    def test_sigterm_guard_detached_in_forked_child(self):
+        detach_sigterm_guard = self.p._detach_sigterm_guard
+        results = []
+
+        def fork(sigterm_before_detach):  # from another thread, like pysyncobj does to write Raft snapshots
+            def detach():
+                if sigterm_before_detach:  # SIGTERM stays blocked until the child is detached
+                    os.kill(os.getpid(), signal.SIGTERM)
+                detach_sigterm_guard()
+
+            with patch.object(self.p, '_detach_sigterm_guard', Mock(side_effect=detach)):
+                pid = os.fork()
+            if pid == 0:
+                try:
+                    os.kill(os.getpid(), signal.SIGTERM)  # terminates the child
+                finally:
+                    os._exit(0)
+            results.append((signal.pthread_sigmask(signal.SIG_BLOCK, []), os.waitpid(pid, 0)[1]))
+
+        handler = signal.signal(signal.SIGTERM, self.p.sigterm_handler)
+        with patch('patroni.daemon.Thread'):  # nothing reads the socket of the guard
+            self.p._start_sigterm_guard()
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', DeprecationWarning)  # forking a multi-threaded process
+                for sigterm_before_detach in (False, True):
+                    thread = Thread(target=fork, args=(sigterm_before_detach,))
+                    thread.start()
+                    thread.join()
+            self.p._sigterm_guard_rsock.setblocking(False)
+            self.assertRaises(BlockingIOError, self.p._sigterm_guard_rsock.recv, 1)  # the parent got nothing
+        finally:
+            self.p._stop_sigterm_guard()
+            self.p._sigterm_guard_rsock.close()
+            signal.signal(signal.SIGTERM, handler)
+        self.assertEqual(len(results), 2)
+        for mask, status in results:
+            self.assertNotIn(signal.SIGTERM, mask)  # unblocked in the parent after forking
+            self.assertTrue(os.WIFSIGNALED(status))
+            self.assertEqual(os.WTERMSIG(status), signal.SIGTERM)
+
+    @unittest.skipIf(not hasattr(os, 'register_at_fork'), 'os.register_at_fork() is not available')
+    def test_sigterm_guard_started_while_forking(self):
+        import _imp  # os.fork() acquires the import lock after running the before-fork hooks
+
+        detach_sigterm_guard = self.p._detach_sigterm_guard
+        set_wakeup_fd = signal.set_wakeup_fd
+        statuses = []
+        locked = False
+
+        def detach():
+            os.kill(os.getpid(), signal.SIGTERM)  # must stay blocked until the child is detached
+            detach_sigterm_guard()
+
+        def fork():
+            pid = os.fork()
+            if pid == 0:
+                try:
+                    os.kill(os.getpid(), signal.SIGTERM)
+                finally:
+                    os._exit(0)
+            statuses.append(os.waitpid(pid, 0)[1])
+
+        def fork_after_set_wakeup_fd(fd):
+            nonlocal locked
+            ret = set_wakeup_fd(fd)
+            if locked:
+                locked = False
+                _imp.release_lock()
+                thread.join()
+            return ret
+
+        handler = signal.signal(signal.SIGTERM, self.p.sigterm_handler)
+        thread = Thread(target=fork)  # like pysyncobj does to write Raft snapshots
+        try:
+            with patch.object(self.p, '_detach_sigterm_guard', Mock(side_effect=detach)), \
+                    patch('signal.set_wakeup_fd', Mock(side_effect=fork_after_set_wakeup_fd)), \
+                    patch('patroni.daemon.Thread'), warnings.catch_warnings():  # nothing reads the socket of the guard
+                warnings.simplefilter('ignore', DeprecationWarning)  # forking a multi-threaded process
+                _imp.acquire_lock()
+                locked = True
+                thread.start()
+                Event().wait(0.1)  # the thread has run the before-fork hooks and waits for the import lock
+                self.p._start_sigterm_guard()
+            self.p._sigterm_guard_rsock.setblocking(False)
+            self.assertRaises(BlockingIOError, self.p._sigterm_guard_rsock.recv, 1)  # the parent got nothing
+        finally:
+            if locked:
+                _imp.release_lock()
+            self.p._stop_sigterm_guard()
+            self.p._sigterm_guard_rsock.close()
+            signal.signal(signal.SIGTERM, handler)
+        self.assertEqual(len(statuses), 1)
+        self.assertTrue(os.WIFSIGNALED(statuses[0]))
+        self.assertEqual(os.WTERMSIG(statuses[0]), signal.SIGTERM)
+
+    @unittest.skipIf(os.name == 'nt', "Windows not supported")
+    def test_sigterm_guard_start_failure(self):
+        self.p.ha.shutdown = Mock()
+        for target, error in (('socket.socketpair', OSError(errno.EMFILE, 'Too many open files')),
+                              ('threading.Thread.start', RuntimeError("can't start new thread"))):
+            with self.subTest(target=target):
+                with patch(target, Mock(side_effect=error)):
+                    self.assertRaises(type(error), self.p.run)
+                self.assertEqual(signal.set_wakeup_fd(-1), -1)  # the previous wakeup fd is restored
+                self.assertIsNone(daemon._sigterm_guard_daemon)
+                # the logger thread isn't running, shutdown() must not wait for it
+                # (TestRestApiServer.test_shutdown covers the REST API that wasn't started)
+                self.p.shutdown()
+        self.assertEqual(self.p.ha.shutdown.call_count, 2)
+        self.assertEqual(self.p._sigterm_guard_rsock.fileno(), -1)  # closed
+        self.assertEqual(self.p._sigterm_guard_wsock.fileno(), -1)
+
+    @unittest.skipIf(os.name == 'nt', "Windows not supported")
+    def test_emergency_exit(self):
+        events = Mock()
+        postmaster = MockPostmaster()
+        events.signal_stop.return_value = None
+        postmaster.signal_stop = events.signal_stop
+        postmaster.signal_kill = events.signal_kill
+        postmaster.wait = events.wait
+        self.p.postgresql.is_running = Mock(return_value=postmaster)
+        self.p.logger.flush = events.flush
+
+        def emergency_exit(armed=True, main_logger=None):
+            events.reset_mock()
+            events.dump_traceback_later.side_effect = None if armed else RuntimeError('unable to start watchdog thread')
+            with patch('patroni.daemon._traceback_dump_fd', 42), \
+                    patch('faulthandler.dump_traceback_later', events.dump_traceback_later), \
+                    patch('patroni.daemon.logger', events.daemon_logger), \
+                    patch('patroni.__main__.logger', main_logger or events.logger), patch('os._exit', events.exit):
+                self.p._emergency_exit()
+            return [name for name, _, _ in events.mock_calls]
+
+        # Postgres is signaled before anything is logged, because logging could block
+        self.assertEqual(emergency_exit(), ['dump_traceback_later', 'signal_stop', 'wait', 'logger.info',
+                                            'daemon_logger.critical', 'flush', 'exit'])
+        events.dump_traceback_later.assert_called_once_with(15, exit=True, file=42)
+        events.signal_stop.assert_called_once_with('fast', self.p.postgresql.pgcommand('pg_ctl'))
+        events.wait.assert_called_once_with(10)
+        events.daemon_logger.critical.assert_called_once_with(
+            'The main loop did not exit within %s seconds after SIGTERM, terminating the process', 20)
+        events.flush.assert_called_once_with(1)
+        events.exit.assert_called_once_with(1)
+
+        events.wait.side_effect = psutil.TimeoutExpired(10)
+        self.assertEqual(emergency_exit(), ['dump_traceback_later', 'signal_stop', 'wait', 'logger.warning',
+                                            'daemon_logger.critical', 'flush', 'exit'])
+        events.logger.warning.assert_called_once_with('PostgreSQL has not stopped within %s seconds after fast '
+                                                      'shutdown request', 10)
+
+        events.signal_stop.return_value = True
+        self.assertEqual(emergency_exit(), ['dump_traceback_later', 'signal_stop', 'daemon_logger.critical',
+                                            'flush', 'exit'])
+
+        events.signal_stop.return_value = False
+        events.signal_kill.return_value = True
+        self.assertEqual(emergency_exit(), ['dump_traceback_later', 'signal_stop', 'signal_kill', 'logger.critical',
+                                            'daemon_logger.critical', 'flush', 'exit'])
+        events.logger.critical.assert_called_once_with('Could not request fast shutdown, %s PostgreSQL', 'killed')
+        events.signal_kill.return_value = False
+        emergency_exit()
+        events.logger.critical.assert_called_once_with('Could not request fast shutdown, %s PostgreSQL',
+                                                       'failed to kill')
+
+        with patch('patroni.ha.Ha.is_paused', Mock(return_value=True)):
+            self.assertEqual(emergency_exit(), ['dump_traceback_later', 'logger.info', 'daemon_logger.critical',
+                                                'flush', 'exit'])
+
+        error = Exception()
+        self.p.postgresql.is_running.side_effect = error
+        events.flush.side_effect = Exception
+        self.assertEqual(emergency_exit(), ['dump_traceback_later', 'daemon_logger.critical', 'daemon_logger.error',
+                                            'flush', 'exit'])
+        events.daemon_logger.error.assert_called_once_with('Emergency shutdown failed', exc_info=error)
+
+        events.daemon_logger.critical.side_effect = Exception
+        self.assertEqual(emergency_exit(), ['dump_traceback_later', 'daemon_logger.critical', 'exit'])
+
+        # nothing would terminate the process if logging blocks, therefore all loggers are disabled
+        self.p.postgresql.is_running.side_effect = None
+        loggers = {lgr: lgr.disabled for lgr in [logging.root, *logging.Logger.manager.loggerDict.values()]
+                   if isinstance(lgr, logging.Logger)}
+        main_logger = logging.getLogger('patroni.__main__')
+        try:
+            with patch.object(main_logger, 'disabled', False), \
+                    patch.object(logging.Logger, 'callHandlers', events.callHandlers):
+                self.assertEqual(emergency_exit(armed=False, main_logger=main_logger),
+                                 ['dump_traceback_later', 'signal_stop', 'signal_kill', 'exit'])
+                self.assertTrue(main_logger.disabled)
+                events.signal_stop.return_value = None
+                self.assertEqual(emergency_exit(armed=False, main_logger=main_logger),
+                                 ['dump_traceback_later', 'signal_stop', 'exit'])
+        finally:
+            for lgr, disabled in loggers.items():
+                lgr.disabled = disabled
+
+    @patch('patroni.config.Config.reload_local_configuration', Mock(return_value=False))
+    def test_sigterm_during_sighup_reload(self):
+        self.p.logger.start = Mock()
+        self.p._run_cycle = Mock()
+        self.p.sighup_handler()
+        with patch.object(self.p, 'reload_config', Mock(side_effect=self.p.sigterm_handler)):
+            self.p.run()
+        self.p._run_cycle.assert_not_called()
+
+    @unittest.skipIf(sys.thread_info.lock != 'semaphore', 'signals do not interrupt Lock.acquire()')
+    def test_sigterm_wakes_up_ha_loop(self):
+        self.p.enable_graceful_sigterm()
+        self.p.dcs.event.clear()
+        handler = signal.signal(signal.SIGALRM, self.p.sigterm_handler)
+        try:
+            signal.setitimer(signal.ITIMER_REAL, 0.1)
+            start = time.monotonic()
+            self.assertTrue(self.p.dcs.watch(None, 10))
+            self.assertLess(time.monotonic() - start, 5)
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, handler)
+        self.assertTrue(self.p.received_sigterm)
+
+    @unittest.skipIf(os.name == 'nt', "Windows not supported")
+    def test_sigterm_interrupts_long_poll(self):
+        self.p.enable_graceful_sigterm()
+        self.p.dcs.event.clear()
+        handler = signal.signal(signal.SIGALRM, self.p.sigterm_handler)
+        http = self.p.dcs._client.http
+
+        def watch(*args, **kwargs):
+            signal.setitimer(signal.ITIMER_REAL, 0.1)
+            # without the interruption the long-poll fails with ReadTimeoutError
+            return http.urlopen('GET', server.url, retries=False, timeout=urllib3.Timeout(connect=5, read=10))
+
+        try:
+            with HangingHTTPServer() as server, \
+                 patch.object(etcd.Client, 'watch', Mock(side_effect=watch)) as mock_watch:
+                start = time.monotonic()
+                self.assertTrue(self.p.dcs.watch(20729, 10))
+                self.assertLess(time.monotonic() - start, 5)
+                mock_watch.assert_called_once()
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, handler)
+        self.assertTrue(self.p.received_sigterm)
 
     def test_schedule_next_run(self):
         self.p.ha.cluster = Mock()
@@ -411,6 +797,17 @@ class TestPatroni(unittest.TestCase):
         self.p.api.shutdown = Mock(side_effect=Exception)
         self.p.ha.shutdown = Mock(side_effect=Exception)
         self.p.shutdown()
+
+    @patch.object(Thread, 'join', Mock())
+    def test_main_thread_does_not_take_sigterm_lock(self):
+        # KeyboardInterrupt raised by SIGINT would leak the lock held by the main thread and deadlock shutdown()
+        self.p._sigterm_lock = MagicMock()
+        self.p._sigterm_lock.__enter__.side_effect = AssertionError('the main thread took _sigterm_lock')
+        self.assertFalse(self.p.received_sigterm)
+        self.p.api.shutdown = Mock()
+        self.p.ha.shutdown = Mock()
+        self.p.shutdown()
+        self.assertTrue(self.p.received_sigterm)
 
     def test_check_psycopg(self):
         with patch('builtins.__import__', Mock(side_effect=ImportError)):

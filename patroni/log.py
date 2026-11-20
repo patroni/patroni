@@ -573,8 +573,20 @@ class PatroniLogger(Thread):
         except Full:  # Queue is full.
             # It seems that logging is not working, exiting with non-standard exit-code is the best we can do.
             sys.exit(self.LOGGING_BROKEN_EXIT_CODE)
-        self.join()
+        if self.is_alive():  # the thread isn't started if the daemon failed to start
+            self.join()
         logging.shutdown()
+
+    def flush(self, timeout: float) -> bool:
+        """Wait until the logger thread has handled all queued records.
+
+        :param timeout: maximum number of seconds to wait.
+
+        :returns: ``True`` if all queued records were handled before *timeout* expired.
+        """
+        queue = self._queue_handler.queue
+        with queue.all_tasks_done:
+            return queue.all_tasks_done.wait_for(lambda: not queue.unfinished_tasks, timeout)
 
     @property
     def queue_size(self) -> int:

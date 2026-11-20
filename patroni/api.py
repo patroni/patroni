@@ -1806,6 +1806,11 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
             logger.error(
                 "Couldn't start a service on '%s:%s', please check your `restapi.listen` configuration", hostname, port)
             raise
+        finally:
+            # shutdown() waits for this event, which serve_forever() clears when it starts and sets when it exits.
+            # It must not wait if serve_forever() never runs, for example, because the socket couldn't be bound on
+            # reload or because KeyboardInterrupt was raised in start().
+            getattr(self, '_BaseServer__is_shut_down').set()
 
     def __initialize(self, listen: str, ssl_options: Dict[str, Any]) -> None:
         """Configure and start REST API HTTP server.

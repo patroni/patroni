@@ -1298,11 +1298,15 @@ class Ha(object):
             self.process_sync_replication()
             return message + ', in recovery (promotion has not completed)'
         else:
+            if self.patroni.received_sigterm:
+                return 'Not promoting self because Patroni is shutting down'
             if not self.process_sync_replication_prepromote():
                 # Somebody else updated sync state, it may be due to us losing the lock. To be safe,
                 # postpone promotion until next cycle. TODO: trigger immediate retry of run_cycle.
                 return 'Postponing promotion because synchronous replication state was updated by somebody else'
             if self.state_handler.role not in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED):
+                if self.patroni.received_sigterm:  # received while updating the synchronous replication state
+                    return 'Not promoting self because Patroni is shutting down'
                 # reset failsafe state when promote
                 self._failsafe.set_is_active(float('-inf'))
                 self._last_timeline = None
@@ -2022,6 +2026,10 @@ class Ha(object):
 
         # Now do the leader race
         if self.is_healthiest_node():
+            # SIGTERM could have been received while checking other members. A running primary still retakes the lock,
+            # so that replicas don't promote before it is stopped, and shutdown() removes the leader key afterwards.
+            if self.patroni.received_sigterm and not self.state_handler.is_primary():
+                return 'not taking the leader lock because Patroni is shutting down'
             if self.acquire_lock():
                 failover = self.cluster.failover
                 if failover:

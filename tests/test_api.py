@@ -5,6 +5,7 @@ import unittest
 
 from http.server import HTTPServer
 from io import BytesIO as IO
+from threading import Thread
 from unittest.mock import Mock, patch, PropertyMock
 
 from patroni import global_config
@@ -847,6 +848,31 @@ class TestRestApiServer(unittest.TestCase):
         with self.assertRaisesRegex(socket.error, 'bind failed'):
             self.srv.server_bind()
         mock_getfqdn.assert_not_called()
+
+    def test_shutdown(self):
+        def interrupted_submit(fn):  # KeyboardInterrupt right after serve_forever() was submitted
+            submit(fn)
+            raise KeyboardInterrupt
+
+        for case in ('not started', 'start interrupted', 'started', 'reload failed'):
+            with self.subTest(case=case):
+                srv = RestApiServer(MockPatroni(), {'listen': '127.0.0.1:0', 'auth': 'test:test'})
+                try:
+                    if case == 'start interrupted':
+                        submit = srv._executor.submit
+                        with patch.object(srv._executor, 'submit', Mock(side_effect=interrupted_submit)):
+                            self.assertRaises(KeyboardInterrupt, srv.start)
+                    elif case != 'not started':
+                        srv.start()
+                    if case == 'reload failed':  # serve_forever() was stopped, but the new socket couldn't be bound
+                        with patch.object(RestApiServer, 'server_bind', Mock(side_effect=socket.error)):
+                            self.assertRaises(socket.error, srv.reload_config, {'listen': '127.0.0.1:1'})
+                    thread = Thread(target=srv.shutdown, daemon=True)
+                    thread.start()
+                    thread.join(5)
+                    self.assertFalse(thread.is_alive())  # shutdown() must not wait for serve_forever() forever
+                finally:
+                    srv.server_close()
 
     @patch.object(HTTPServer, '__init__', Mock())
     def test_reload_config(self):
