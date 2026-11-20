@@ -106,7 +106,8 @@ class QuorumStateResolver:
                   and are eligible to be listed in ``synchronous_standby_names``.
     :ivar sync_wanted: desired number of synchronous nodes (``synchronous_node_count`` from the global configuration).
     :ivar leader_wanted: the desired leader (could be different from the :attr:`leader` right after a failover).
-    :ivar quorum_catchup: whether only conservative membership additions are allowed until replicas catch up.
+    :ivar quorum_catchup: whether listed nodes must catch up before the election requirement could be relaxed.
+                          While it is ``True`` only conservative membership additions are allowed.
     """
 
     def __init__(self, leader: str, quorum: int, voters: Collection[str],
@@ -128,20 +129,27 @@ class QuorumStateResolver:
         :param sync_wanted: desired number of synchronous nodes
                             (``synchronous_node_count`` from the global configuration).
         :param leader_wanted: the desired leader (could be different from the *leader* right after a failover).
-        :param quorum_catchup: whether historical durability is still being verified after restart or a stricter SSN.
+        :param quorum_catchup: ``True`` if ``synchronous_standby_names`` became stricter or its previous value
+                               is unknown (after restart or promote). In this case transactions might exist only on
+                               nodes that are not listed anymore, or on fewer nodes than *numsync*, and only
+                               *numsync_confirmed* nodes are known to have all of them.
 
         """
         self.leader: str = leader
         self.quorum = quorum
         self.voters = CaseInsensitiveSet(voters)
-        # While catch-up is pending, preserve the actual setting even if there are too few listed nodes.
-        self.numsync = numsync if quorum_catchup else min(numsync, len(sync))
         self.sync = CaseInsensitiveSet(sync)
         self.numsync_confirmed = numsync_confirmed
         self.active = CaseInsensitiveSet(active)
         self.sync_wanted = sync_wanted
         self.leader_wanted = leader_wanted
-        self.quorum_catchup = quorum_catchup
+        # Catch-up is finished when enough listed nodes confirmed reaching the safe LSN, or when there are
+        # no other active listed nodes that could do it. Confirmed nodes are always active and listed in sync.
+        self.quorum_catchup = quorum_catchup and numsync_confirmed < min(numsync, sync_wanted)\
+            and len(self.active & self.sync) > numsync_confirmed
+        # numsync can't be bigger than number of listed synchronous nodes,
+        # but while catching up the actual value must be preserved.
+        self.numsync = numsync if self.quorum_catchup else min(numsync, len(self.sync))
 
     def check_invariants(self) -> None:
         """Checks invariant of ``synchronous_standby_names`` and ``/sync`` key in DCS.
@@ -245,8 +253,14 @@ class QuorumStateResolver:
             This is always safe because skipping the first transition is equivalent
             to no one observing the intermediate state.
 
+            When ``synchronous_standby_names`` becomes stricter (some nodes are removed, ``numsync`` is increased,
+            or it was empty), transactions confirmed before might exist only on removed nodes, or on fewer nodes
+            than required now. Remaining nodes must confirm reaching the safe LSN again before the following
+            transitions could rely on them, therefore iteration stops with the ``restart`` transition.
+
         :yields: transitions as :class:`Transition` objects.
         """
+        numsync, sync, quorum, voters = self.numsync, self.sync, self.quorum, self.voters
         transitions = list(self._generate_transitions())
         for cur_transition, next_transition in zip(transitions, transitions[1:] + [None]):
             if isinstance(next_transition, Transition) \
@@ -255,6 +269,13 @@ class QuorumStateResolver:
             yield cur_transition
             if cur_transition.transition_type == 'restart':
                 break
+            if cur_transition.transition_type == 'quorum':
+                quorum, voters = cur_transition.num, cur_transition.names
+            elif cur_transition.names and (not sync or sync - cur_transition.names or cur_transition.num > numsync):
+                yield Transition('restart', cur_transition.leader, quorum, voters)
+                break
+            else:
+                numsync, sync = cur_transition.num, cur_transition.names
 
     def __handle_non_steady_cases(self) -> Iterator[Transition]:
         """Handle cases when set of transitions produced on previous run was interrupted.

@@ -29,8 +29,9 @@ class QuorumTest(unittest.TestCase):
         result = list(QuorumStateResolver(**kwargs))
         self.assertEqual(result, expected)
 
-        # also check interrupted transitions
-        if len(result) > 0 and result[0][0] != 'restart' and kwargs['leader'] == result[0][1]:
+        # also check interrupted transitions, unless the caller is asked to restart with the fresh state
+        if len(result) > 0 and result[0][0] != 'restart' and kwargs['leader'] == result[0][1]\
+                and (len(result) == 1 or result[1][0] != 'restart'):
             if result[0][0] == 'sync':
                 kwargs.update(numsync=result[0][2], sync=result[0][3])
             else:
@@ -44,8 +45,10 @@ class QuorumTest(unittest.TestCase):
         if self.nesting > 0 or not active > sync:
             return
 
-        for e in expected:
-            if e[0] == 'restart' or e[1] != state['leader']:
+        # the next loop starts from the state reached before restart
+        transitions = list(itertools.takewhile(lambda e: e[0] != 'restart', expected))
+        for e in transitions:
+            if e[1] != state['leader']:
                 return
             if e[0] == 'sync':
                 state.update(numsync=e[2], sync=e[3])
@@ -53,8 +56,9 @@ class QuorumTest(unittest.TestCase):
                 state.update(quorum=e[2], voters=e[3])
         safety_margin = state['quorum'] + state['numsync'] - len(state['voters'] | state['sync'])
 
-        # we are only interested in non-steady cases, when quorum is higher than required by numsync
-        if safety_margin == 0:
+        # we are only interested in non-steady cases, when quorum is higher than required by numsync,
+        # or when transitions were interrupted, for example to let remaining nodes catch up
+        if safety_margin == 0 and len(transitions) == len(expected):
             return
 
         # prepare initial state
@@ -65,7 +69,7 @@ class QuorumTest(unittest.TestCase):
                 for c in itertools.combinations(a, r):
                     yield set(c)
 
-        for e in expected:
+        for e in transitions:
             if e[0] == 'sync':
                 state.update(numsync=e[2], sync=e[3])
             else:
@@ -143,7 +147,13 @@ class QuorumTest(unittest.TestCase):
                                      numsync=1, sync=set('b'), numsync_confirmed=1, active=set('bc'),
                                      sync_wanted=2, leader_wanted=leader, expected=[
             ('sync', leader, 2, set('bc')),
-            ('quorum', leader, 1, set('bc')),
+            ('restart', leader, 0, set('b')),  # synchronous_standby_names became stricter, nodes must catch up
+        ])
+        # Add node to voters after both nodes caught up
+        self.check_state_transitions(leader=leader, quorum=0, voters=set('b'),
+                                     numsync=2, sync=set('bc'), numsync_confirmed=2, active=set('bc'),
+                                     sync_wanted=2, leader_wanted=leader, quorum_catchup=True, expected=[
+            ('quorum', leader, 0, set('bc')),
         ])
         # Reduce quorum after added node caught up
         self.check_state_transitions(leader=leader, quorum=1, voters=set('bc'),
@@ -157,7 +167,13 @@ class QuorumTest(unittest.TestCase):
                                      numsync=1, sync=set('b'), numsync_confirmed=1, active=set('BCdE'),
                                      sync_wanted=2, leader_wanted=leader, expected=[
             ('sync', leader, 2, set('bC')),
-            ('quorum', leader, 3, set('bCdE')),
+            ('restart', leader, 0, set('b')),
+        ])
+        # Add remaining nodes after b and C caught up
+        self.check_state_transitions(leader=leader, quorum=0, voters=set('b'),
+                                     numsync=2, sync=set('bC'), numsync_confirmed=2, active=set('BCdE'),
+                                     sync_wanted=2, leader_wanted=leader, quorum_catchup=True, expected=[
+            ('quorum', leader, 2, set('bCdE')),
             ('sync', leader, 2, set('bCdE')),
         ])
         # Reduce quorum after added nodes caught up
@@ -199,6 +215,7 @@ class QuorumTest(unittest.TestCase):
                                      numsync=2, sync=set('bc'), numsync_confirmed=1, active=set('b'),
                                      sync_wanted=2, leader_wanted=leader, expected=[
             ('sync', leader, 1, set('b')),
+            ('restart', leader, 0, set('b')),
         ])
 
         # Node c is available transition to larger quorum set, but not yet caught up.
@@ -262,6 +279,7 @@ class QuorumTest(unittest.TestCase):
                                      numsync=1, sync=set('b'), numsync_confirmed=1, active=set('bc'),
                                      sync_wanted=2, leader_wanted=leader, expected=[
             ('sync', leader, 2, set('bc')),
+            ('restart', leader, 1, set('bc')),
         ])
         # Reduce quorum after all nodes caught up
         self.check_state_transitions(leader=leader, quorum=1, voters=set('bc'),
@@ -278,13 +296,26 @@ class QuorumTest(unittest.TestCase):
                                      numsync=2, sync=set('bcde'), numsync_confirmed=2, active=set('bc'),
                                      sync_wanted=2, leader_wanted=leader, expected=[
             ('sync', leader, 2, set('bc')),
+            # transactions might exist only on d and e, b and c must catch up before quorum could be reduced
+            ('restart', leader, 2, set('bcde')),
+        ])
+        # next loop, c didn't yet catch up
+        self.check_state_transitions(leader=leader, quorum=2, voters=set('bcde'),
+                                     numsync=2, sync=set('bc'), numsync_confirmed=1, active=set('bc'),
+                                     sync_wanted=2, leader_wanted=leader, quorum_catchup=True, expected=[
+            ('restart', leader, 2, set('bcde')),
+        ])
+        # next loop, b and c caught up
+        self.check_state_transitions(leader=leader, quorum=2, voters=set('bcde'),
+                                     numsync=2, sync=set('bc'), numsync_confirmed=2, active=set('bc'),
+                                     sync_wanted=2, leader_wanted=leader, quorum_catchup=True, expected=[
             ('quorum', leader, 0, set('bc')),
         ])
         self.check_state_transitions(leader=leader, quorum=2, voters=set('bcde'),
                                      numsync=2, sync=set('bcde'), numsync_confirmed=3, active=set('bcd'),
                                      sync_wanted=2, leader_wanted=leader, expected=[
             ('sync', leader, 2, set('bcd')),
-            ('quorum', leader, 1, set('bcd')),
+            ('restart', leader, 2, set('bcde')),
         ])
 
         # remove nodes and decrease sync
@@ -292,6 +323,12 @@ class QuorumTest(unittest.TestCase):
                                      numsync=2, sync=set('bcde'), numsync_confirmed=2, active=set('bc'),
                                      sync_wanted=1, leader_wanted=leader, expected=[
             ('sync', leader, 2, set('bc')),
+            ('restart', leader, 2, set('bcde')),
+        ])
+        # next loop, b caught up
+        self.check_state_transitions(leader=leader, quorum=2, voters=set('bcde'),
+                                     numsync=2, sync=set('bc'), numsync_confirmed=1, active=set('bc'),
+                                     sync_wanted=1, leader_wanted=leader, quorum_catchup=True, expected=[
             ('quorum', leader, 1, set('bc')),
             ('sync', leader, 1, set('bc')),
         ])
@@ -299,8 +336,7 @@ class QuorumTest(unittest.TestCase):
                                      numsync=3, sync=set('bcde'), numsync_confirmed=2, active=set('bc'),
                                      sync_wanted=1, leader_wanted=leader, expected=[
             ('sync', leader, 3, set('bcd')),
-            ('quorum', leader, 1, set('bc')),
-            ('sync', leader, 1, set('bc')),
+            ('restart', leader, 1, set('bcde')),
         ])
 
         # Increase replication factor and decrease quorum
@@ -308,6 +344,7 @@ class QuorumTest(unittest.TestCase):
                                      numsync=2, sync=set('bcde'), numsync_confirmed=2, active=set('bcde'),
                                      sync_wanted=3, leader_wanted=leader, expected=[
             ('sync', leader, 3, set('bcde')),
+            ('restart', leader, 2, set('bcde')),
         ])
         # decrease quorum after more nodes caught up
         self.check_state_transitions(leader=leader, quorum=2, voters=set('bcde'),
@@ -332,8 +369,14 @@ class QuorumTest(unittest.TestCase):
                                      sync_wanted=3, leader_wanted=leader, expected=[
             # node e removed from sync with replication factor increase
             ('sync', leader, 3, set('bcd')),
+            ('restart', leader, 2, set('bcde')),
+        ])
+        # next loop, all nodes caught up
+        self.check_state_transitions(leader=leader, quorum=2, voters=set('bcde'),
+                                     numsync=3, sync=set('bcd'), numsync_confirmed=3, active=set('bcd'),
+                                     sync_wanted=3, leader_wanted=leader, quorum_catchup=True, expected=[
             # node e removed from voters with quorum decrease
-            ('quorum', leader, 1, set('bcd')),
+            ('quorum', leader, 0, set('bcd')),
         ])
 
     def test_remove_nosync_node(self):
@@ -342,7 +385,8 @@ class QuorumTest(unittest.TestCase):
                                      numsync=2, sync=set('bc'), numsync_confirmed=1, active=set('b'),
                                      sync_wanted=2, leader_wanted=leader, expected=[
             ('quorum', leader, 0, set('b')),
-            ('sync', leader, 1, set('b'))
+            ('sync', leader, 1, set('b')),
+            ('restart', leader, 0, set('b')),
         ])
 
     def test_swap_sync_node(self):
@@ -352,7 +396,13 @@ class QuorumTest(unittest.TestCase):
                                      sync_wanted=2, leader_wanted=leader, expected=[
             ('quorum', leader, 0, set('b')),
             ('sync', leader, 2, set('bd')),
-            ('quorum', leader, 1, set('bd'))
+            ('restart', leader, 0, set('b')),
+        ])
+        # next loop, b and d caught up
+        self.check_state_transitions(leader=leader, quorum=0, voters=set('b'),
+                                     numsync=2, sync=set('bd'), numsync_confirmed=2, active=set('bd'),
+                                     sync_wanted=2, leader_wanted=leader, quorum_catchup=True, expected=[
+            ('quorum', leader, 0, set('bd')),
         ])
 
     def test_promotion(self):
@@ -362,6 +412,12 @@ class QuorumTest(unittest.TestCase):
                                      numsync=0, sync=set(), numsync_confirmed=0, active=set(),
                                      sync_wanted=1, leader_wanted='c', expected=[
             ('sync', 'a', 1, set('abd')),    # set a and b to sync
+            ('restart', 'a', 2, set('bcd')),
+        ])
+        # next loop, still no replication connections
+        self.check_state_transitions(leader='a', quorum=2, voters=set('bcd'),
+                                     numsync=1, sync=set('abd'), numsync_confirmed=0, active=set(),
+                                     sync_wanted=1, leader_wanted='c', quorum_catchup=True, expected=[
             ('quorum', 'c', 2, set('abd')),  # set c as a leader and move a to voters
             #  and stop because there are no active nodes
         ])
@@ -371,6 +427,12 @@ class QuorumTest(unittest.TestCase):
                                      numsync=1, sync=set('abd'), numsync_confirmed=0, active=set('b'),
                                      sync_wanted=1, leader_wanted='c', expected=[
             ('sync', 'c', 1, set('b')),    # remove a from sync as inactive
+            ('restart', 'c', 2, set('abd')),
+        ])
+        # next loop, b caught up
+        self.check_state_transitions(leader='c', quorum=2, voters=set('abd'),
+                                     numsync=1, sync=set('b'), numsync_confirmed=1, active=set('b'),
+                                     sync_wanted=1, leader_wanted='c', quorum_catchup=True, expected=[
             ('quorum', 'c', 0, set('b')),  # remove a from voters and reduce quorum
         ])
 
@@ -393,6 +455,12 @@ class QuorumTest(unittest.TestCase):
                                      sync_wanted=1, leader_wanted=leader, expected=[
             # Set a, b, and c to sync and increase replication factor
             ('sync', 'a', 2, set('abc')),
+            ('restart', 'a', 1, set('bc')),
+        ])
+        # next loop, still no replication connections
+        self.check_state_transitions(leader='a', quorum=1, voters=set('bc'),
+                                     numsync=2, sync=set('abc'), numsync_confirmed=0, active=set(),
+                                     sync_wanted=1, leader_wanted=leader, quorum_catchup=True, expected=[
             # Set ourselves as the leader and move the old leader to voters
             ('quorum', leader, 1, set('abc')),
             # and stop because there are no active nodes
@@ -402,6 +470,12 @@ class QuorumTest(unittest.TestCase):
                                      numsync=2, sync=set('abc'), numsync_confirmed=0, active=set('bc'),
                                      sync_wanted=1, leader_wanted=leader, expected=[
             ('sync', leader, 2, set('bc')),     # Remove a from being synced to.
+            ('restart', leader, 1, set('abc')),
+        ])
+        # next loop, b caught up
+        self.check_state_transitions(leader=leader, quorum=1, voters=set('abc'),
+                                     numsync=2, sync=set('bc'), numsync_confirmed=1, active=set('bc'),
+                                     sync_wanted=1, leader_wanted=leader, quorum_catchup=True, expected=[
             ('quorum', leader, 1, set('bc')),   # Remove a from quorum
             ('sync', leader, 1, set('bc')),     # Can now reduce replication factor back
         ])
@@ -467,10 +541,7 @@ class QuorumTest(unittest.TestCase):
                                      sync_wanted=2, leader_wanted=leader, expected=[
             # node f removed from sync
             ('sync', leader, 4, set('bcde')),
-            # nodes e and f removed from voters with quorum decrease
-            ('quorum', leader, 1, set('bcd')),
-            # node e removed from sync with replication factor decrease
-            ('sync', leader, 2, set('bcd')),
+            ('restart', leader, 1, set('bcdef')),
         ])
 
         # Interrupted state, and node g joined
@@ -481,10 +552,7 @@ class QuorumTest(unittest.TestCase):
             ('quorum', leader, 1, set('bcd')),
             # remove node e from sync and reduce replication factor
             ('sync', leader, 3, set('bcd')),
-            # add node g to voters with quorum increase
-            ('quorum', leader, 2, set('bcdg')),
-            # add node g to sync and reduce replication factor
-            ('sync', leader, 2, set('bcdg')),
+            ('restart', leader, 1, set('bcd')),
         ])
 
         # node f returned
@@ -493,10 +561,7 @@ class QuorumTest(unittest.TestCase):
                                      sync_wanted=2, leader_wanted=leader, expected=[
             # replace node e with f in sync
             ('sync', leader, 4, set('bcdf')),
-            # remove nodes e from voters with quorum decrease
-            ('quorum', leader, 2, set('bcdf')),
-            # reduce replication factor as it was requested
-            ('sync', leader, 2, set('bcdf')),
+            ('restart', leader, 1, set('bcdef')),
         ])
 
         # node e returned
@@ -517,6 +582,7 @@ class QuorumTest(unittest.TestCase):
             ('quorum', leader, 1, set('cd')),
             # remove nodes b and e from sync with replication factor decrease
             ('sync', leader, 1, set('cd')),
+            ('restart', leader, 1, set('cd')),
         ])
 
     def test_empty_ssn(self):
@@ -526,6 +592,12 @@ class QuorumTest(unittest.TestCase):
                                      numsync=1, sync=set(), numsync_confirmed=0, active=set(),
                                      sync_wanted=1, leader_wanted='c', expected=[
             ('sync', 'a', 1, set('ab')),    # remove a from sync as inactive
+            ('restart', 'a', 1, set('bc')),
+        ])
+        # next loop, still no replication connections
+        self.check_state_transitions(leader='a', quorum=1, voters=set('bc'),
+                                     numsync=1, sync=set('ab'), numsync_confirmed=0, active=set(),
+                                     sync_wanted=1, leader_wanted='c', quorum_catchup=True, expected=[
             ('quorum', 'c', 1, set('ab')),  # set c as a leader and move a to voters
             #  and stop because there are no active nodes
         ])
@@ -535,6 +607,12 @@ class QuorumTest(unittest.TestCase):
                                      numsync=1, sync=set('ab'), numsync_confirmed=0, active=set('b'),
                                      sync_wanted=1, leader_wanted='c', expected=[
             ('sync', 'c', 1, set('b')),    # remove a from sync as inactive
+            ('restart', 'c', 1, set('ab')),
+        ])
+        # next loop, b caught up
+        self.check_state_transitions(leader='c', quorum=1, voters=set('ab'),
+                                     numsync=1, sync=set('b'), numsync_confirmed=1, active=set('b'),
+                                     sync_wanted=1, leader_wanted='c', quorum_catchup=True, expected=[
             ('quorum', 'c', 0, set('b')),  # remove a from voters and reduce quorum
         ])
 
@@ -547,7 +625,7 @@ class QuorumTest(unittest.TestCase):
                                      sync_wanted=2, leader_wanted=leader, expected=[
             ('quorum', leader, 1, set('bcd')),  # add d to voters, b must stay there until removed from sync
             ('sync', leader, 2, set('cd')),     # remove b from sync
-            ('quorum', leader, 0, set('cd')),   # remove b from voters
+            ('restart', leader, 1, set('bcd')),
         ])
 
         # Node b was added to sync with replication factor increase, but before it was added to voters b and c are gone
@@ -555,7 +633,7 @@ class QuorumTest(unittest.TestCase):
                                      numsync=2, sync=set('bcd'), numsync_confirmed=1, active=set('d'),
                                      sync_wanted=2, leader_wanted=leader, expected=[
             ('sync', leader, 1, set('d')),    # remove b and c from sync
-            ('quorum', leader, 0, set('d')),  # remove c from voters
+            ('restart', leader, 1, set('cd')),
         ])
 
     def test_add_node_with_replication_factor_increase(self):
@@ -566,8 +644,15 @@ class QuorumTest(unittest.TestCase):
                                      numsync=1, sync=set('bc'), numsync_confirmed=2, active=set('bcd'),
                                      sync_wanted=3, leader_wanted=leader, expected=[
             ('sync', leader, 2, set('bcd')),    # add d to sync with replication factor increase
+            ('restart', leader, 1, set('bc')),
+        ])
+        # next loop, b and c caught up
+        self.check_state_transitions(leader=leader, quorum=1, voters=set('bc'),
+                                     numsync=2, sync=set('bcd'), numsync_confirmed=2, active=set('bcd'),
+                                     sync_wanted=3, leader_wanted=leader, quorum_catchup=True, expected=[
             ('quorum', leader, 1, set('bcd')),  # add d to voters without changing guarantees
             ('sync', leader, 3, set('bcd')),    # increase replication factor to requested value
+            ('restart', leader, 1, set('bcd')),
         ])
 
     def test_reduce_replication_factor_before_new_node_confirmed(self):
@@ -592,6 +677,15 @@ class QuorumTest(unittest.TestCase):
         self.check_state_transitions(leader='a', quorum=1, voters=set('bc'),
                                      numsync=1, sync=set('bd'), numsync_confirmed=0, active=set('bd'),
                                      sync_wanted=1, leader_wanted='a', quorum_catchup=True, expected=[
+            ('restart', 'a', 1, set('bc')),
+        ])
+
+    def test_quorum_catchup_without_candidates(self):
+        # c is gone and b caught up, there are no other nodes that could catch up
+        self.check_state_transitions(leader='a', quorum=1, voters=set('bc'),
+                                     numsync=2, sync=set('bc'), numsync_confirmed=1, active=set('b'),
+                                     sync_wanted=2, leader_wanted='a', quorum_catchup=True, expected=[
+            ('sync', 'a', 1, set('b')),
             ('restart', 'a', 1, set('bc')),
         ])
 

@@ -2512,21 +2512,6 @@ class TestHa(PostgresInit):
         self.assertEqual(write_sync.call_args[0], ('newleader', CaseInsensitiveSet(['a', 'leader']), 1))
         set_sync.assert_called_once_with(CaseInsensitiveSet(['a', 'leader']), 1)
 
-    def test_quorum_unverified_changes_leader(self):
-        self.p.name = 'newleader'
-        self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'a,newleader', 1))
-        self.p.sync_handler.current_state = Mock(return_value=None)
-        write_sync = self.ha.dcs.write_sync_state = Mock(return_value=SyncState(1, 'newleader', 'a,leader', 1))
-        with patch('time.monotonic', side_effect=[0, 0, 100]):
-            self.ha._process_quorum_replication()
-        # the former leader must lose the privilege to be promoted without votes before verification completes
-        write_sync.assert_called_once_with('newleader', CaseInsensitiveSet(['a', 'leader']), 1, version=0)
-
-        write_sync = self.ha.dcs.write_sync_state = Mock(return_value=None)
-        with patch('time.monotonic', side_effect=[0, 100]):
-            self.ha._process_quorum_replication()
-        write_sync.assert_called_once()
-
     @patch.object(global_config.__class__, 'is_quorum_commit_mode', PropertyMock(return_value=True))
     def test_quorum_catchup_preserves_voters_after_restart(self):
         self.p._major_version = 150000
@@ -2547,7 +2532,6 @@ class TestHa(PostgresInit):
             write_sync.assert_not_called()
             replication[0]['flush_lsn'] = 200
             state = self.p.sync_handler.current_state(self.ha.cluster)
-            self.assertFalse(state.quorum_catchup)
             self.assertEqual(state.sync_confirmed, CaseInsensitiveSet('a'))
             self.ha._process_quorum_replication()
         write_sync.assert_called_once_with('leader', CaseInsensitiveSet('ab'), 1, version=0)

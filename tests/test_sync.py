@@ -104,7 +104,7 @@ class TestSync(BaseTestPostgresql):
             self.assertEqual(self.s.current_state(self.cluster),
                              ('quorum', 1, CaseInsensitiveSet([self.me.name, self.leadermem.name]),
                               CaseInsensitiveSet([self.me.name, self.leadermem.name]),
-                              CaseInsensitiveSet([self.leadermem.name, self.me.name]), False))
+                              CaseInsensitiveSet([self.leadermem.name, self.me.name]), True))
 
     @patch('time.sleep', Mock())
     def test_current_state_after_repromote(self):
@@ -505,7 +505,7 @@ class TestSync(BaseTestPostgresql):
             mock_ssn.return_value = 'ANY 1 ({0},{1})'.format(a, b)
             mock_lsn.return_value = 200
             replication[2]['sync_state'] = 'async'
-            self.assertTrue(self.s.set_synchronous_standby_names([a, b], 1))
+            self.assertFalse(self.s.set_synchronous_standby_names([a, b], 1))
             self.assertTrue(self.s.current_state(self.cluster).quorum_catchup)
             replication[1]['flush_lsn'] = 200
             self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([b]))
@@ -518,7 +518,7 @@ class TestSync(BaseTestPostgresql):
             replication[0]['flush_lsn'] = 300
             self.assertTrue(self.s.current_state(self.cluster).quorum_catchup)
 
-            # don't wait when there are not enough eligible nodes and all of them caught up
+            # b is not eligible because of the lag, only a caught up
             self.cluster.config.data['maximum_lag_on_syncnode'] = 50
             global_config.update(self.cluster)
             self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
@@ -526,7 +526,7 @@ class TestSync(BaseTestPostgresql):
             global_config.update(self.cluster)
             self.assertTrue(self.s.current_state(self.cluster).quorum_catchup)
 
-            # synchronous_node_count was reduced, don't wait for more nodes than needed
+            # synchronous_node_count was reduced
             self.cluster.config.data['synchronous_node_count'] = 1
             global_config.update(self.cluster)
             self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
@@ -559,7 +559,7 @@ class TestSync(BaseTestPostgresql):
             # b was replaced with c, but c is not yet reporting the new sync_state
             mock_ssn.return_value = 'ANY 1 ({0},"{1}")'.format(a, c)
             mock_lsn.return_value = 300
-            self.assertIsNone(self.s.current_state(self.cluster))
+            self.assertFalse(self.s.current_state(self.cluster).sync_confirmed)
             replication[1]['sync_state'] = 'quorum'
             self.assertTrue(self.s.current_state(self.cluster).quorum_catchup)
             replication[0]['flush_lsn'] = 300
@@ -581,7 +581,6 @@ class TestSync(BaseTestPostgresql):
                 self.assertFalse(state.sync_confirmed)
                 replication[0]['flush_lsn'] = target
                 state = self.s.current_state(self.cluster)
-                self.assertFalse(state.quorum_catchup)
                 self.assertEqual(state.sync_confirmed, CaseInsensitiveSet([a]))
 
     @patch('time.sleep', Mock())
