@@ -642,7 +642,15 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.set_role(PostgresqlRole.REPLICA)
         self.p.config._config['pre_promote'] = 'test'
         with patch('patroni.postgresql.cancellable.CancellableSubprocess.is_cancelled', PropertyMock(return_value=1)):
+            with patch('patroni.postgresql.logger.info') as mock_info:
+                self.assertFalse(self.p.promote(0, task))
+            mock_info.assert_called_with('PostgreSQL promote cancelled.')
+        self.assertIsNone(task.result)
+        # cancelled after the pre_promote script succeeded
+        with patch('patroni.postgresql.cancellable.CancellableSubprocess.is_cancelled',
+                   PropertyMock(side_effect=[False, True])):
             self.assertFalse(self.p.promote(0, task))
+        self.assertTrue(task.result)
 
         mock_popen.side_effect = Exception
         self.assertFalse(self.p.promote(0, task))
