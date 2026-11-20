@@ -891,10 +891,22 @@ class Ha(object):
             quorum = dcs_state.quorum if self.quorum_commit_mode_is_active() else 0
             voters = CaseInsensitiveSet(dcs_state.voters)
             numsync = max(global_config.min_synchronous_nodes, len(voters) - quorum)
-            current_cross_site_mode = global_config.sync_cross_site_mode
+            current_site = self.state_handler.site
+            current_cross_site_mode = global_config.sync_cross_site_mode if current_site else SyncCrossSiteMode.ANY
 
             msg = site_msg = ''
-            if voters != replication_state.sync or \
+            voter_sites = {member.name.lower(): member.site for member in self.cluster.members}
+            invalid_voters = False
+            if current_cross_site_mode == SyncCrossSiteMode.LOCAL_ONLY:
+                invalid_voters = any(voter_sites.get(voter.lower()) != current_site for voter in voters)
+            elif current_cross_site_mode == SyncCrossSiteMode.REMOTE_ONLY:
+                invalid_voters = any(not site or site == current_site
+                                     for site in (voter_sites.get(voter.lower()) for voter in voters))
+            if invalid_voters:
+                self.dcs.write_sync_state(dcs_state.leader, CaseInsensitiveSet(), quorum, version=dcs_state.version)
+                self.state_handler.sync_handler.set_synchronous_standby_names(CaseInsensitiveSet(), numsync)
+                site_msg = 'that satisfy current synchronous_cross_site configuration '
+            elif voters != replication_state.sync or \
                     numsync != replication_state.numsync or \
                     sync_type != replication_state.sync_type:
                 self.state_handler.sync_handler.set_synchronous_standby_names(voters, numsync)

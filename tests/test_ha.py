@@ -1736,6 +1736,7 @@ class TestHa(PostgresInit):
                                                                          CaseInsensitiveSet()))
         self.ha.dcs.write_sync_state.reset_mock()
         mock_set_sync.reset_mock()
+        self.p._site = 'dc1'
         with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)), \
              patch.object(global_config.__class__, 'sync_cross_site_mode',
                           PropertyMock(return_value=SyncCrossSiteMode.LOCAL_ONLY)):
@@ -2260,6 +2261,7 @@ class TestHa(PostgresInit):
                                                                          CaseInsensitiveSet(),
                                                                          CaseInsensitiveSet()))
         mock_set_sync.reset_mock()
+        self.p._site = 'dc1'
         with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)), \
              patch.object(global_config.__class__, 'sync_cross_site_mode',
                           PropertyMock(return_value=SyncCrossSiteMode.LOCAL_ONLY)):
@@ -2268,6 +2270,43 @@ class TestHa(PostgresInit):
         self.assertEqual(mock_write_sync.call_args_list[0][0], ('leader', CaseInsensitiveSet(), 0))
         self.assertEqual(mock_set_sync.call_count, 1)
         self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 1 (__patroni_strict_sync_replica_placeholder__)',))
+
+        # A voter that becomes local after failover no longer satisfies remote_only.
+        self.p.name = 'leader'
+        self.p._site = 'dc2'
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'old_primary,local_replica', 1))
+        self.ha.cluster.members[0].data['site'] = 'dc2'
+        self.ha.cluster.members.extend([
+            Member(0, 'old_primary', 28, {'site': 'dc1'}),
+            Member(0, 'local_replica', 28, {'site': 'dc2'}),
+        ])
+        dcs_state = SyncState(0, 'leader', 'old_primary,local_replica', 1, SyncCrossSiteMode.REMOTE_ONLY)
+        set_sync = self.p.sync_handler.set_synchronous_standby_names = Mock()
+        replication_state = _SyncState('quorum', 1, CaseInsensitiveSet(dcs_state.voters),
+                                       CaseInsensitiveSet(), CaseInsensitiveSet())
+        mock_write_sync.reset_mock()
+
+        with patch.object(global_config.__class__, 'sync_cross_site_mode',
+                          PropertyMock(return_value=SyncCrossSiteMode.REMOTE_ONLY)), \
+                patch.object(global_config.__class__, 'min_synchronous_nodes', PropertyMock(return_value=1)), \
+                patch.object(self.ha, 'quorum_commit_mode_is_active', Mock(return_value=True)):
+            self.ha._handle_synchronous_strict_mode(dcs_state, replication_state)
+
+        mock_write_sync.assert_called_once_with('leader', CaseInsensitiveSet(), 1, version=0)
+        set_sync.assert_called_once_with(CaseInsensitiveSet(), 1)
+
+        # A siteless primary uses the effective any mode, regardless of configuration.
+        self.p._site = None
+        mock_write_sync.reset_mock()
+        dcs_state = SyncState(0, 'leader', 'old_primary', 0, SyncCrossSiteMode.ANY)
+        replication_state = _SyncState('quorum', 1, CaseInsensitiveSet(dcs_state.voters),
+                                       CaseInsensitiveSet(), CaseInsensitiveSet())
+        with patch.object(global_config.__class__, 'sync_cross_site_mode',
+                          PropertyMock(return_value=SyncCrossSiteMode.REMOTE_ONLY)), \
+                patch.object(global_config.__class__, 'min_synchronous_nodes', PropertyMock(return_value=1)), \
+                patch.object(self.ha, 'quorum_commit_mode_is_active', Mock(return_value=True)):
+            self.ha._handle_synchronous_strict_mode(dcs_state, replication_state)
+        mock_write_sync.assert_not_called()
 
     def test_is_failover_possible(self):
         self.p._major_version = 140000  # supports_multiple_sync

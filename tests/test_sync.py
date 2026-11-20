@@ -432,3 +432,24 @@ class TestSync(BaseTestPostgresql):
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['', 'remote_apply', pg_stat_replication]):
             self.assertEqual(self.s.current_state(cluster), ('off', 0, CaseInsensitiveSet(), CaseInsensitiveSet(),
                                                              CaseInsensitiveSet([anotherlocal.name, remote.name])))
+
+        # In quorum mode, balanced selection keeps promotable replicas ahead of nofailover replicas.
+        self.p._site = 'dc1'
+        leader = Member(0, 'leader', 28, {'state': PostgresqlState.RUNNING, 'site': 'dc1'})
+        local = Member(0, 'local', 28, {'state': PostgresqlState.RUNNING, 'site': 'dc1'})
+        remote = Member(0, 'remote', 28, {'state': PostgresqlState.RUNNING, 'site': 'dc2',
+                                          'tags': {'nofailover': True}})
+        config = ClusterConfig(1, {'synchronous_mode': 'quorum', 'synchronous_cross_site': 'balanced',
+                                   'synchronous_node_count': 1}, 1)
+        cluster = Cluster(True, config, Leader(-1, 28, leader), Status.empty(), [leader, local, remote], None,
+                          SyncState(0, leader.name, None, 0, SyncCrossSiteMode.BALANCED), None, None, None)
+        global_config.update(cluster)
+        pg_stat_replication = [
+            {'pid': 100, 'application_name': remote.name, 'sync_state': 'quorum', 'flush_lsn': 1, 'replay_lsn': 1},
+            {'pid': 101, 'application_name': local.name, 'sync_state': 'quorum', 'flush_lsn': 1, 'replay_lsn': 1}]
+
+        with patch.object(Postgresql, "_cluster_info_state_get",
+                          side_effect=['', 'remote_apply', pg_stat_replication]):
+            state = self.s.current_state(cluster)
+
+        self.assertEqual(state.active, CaseInsensitiveSet([local.name]))

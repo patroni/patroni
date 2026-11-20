@@ -419,6 +419,8 @@ END;$$""")
             selection_order = sorted_replicas
         elif cross_site_mode == SyncCrossSiteMode.BALANCED:
             selection_order = self.pick_replicas_site_balanced(self._postgresql.site, sorted_replicas)
+            if global_config.is_quorum_commit_mode:
+                selection_order = sorted(selection_order, key=lambda x: x.nofailover)
         elif cross_site_mode in (SyncCrossSiteMode.REMOTE_ONLY, SyncCrossSiteMode.PREFER_REMOTE):
             selection_order = remote_replicas
             if cross_site_mode == SyncCrossSiteMode.PREFER_REMOTE:
