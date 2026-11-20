@@ -448,6 +448,15 @@ class TestHa(PostgresInit):
         self.ha.patroni.received_sigterm = True
         with patch.object(self.p, 'promote') as mock_promote:
             self.assertEqual(self.ha.run_cycle(), 'Not promoting self because Patroni is shutting down')
+
+            def process_sync_replication_prepromote():  # SIGTERM is received while updating the sync state
+                self.ha.patroni.received_sigterm = True
+                return True
+
+            self.ha.patroni.received_sigterm = False
+            with patch.object(self.ha, 'process_sync_replication_prepromote',
+                              Mock(side_effect=process_sync_replication_prepromote)):
+                self.assertEqual(self.ha.run_cycle(), 'Not promoting self because Patroni is shutting down')
         mock_promote.assert_not_called()
 
     def test_promotion_cancelled_after_pre_promote_failed(self):

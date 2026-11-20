@@ -1267,6 +1267,8 @@ class Ha(object):
                 # postpone promotion until next cycle. TODO: trigger immediate retry of run_cycle.
                 return 'Postponing promotion because synchronous replication state was updated by somebody else'
             if self.state_handler.role not in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED):
+                if self.patroni.received_sigterm:  # received while updating the synchronous replication state
+                    return 'Not promoting self because Patroni is shutting down'
                 # reset failsafe state when promote
                 self._failsafe.set_is_active(float('-inf'))
                 self._last_timeline = None

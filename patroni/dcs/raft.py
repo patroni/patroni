@@ -150,12 +150,14 @@ class KVStoreTTL(DynMemberSyncObj):
                 syncobj_kwargs[syncobj_key] = value
                 applied_patroni_keys[patroni_key] = value
 
+        # A forked child writing the snapshot must be detached from the SIGTERM guard, see patroni.daemon._before_fork()
+        use_fork = hasattr(os, 'register_at_fork')  # not available on Python 3.6
         conf = SyncObjConf(password=config.get('password'), autoTick=False, appendEntriesUseBatch=False,
                            bindAddress=config.get('bind_addr'), dnsFailCacheTime=(config.get('loop_wait') or 10),
                            dnsCacheTime=(config.get('ttl') or 30), commandsWaitLeader=config.get('commandsWaitLeader'),
                            fullDumpFile=(file_template + '.dump' if self_addr else None),
                            journalFile=(file_template + '.journal' if self_addr else None),
-                           onReady=on_ready, dynamicMembershipChange=True, **syncobj_kwargs)
+                           onReady=on_ready, dynamicMembershipChange=True, useFork=use_fork, **syncobj_kwargs)
 
         if syncobj_kwargs:
             logger.info('Applying custom pysyncobj timeouts: %s',

@@ -1563,6 +1563,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
             thread_pool_size = 5
         logger.info('REST API thread_pool_size = %d', thread_pool_size)
         self._executor = PatroniThreadPoolExecutor(max_workers=thread_pool_size + 1, thread_name_prefix='RestAPI')
+        self.__started = False
         self.__ssl_options: Dict[str, Any] = {}
         self.__ssl_serial_number = None
         self.__ssl_not_after: Optional[int] = None
@@ -1877,6 +1878,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
 
     def start(self) -> None:
         self._executor.submit(self.serve_forever)
+        self.__started = True
 
     def process_request_thread(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
                                client_address: Tuple[str, int]) -> None:
@@ -1940,7 +1942,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
             logger.debug('Connection from %s:%s was reset: %r', client_address[0], client_address[1], e)
 
     def shutdown(self) -> None:
-        super(RestApiServer, self).shutdown()
+        if self.__started:  # otherwise, it would wait forever for serve_forever() to exit
+            super(RestApiServer, self).shutdown()
         self._executor.shutdown(wait=True)
 
     def shutdown_request(self, request: Union[socket.socket, Tuple[bytes, socket.socket]]) -> None:

@@ -573,7 +573,8 @@ class PatroniLogger(Thread):
         except Full:  # Queue is full.
             # It seems that logging is not working, exiting with non-standard exit-code is the best we can do.
             sys.exit(self.LOGGING_BROKEN_EXIT_CODE)
-        self.join()
+        if self.is_alive():  # the thread isn't started if the daemon failed to start
+            self.join()
         logging.shutdown()
 
     def flush(self, timeout: float) -> bool:

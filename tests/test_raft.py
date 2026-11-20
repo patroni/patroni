@@ -154,6 +154,20 @@ class TestKVStoreTTL(unittest.TestCase):
             self.assertEqual(getattr(so.conf, syncobj_key), custom_config[patroni_key])
         so.destroy()
 
+    @unittest.skipIf(not hasattr(os, 'register_at_fork'), 'os.register_at_fork() is not available')
+    def test_no_fork_without_register_at_fork(self):
+        self.assertTrue(self.so.conf.useFork)
+        self.so.destroy()
+        self.so = None
+        register_at_fork = os.register_at_fork
+        del os.register_at_fork  # like on Python 3.6
+        try:
+            so = KVStoreTTL(None, None, None, self_addr='127.0.0.1:1234')
+        finally:
+            os.register_at_fork = register_at_fork
+        so.destroy()
+        self.assertFalse(so.conf.useFork)  # a forked child can't be detached from the SIGTERM guard
+
     def test_default_pysyncobj_timeouts(self):
         """Verify defaults are unchanged when no custom timeouts are provided."""
         defaults = {

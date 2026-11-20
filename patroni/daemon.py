@@ -14,7 +14,7 @@ import sys
 import time
 
 from contextlib import suppress
-from threading import Lock, stack_size, Thread
+from threading import local, Lock, stack_size, Thread
 from typing import Any, Optional, Type, TYPE_CHECKING
 
 try:  # pragma: no cover
@@ -65,24 +65,50 @@ def notify_systemd(msg: str) -> None:
 
 
 _sigterm_guard_daemon: Optional['AbstractPatroniDaemon'] = None
+_traceback_dump_fd = -1  # see AbstractPatroniDaemon._emergency_exit()
+_fork_local = local()
+
+
+def _before_fork() -> None:
+    """Block SIGTERM in the thread that forks while the SIGTERM guard is running.
+
+    The child inherits the signal mask, and SIGTERM stays blocked until :func:`_after_fork_in_child` has detached the
+    child from the guard. Otherwise, a SIGTERM received by the child in the meantime would reach the guard of the
+    parent. Pending signals aren't inherited, so a SIGTERM sent to the parent is received after it unblocks SIGTERM.
+
+    .. note::
+        Registered with :func:`os.register_at_fork`. For example, :mod:`pysyncobj` forks to write Raft snapshots.
+    """
+    if _sigterm_guard_daemon is not None:
+        # pthread_sigmask() runs pending signal handlers in the main thread, a raising one would skip the assignment
+        _fork_local.unblock_sigterm = True
+        _fork_local.unblock_sigterm = signal.SIGTERM not in signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
+
+
+def _unblock_sigterm_after_fork() -> None:
+    """Unblock SIGTERM if :func:`_before_fork` has blocked it."""
+    if getattr(_fork_local, 'unblock_sigterm', False):
+        _fork_local.unblock_sigterm = False
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTERM})
 
 
 def _after_fork_in_child() -> None:
     """Detach a forked child process from the SIGTERM guard of the parent, see
-    :func:`AbstractPatroniDaemon._detach_sigterm_guard`.
+    :func:`AbstractPatroniDaemon._detach_sigterm_guard`, and unblock SIGTERM, see :func:`_before_fork`.
 
-    .. note::
-        Registered with :func:`os.register_at_fork`. For example, :mod:`pysyncobj` forks to write Raft snapshots.
+    A SIGTERM received by the child before then terminates it now. SIGTERM stays blocked if detaching fails.
     """
     global _sigterm_guard_daemon
     owner = _sigterm_guard_daemon
     if owner is not None:
         _sigterm_guard_daemon = None
         owner._detach_sigterm_guard()  # pyright: ignore [reportPrivateUsage]
+    _unblock_sigterm_after_fork()
 
 
-if hasattr(os, 'register_at_fork'):  # not available on Windows and Python 3.6
-    os.register_at_fork(after_in_child=_after_fork_in_child)
+if hasattr(os, 'register_at_fork'):  # not available on Windows and Python 3.6, see patroni.dcs.raft
+    os.register_at_fork(before=_before_fork, after_in_parent=_unblock_sigterm_after_fork,
+                        after_in_child=_after_fork_in_child)
 
 
 def get_base_arg_parser() -> argparse.ArgumentParser:
@@ -186,16 +212,31 @@ class AbstractPatroniDaemon(abc.ABC):
         with :func:`signal.set_wakeup_fd` immediately, even if the main thread is blocked in C code and therefore can't
         run :func:`sigterm_handler`.
 
+        Also create the pipe that :func:`_emergency_exit` needs in advance, because the process could run out of file
+        descriptors by then.
+
+        :raises Exception: if the guard can't be started, after restoring the previous wakeup fd.
+
         .. note::
             Must be called from the main thread.
         """
-        global _sigterm_guard_daemon
-        self._sigterm_guard_rsock, wsock = socket.socketpair()
-        wsock.setblocking(False)
-        self._sigterm_guard_wsock = wsock
-        self._prev_wakeup_fd = signal.set_wakeup_fd(wsock.fileno())
-        _sigterm_guard_daemon = self
-        Thread(target=self._sigterm_guard, name='sigterm-guard', daemon=True).start()
+        global _sigterm_guard_daemon, _traceback_dump_fd
+        if _traceback_dump_fd < 0:
+            _, fd = os.pipe()
+            os.set_blocking(fd, False)  # the dump is discarded when the pipe is full
+            _traceback_dump_fd = fd
+        self._sigterm_guard_rsock, self._sigterm_guard_wsock = socket.socketpair()
+        try:
+            self._sigterm_guard_wsock.setblocking(False)
+            self._prev_wakeup_fd = signal.set_wakeup_fd(self._sigterm_guard_wsock.fileno())
+            _sigterm_guard_daemon = self
+            Thread(target=self._sigterm_guard, name='sigterm-guard', daemon=True).start()
+        except Exception:
+            if _sigterm_guard_daemon is self:
+                self._stop_sigterm_guard()
+            self._sigterm_guard_rsock.close()
+            self._sigterm_guard_wsock.close()
+            raise
 
     def _stop_sigterm_guard(self) -> None:
         """Restore the previous wakeup fd and make :func:`_sigterm_guard` exit by closing the write end of its socket.
@@ -217,9 +258,9 @@ class AbstractPatroniDaemon(abc.ABC):
         handle SIGTERM doesn't run in the child.
 
         .. note::
-            Called in the child from the thread that forked, which becomes the main thread of the child. A signal
-            received by the child after :func:`os.fork` returned there, but before this method is called, still
-            reaches the parent.
+            Called in the child from the thread that forked, which becomes the main thread of the child. SIGTERM is
+            blocked until then, see :func:`_before_fork`. Other signals received by the child in the meantime still
+            reach the guard of the parent, which ignores them.
         """
         signal.set_wakeup_fd(self._prev_wakeup_fd)
         self._sigterm_guard_rsock.close()
@@ -272,32 +313,35 @@ class AbstractPatroniDaemon(abc.ABC):
 
         If the process doesn't exit within 5 seconds anyway, for example because reading ``postmaster.pid`` blocks,
         the watchdog thread of :func:`faulthandler.dump_traceback_later` terminates it. The thread doesn't need the GIL
-        and doesn't depend on signal dispositions and masks, which could be inherited from the parent process.
+        and doesn't depend on signal dispositions and masks, which could be inherited from the parent process. If the
+        watchdog can't be started, for example because the process is out of memory, nothing is logged.
 
         .. note::
             The regular :func:`shutdown` can't be used: the main loop could hold locks that it needs, and
             :exc:`SystemExit` raised in the main thread could leak them, see :func:`sigterm_handler`.
 
             Stacks of threads aren't logged: formatting them reads source files, and a stalled filesystem could be the
-            reason why the main loop hangs. The watchdog thread dumps them, without source lines, to a pipe that is
-            never read or closed, because writing to stderr could block, and a closed fd could be reused.
+            reason why the main loop hangs. The watchdog thread dumps them, without source lines, to a pipe that
+            :func:`_start_sigterm_guard` created, and that is never read or closed, because writing to stderr could
+            block, and a closed fd could be reused.
         """
         try:
+            armed = False
             with suppress(Exception):
-                _, fd = os.pipe()
-                os.set_blocking(fd, False)  # the dump is discarded when the pipe is full
-                faulthandler.dump_traceback_later(5, exit=True, file=fd)
+                faulthandler.dump_traceback_later(5, exit=True, file=_traceback_dump_fd)
+                armed = True
             error = None
             try:
                 self._emergency_shutdown()
             except Exception as e:
                 error = e
-            with suppress(Exception):
-                logger.critical('The main loop did not exit within %s seconds after SIGTERM, terminating the process',
-                                self.config['loop_wait'])
-                if error is not None:
-                    logger.error('Emergency shutdown failed', exc_info=error)
-                self.logger.flush(1)
+            if armed:  # otherwise, nothing would terminate the process if logging blocks
+                with suppress(Exception):
+                    logger.critical('The main loop did not exit within %s seconds after SIGTERM, terminating the '
+                                    'process', self.config['loop_wait'])
+                    if error is not None:
+                        logger.error('Emergency shutdown failed', exc_info=error)
+                    self.logger.flush(1)
         finally:
             os._exit(1)
 

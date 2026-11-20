@@ -848,6 +848,14 @@ class TestRestApiServer(unittest.TestCase):
             self.srv.server_bind()
         mock_getfqdn.assert_not_called()
 
+    @patch.object(HTTPServer, 'shutdown')
+    def test_shutdown(self, mock_shutdown):
+        self.srv.shutdown()
+        mock_shutdown.assert_not_called()  # it would wait forever for serve_forever() that never ran
+        self.srv.start()
+        self.srv.shutdown()
+        mock_shutdown.assert_called_once()
+
     @patch.object(HTTPServer, '__init__', Mock())
     def test_reload_config(self):
         bad_config = {'listen': 'foo'}
