@@ -1252,8 +1252,11 @@ class Postgresql(ClusterSite):
 
         ret = self._pre_promote()
         with task:
+            if task.is_cancelled:
+                return False
             # the pre_promote script killed by a cancellation, e.g. of a forced reinitialize, didn't fail
-            if task.is_cancelled or self.cancellable.is_cancelled:
+            if self.cancellable.is_cancelled:
+                logger.info("PostgreSQL promote cancelled.")
                 return False
             task.complete(ret)
 
