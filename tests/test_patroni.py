@@ -206,7 +206,9 @@ class TestPatroni(unittest.TestCase):
         self.assertRaises(SystemExit, self.p.sigterm_handler)
 
     def test_api_sigterm(self):
+        self.p.dcs.event.clear()
         self.assertTrue(self.p.api_sigterm())
+        self.assertTrue(self.p.dcs.event.is_set())  # the main loop is woken up
         self.assertFalse(self.p.api_sigterm())
         self.p.sigterm_handler()  # doesn't raise SystemExit, because SIGTERM was already received
 

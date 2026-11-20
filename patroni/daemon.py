@@ -111,7 +111,7 @@ class AbstractPatroniDaemon(abc.ABC):
     def api_sigterm(self) -> bool:
         """Guarantee only a single SIGTERM is being processed.
 
-        Flag the daemon as "SIGTERM received" with a lock-based approach.
+        Flag the daemon as "SIGTERM received" with a lock-based approach and wake up the main loop with :func:`_wakeup`.
 
         .. note::
             Only called by REST API threads, never by the main thread, see :attr:`received_sigterm`.
@@ -123,6 +123,8 @@ class AbstractPatroniDaemon(abc.ABC):
             if not self._received_sigterm:
                 self._received_sigterm = True
                 ret = True
+        if ret:
+            self._wakeup()
         return ret
 
     def sigterm_handler(self, *_: Any) -> None:
