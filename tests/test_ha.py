@@ -468,6 +468,12 @@ class TestHa(PostgresInit):
                 self.ha._async_response.complete(True)
             self.assertEqual(self.ha.run_cycle(), 'promote in progress')
             mock_disable.assert_called_once_with()
+            # PostgreSQL was promoted manually, a primary without the leader key must stay fenced
+            self.p.is_primary = true
+            with self.ha._async_response:
+                self.ha._async_response.reset()
+            self.assertEqual(self.ha.run_cycle(), 'lost leader before promote')
+            mock_disable.assert_called_once_with()
 
     @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
     def test_long_promote(self):

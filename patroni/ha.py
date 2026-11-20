@@ -2271,8 +2271,10 @@ class Ha(object):
                     cancel = self._async_response.cancel()
                 if cancel:
                     self.state_handler.cancellable.cancel()
-                    # The cancelled task won't promote PostgreSQL, and nobody will feed the watchdog anymore
-                    self.watchdog.disable()
+                    # The cancelled task won't promote PostgreSQL, and nobody will feed the watchdog anymore.
+                    # Keep it armed only if PostgreSQL is a primary anyway, e.g. it was promoted manually.
+                    if not self.state_handler.is_primary():
+                        self.watchdog.disable()
                     return 'lost leader before promote'
 
             if self.state_handler.role == PostgresqlRole.PRIMARY:
