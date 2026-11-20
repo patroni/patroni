@@ -209,7 +209,7 @@ I have ``use_slots`` enabled in my Patroni configuration, but when a cluster mem
 What is the difference between ``loop_wait``, ``retry_timeout`` and ``ttl``?
     Patroni performs what we call a HA cycle from time to time. On each HA cycle it takes care of performing a series of checks on the cluster to determine its healthiness, and depending on the status it may take actions, like failing over to a standby.
 
-    ``loop_wait`` determines for how long, in seconds, Patroni should sleep before performing a new cycle of HA checks.
+    ``loop_wait`` determines for how long, in seconds, Patroni should sleep before performing a new cycle of HA checks. The primary might sleep for a shorter time to feed the :ref:`watchdog <watchdog>` in time.
 
     ``retry_timeout`` sets the timeout for retry operations on the DCS and on Postgres. For example: if the DCS is unresponsive for more than ``retry_timeout`` seconds, Patroni might demote the primary node as a security action.
 

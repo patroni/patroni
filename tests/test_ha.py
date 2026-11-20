@@ -26,7 +26,7 @@ from patroni.postgresql.slots import SlotsHandler
 from patroni.postgresql.sync import _SyncState
 from patroni.thread_pool import PatroniThreadPoolExecutor
 from patroni.utils import tzutc
-from patroni.watchdog import Watchdog
+from patroni.watchdog import Watchdog, WatchdogError
 
 from . import MockPostmaster, PostgresInit, psycopg_connect, requests_get
 from .test_etcd import etcd_read, etcd_write, socket_getaddrinfo
@@ -441,6 +441,15 @@ class TestHa(PostgresInit):
             self.assertEqual(self.ha.run_cycle(), 'Not promoting self because watchdog could not be activated')
         self.assertFalse(device.is_running)
 
+    @patch.object(Watchdog, 'is_running', PropertyMock(return_value=True))
+    def test_promotion_activates_watchdog_left_open(self):
+        # e.g. closing it failed on demotion, nobody fed it since then
+        self.ha.is_healthiest_node = true
+        self.p.is_primary = false
+        with patch.object(Watchdog, 'activate', Mock(return_value=False)) as mock_activate:
+            self.assertEqual(self.ha.run_cycle(), 'Not promoting self because watchdog could not be activated')
+        mock_activate.assert_called_once_with()
+
     def test_leader_race_stale_primary(self):
         with patch.object(Postgresql, 'get_primary_timeline', Mock(return_value=1)), \
                 patch('patroni.ha.logger.warning') as mock_logger:
@@ -494,6 +503,25 @@ class TestHa(PostgresInit):
             self.assertEqual(self.ha.run_cycle(), 'lost leader before promote')
             mock_disable.assert_called_once_with()
 
+    def test_cancel_promotion_because_watchdog_could_not_be_activated(self):
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.ha.has_lock = true
+        self.p.is_primary = false
+        with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)), \
+                patch.object(Watchdog, 'activate', Mock(return_value=False)), \
+                patch.object(Ha, 'release_leader_key_voluntarily') as mock_release:
+            self.ha._async_executor.schedule('promote')
+            # too late to cancel, the primary is demoted once the promotion completes
+            with self.ha._async_response:
+                self.ha._async_response.complete(True)
+            self.assertEqual(self.ha.run_cycle(), 'updated leader lock during promote')
+            # e.g. replacing the watchdog device after a configuration change failed
+            with self.ha._async_response:
+                self.ha._async_response.reset()
+            self.assertEqual(self.ha.run_cycle(), 'Not promoting self because watchdog could not be activated')
+            self.assertTrue(self.ha._async_response.is_cancelled)
+            mock_release.assert_called_once_with()
+
     @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
     def test_long_promote(self):
         self.ha.has_lock = true
@@ -535,8 +563,28 @@ class TestHa(PostgresInit):
             self.p.is_primary = false
             with patch.object(Watchdog, 'disable') as mock_disable:
                 self.assertEqual(self.ha.run_cycle(), 'Not promoting self because watchdog could not be activated')
-            # a device with a too long timeout stays armed after a failed activation, and the next cycle would promote
+            # a device with a too long timeout stays armed after a failed activation, but nobody feeds it anymore
             mock_disable.assert_called_once_with()
+
+    @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
+    def test_demote_after_failed_watchdog_replacement(self):
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.ha.has_lock = true
+        old, new = Mock(is_null=False, is_running=False, can_be_disabled=True), \
+            Mock(is_null=False, is_running=False, can_be_disabled=True)
+        old.get_timeout.return_value = old.set_timeout.return_value = 25
+        old.open.side_effect = lambda: setattr(old, 'is_running', True)
+        old.disable.side_effect = lambda: setattr(old, 'is_running', False)
+        new.open.side_effect = lambda: setattr(new, 'is_running', True)
+        # the new device rejects the timeout, and it can't be stopped
+        new.set_timeout.side_effect = new.disable.side_effect = WatchdogError('')
+        config = {'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}}
+        with patch('patroni.watchdog.base.WatchdogConfig.get_impl', Mock(side_effect=[old, new])):
+            self.ha.watchdog.reload_config(config)
+            self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
+            self.ha.watchdog.reload_config(dict(config, watchdog={'mode': 'required', 'device': '/dev/other'}))
+            self.assertEqual(self.ha.run_cycle(), 'Demoting self because watchdog could not be activated')
+        self.assertFalse(old.is_running)
 
     def test_leader_with_lock(self):
         self.ha.cluster = get_cluster_initialized_with_leader()
@@ -676,6 +724,11 @@ class TestHa(PostgresInit):
         self.ha.state_handler.name = self.ha.cluster.leader.name
         self.assertEqual(self.ha.run_cycle(),
                          'continue to run as a leader because failsafe mode is enabled and all members are accessible')
+        # e.g. replacing the watchdog device after a configuration change failed
+        with patch.object(Watchdog, 'activate', Mock(return_value=False)), patch.object(Ha, 'demote') as mock_demote:
+            self.assertEqual(self.ha.run_cycle(), 'Demoting self because watchdog could not be activated')
+        mock_demote.assert_called_once_with('offline')
+        self.assertFalse(self.ha.failsafe_is_active())
 
     def test_readonly_dcs_primary_failsafe(self):
         self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
@@ -1079,6 +1132,15 @@ class TestHa(PostgresInit):
             self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, self.p.name, 'blabla', scheduled, None))
             self.assertEqual('no action. I am (postgresql0), the leader with the lock', self.ha.run_cycle())
             self.assertIn('Awaiting %s at %s (in %.0f seconds)', mock_info.call_args_list[0][0])
+
+        # within loop_wait, but the watchdog has to be fed before
+        with patch.object(Watchdog, 'keepalive_interval', PropertyMock(return_value=6)), \
+                patch('patroni.ha.logger.info') as mock_info, patch('time.sleep') as mock_sleep:
+            soon = datetime.datetime.now(tzutc) + datetime.timedelta(seconds=8)
+            self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, self.p.name, 'blabla', soon, None))
+            self.assertEqual('no action. I am (postgresql0), the leader with the lock', self.ha.run_cycle())
+            self.assertIn('Awaiting %s at %s (in %.0f seconds)', mock_info.call_args_list[0][0])
+            mock_sleep.assert_not_called()
 
         # stale value
         with patch('patroni.ha.logger.warning') as mock_warning:
@@ -2004,6 +2066,26 @@ class TestHa(PostgresInit):
             mock_set_sync.assert_not_called()
             mock_cfg_set_sync.assert_called_once_with("SOME_SSN")
 
+    def test__process_multisync_replication_watchdog(self):
+        self.ha.is_synchronous_mode = true
+        self.p.name = 'leader'
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
+        mock_set_sync = self.p.sync_handler.set_synchronous_standby_names = Mock()
+        # A new standby was picked, but isn't confirmed as synchronous yet
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 1, CaseInsensitiveSet(['other']),
+                                                                         CaseInsensitiveSet(['other']),
+                                                                         CaseInsensitiveSet(['other', 'other2'])))
+        for keepalive_interval, waits in ((None, True), (1, False)):
+            with self.subTest(keepalive_interval=keepalive_interval), \
+                    patch.object(Watchdog, 'keepalive_interval', PropertyMock(return_value=keepalive_interval)), \
+                    patch('time.sleep') as mock_sleep:
+                self.p.sync_handler.current_state.reset_mock()
+                self.ha._process_multisync_replication()
+                mock_set_sync.assert_called_with(CaseInsensitiveSet(['other', 'other2']))
+                # Otherwise the watchdog has to be fed before that and the next HA cycle confirms the new standby
+                self.assertEqual(mock_sleep.called, waits)
+                self.assertEqual(self.p.sync_handler.current_state.call_count, 2 if waits else 1)
+
     def test_sync_replication_become_primary(self):
         self.ha.is_synchronous_mode = true
 
@@ -2483,6 +2565,17 @@ class TestHa(PostgresInit):
         with patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='ANY 1 (foo)')), \
                 patch('time.monotonic', Mock(side_effect=[30, 60, 90, 120, 150])):
             self.ha.process_sync_replication()
+
+        # Nor longer than the watchdog allows
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', None))
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('quorum', 1, CaseInsensitiveSet(['foo']),
+                                                                         CaseInsensitiveSet(['foo']),
+                                                                         CaseInsensitiveSet(['foo'])))
+        mock_write_sync.reset_mock()
+        with patch.object(Watchdog, 'keepalive_interval', PropertyMock(return_value=6)), \
+                patch('time.monotonic', Mock(side_effect=[30, 37, 44])):
+            self.ha.process_sync_replication()
+        mock_write_sync.assert_not_called()
 
         # Test foo -> ANY 1 (foo) transition
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'foo'))
