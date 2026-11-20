@@ -148,6 +148,8 @@ class LinuxWatchdogDevice(WatchdogBase):
         return os.path.exists(self.device) and os.access(self.device, os.W_OK)
 
     def open(self) -> None:
+        # The path might refer to a different device by now, e.g. one with other capabilities replaced a removed one
+        self._support_cache = None
         try:
             self._fd = os.open(self.device, os.O_WRONLY)
         except OSError as e:

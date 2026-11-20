@@ -1255,6 +1255,19 @@ class Ha(object):
         demote_reason = 'cannot be a real primary in standby cluster'
         return self.follow(demote_reason, message)
 
+    def _watchdog_activation_failed(self) -> str:
+        """Give up the leader key, because the watchdog required by the configuration could not be activated.
+
+        :returns: description of the action taken.
+        """
+        if self.state_handler.is_primary():
+            self.demote('immediate')
+            return 'Demoting self because watchdog could not be activated'
+        # A failed activation might leave the device armed, but nobody feeds it without the leader key
+        self.watchdog.disable()
+        self.release_leader_key_voluntarily()
+        return 'Not promoting self because watchdog could not be activated'
+
     def enforce_primary_role(self, message: str, promote_message: str) -> str:
         """
         Ensure the node that has won the race for the leader key meets criteria
@@ -1263,14 +1276,7 @@ class Ha(object):
         if not self.is_paused():
             # A running watchdog isn't necessarily safe, e.g. if a device that could not be disabled was retained
             if not self.watchdog.is_activated and not self.watchdog.activate():
-                if self.state_handler.is_primary():
-                    self.demote('immediate')
-                    return 'Demoting self because watchdog could not be activated'
-                else:
-                    # A failed activation might leave the device armed, but nobody feeds it without the leader key
-                    self.watchdog.disable()
-                    self.release_leader_key_voluntarily()
-                    return 'Not promoting self because watchdog could not be activated'
+                return self._watchdog_activation_failed()
 
             with self._async_response:
                 if self._async_response.result is False:
@@ -2280,6 +2286,11 @@ class Ha(object):
                     self.state_handler.cancellable.cancel(True)
                     self.demote('immediate')
                     return 'terminated crash recovery because of startup timeout'
+            elif self._async_executor.scheduled_action == 'promote' and not self.is_paused() \
+                    and not self.watchdog.is_activated and not self.watchdog.activate() and self._cancel_promotion():
+                # Same as in enforce_primary_role(), e.g. replacing the watchdog device after a configuration change
+                # failed. If it's too late to cancel the promotion, the primary is demoted once it completes.
+                return self._watchdog_activation_failed()
 
             return 'updated leader lock during {0}'.format(self._async_executor.scheduled_action)
         elif not self.state_handler.bootstrapping and not self.is_paused():
@@ -2608,6 +2619,11 @@ class Ha(object):
                     self.set_is_leader(True)
                     self._failsafe.set_is_active(time.monotonic())
                     self.watchdog.keepalive()
+                    # Same as in enforce_primary_role(), e.g. replacing the watchdog device might have failed
+                    if not self.watchdog.is_activated and not self.watchdog.activate():
+                        self._failsafe.set_is_active(float('-inf'))
+                        self.demote('offline')
+                        return 'Demoting self because watchdog could not be activated'
                     self._sync_replication_slots(True)
                     return 'continue to run as a leader because failsafe mode is enabled and all members are accessible'
                 self._failsafe.set_is_active(float('-inf'))

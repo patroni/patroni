@@ -503,6 +503,25 @@ class TestHa(PostgresInit):
             self.assertEqual(self.ha.run_cycle(), 'lost leader before promote')
             mock_disable.assert_called_once_with()
 
+    def test_cancel_promotion_because_watchdog_could_not_be_activated(self):
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.ha.has_lock = true
+        self.p.is_primary = false
+        with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)), \
+                patch.object(Watchdog, 'activate', Mock(return_value=False)), \
+                patch.object(Ha, 'release_leader_key_voluntarily') as mock_release:
+            self.ha._async_executor.schedule('promote')
+            # too late to cancel, the primary is demoted once the promotion completes
+            with self.ha._async_response:
+                self.ha._async_response.complete(True)
+            self.assertEqual(self.ha.run_cycle(), 'updated leader lock during promote')
+            # e.g. replacing the watchdog device after a configuration change failed
+            with self.ha._async_response:
+                self.ha._async_response.reset()
+            self.assertEqual(self.ha.run_cycle(), 'Not promoting self because watchdog could not be activated')
+            self.assertTrue(self.ha._async_response.is_cancelled)
+            mock_release.assert_called_once_with()
+
     @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
     def test_long_promote(self):
         self.ha.has_lock = true
@@ -705,6 +724,11 @@ class TestHa(PostgresInit):
         self.ha.state_handler.name = self.ha.cluster.leader.name
         self.assertEqual(self.ha.run_cycle(),
                          'continue to run as a leader because failsafe mode is enabled and all members are accessible')
+        # e.g. replacing the watchdog device after a configuration change failed
+        with patch.object(Watchdog, 'activate', Mock(return_value=False)), patch.object(Ha, 'demote') as mock_demote:
+            self.assertEqual(self.ha.run_cycle(), 'Demoting self because watchdog could not be activated')
+        mock_demote.assert_called_once_with('offline')
+        self.assertFalse(self.ha.failsafe_is_active())
 
     def test_readonly_dcs_primary_failsafe(self):
         self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()

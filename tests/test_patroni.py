@@ -210,6 +210,14 @@ class TestPatroni(unittest.TestCase):
         self.p.next_run = time.monotonic() - self.p.dcs.loop_wait - 1
         self.p.schedule_next_run()
 
+    def test_schedule_next_run_for_watchdog(self):
+        self.p.next_run = time.monotonic()
+        with patch.object(self.p, 'watchdog', Mock(keepalive_interval=2.5)), \
+                patch.object(self.p.ha, 'watch', Mock(return_value=False)) as mock_watch:
+            self.p.schedule_next_run()
+        # the watchdog would expire before loop_wait
+        self.assertLessEqual(mock_watch.call_args[0][0], 2.5)
+
     def test__filter_tags(self):
         tags = {'noloadbalance': False, 'clonefrom': False, 'nosync': False, 'smth': 'random'}
         self.assertEqual(self.p._filter_tags(tags), {'smth': 'random'})
@@ -284,12 +292,6 @@ class TestPatroni(unittest.TestCase):
         self.p.reload_config()
         self.p._get_tags = Mock(side_effect=Exception)
         self.p.reload_config(local=True)
-
-    def test_reload_config_wakes_up_ha_for_watchdog(self):
-        with patch.object(self.p, 'watchdog', Mock(needs_immediate_keepalive=True)), \
-                patch.object(self.p.ha, 'wakeup') as mock_wakeup:
-            self.p.reload_config()
-        mock_wakeup.assert_called_once_with()
 
     def test_reload_config_checks_certificate_when_local_config_changed(self):
         """A renewed certificate must be detected even when the local config changed too."""

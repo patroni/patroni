@@ -193,10 +193,6 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
             if local or received_new_cert:
                 self.api.reload_config(self.config['restapi'])
             self.watchdog.reload_config(self.config)
-            if self.watchdog.needs_immediate_keepalive:
-                # Not every DCS starts the next cycle right away when the TTL changes, so the HA loop would sleep for
-                # the new loop_wait while the watchdog is still armed with the timeout of the previous configuration.
-                self.ha.wakeup()
             self._last_effective_role = ROLE_CONFIG_SUFFIX_MAP.get(self.postgresql.role)
             self._last_effective_pg_config = \
                 self.config.build_effective_postgresql_configuration(self.postgresql.role)
@@ -213,10 +209,14 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
     def schedule_next_run(self) -> None:
         """Schedule the next run of the ``patroni`` daemon main loop.
 
-        Next run is scheduled based on previous run plus value of ``loop_wait`` configuration from DCS. If that has
-        already been exceeded, run the next cycle immediately.
+        Next run is scheduled based on previous run plus value of ``loop_wait`` configuration from DCS, or more often
+        if the active watchdog would expire before. If that has already been exceeded, run the next cycle immediately.
         """
-        self.next_run += self.dcs.loop_wait
+        loop_wait = self.dcs.loop_wait
+        keepalive_interval = self.watchdog.keepalive_interval
+        if keepalive_interval is not None:
+            loop_wait = min(loop_wait, keepalive_interval)
+        self.next_run += loop_wait
         current_time = time.monotonic()
         nap_time = self.next_run - current_time
         if nap_time <= 0:

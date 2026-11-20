@@ -123,7 +123,7 @@ class Watchdog(object):
             self._impl_pending = False
         # If watchdog is not active we can apply config immediately to show any warnings early. Otherwise we need to
         # delay until next time a keepalive is sent so timeout matches up with leader key update. Until then the armed
-        # timeout still protects the leader key, see needs_immediate_keepalive.
+        # timeout still protects the leader key, see keepalive_interval.
         if self.active:
             return
         self._apply_inactive_config()
@@ -195,10 +195,6 @@ class Watchdog(object):
         try:
             self.impl.open()
             actual_timeout = self._set_timeout()
-            if self.impl.is_running and actual_timeout < self.config.loop_wait and \
-                    self._disable_unsafe_timeout(actual_timeout):
-                self.impl = NullWatchdog()
-                actual_timeout = None
         except WatchdogError as e:
             log = logger.warning if self.config.mode == MODE_REQUIRED else logger.debug
             log("Could not activate %s: %s", self.impl.describe(), e)
@@ -218,18 +214,19 @@ class Watchdog(object):
         if self.is_running:
             logger.info("%s activated with %s second timeout, timing slack %s seconds",
                         self.impl.describe(), actual_timeout, self.config.timing_slack)
+            self._check_loop_wait(actual_timeout)
         elif self.config.mode == MODE_REQUIRED:
             logger.error("Configuration requires watchdog, but watchdog could not be activated")
             return False
 
         return True
 
-    def _check_timeout(self, actual_timeout: Optional[int]) -> bool:
+    def _check_timeout(self, actual_timeout: int) -> bool:
         """Check whether the implementation ensures safe termination within the configured timeout.
 
         :returns: ``False`` if a safe watchdog is required, but could not be configured.
         """
-        if not self.impl.is_running or actual_timeout and actual_timeout > self.config.timeout:
+        if not self.impl.is_running or actual_timeout > self.config.timeout:
             if self.config.mode == MODE_REQUIRED:
                 if self.impl.is_null:
                     logger.error("Configuration requires watchdog, but watchdog could not be configured.")
@@ -249,15 +246,11 @@ class Watchdog(object):
             self.impl.set_timeout(self.config.timeout)
         return self.impl.get_timeout()
 
-    def _disable_unsafe_timeout(self, actual_timeout: int) -> bool:
-        """Stop an unsafe timer, allowing magic close if explicit disabling is unsupported."""
-        logger.error('loop_wait of %s seconds is too long for watchdog %s second timeout',
-                     self.config.loop_wait, actual_timeout)
-        logger.info('Disabling watchdog due to unsafe timeout.')
-        if self._try_disable_impl(magic_close=True):
-            return True
-        logger.warning("Keeping %s because it could not be disabled", self.impl.describe())
-        return False
+    def _check_loop_wait(self, actual_timeout: int) -> None:
+        """A device might not accept a timeout that covers ``loop_wait``, see keepalive_interval."""
+        if actual_timeout < self.config.loop_wait:
+            logger.warning('Watchdog timeout of %s seconds is shorter than loop_wait of %s seconds, running the HA loop'
+                           ' every %s seconds', actual_timeout, self.config.loop_wait, actual_timeout / 2.0)
 
     @synchronized
     def disable(self) -> None:
@@ -320,13 +313,11 @@ class Watchdog(object):
         """Apply the configuration to the running implementation, see _activate()."""
         timeout_changed = self.config.timeout != self.active_config.timeout
         actual_timeout = self._set_timeout() if timeout_changed else self.impl.get_timeout()
-        # Same check as on activation, a device might not accept a timeout that covers the new loop_wait.
-        if actual_timeout < self.config.loop_wait and self._disable_unsafe_timeout(actual_timeout):
-            self.impl = NullWatchdog()
-            return self._check_timeout(None)
         if timeout_changed:
             logger.info("%s updated with %s second timeout, timing slack %s seconds",
                         self.impl.describe(), actual_timeout, self.config.timing_slack)
+        # Same checks as on activation, e.g. a device might not accept a timeout that covers the new loop_wait.
+        self._check_loop_wait(actual_timeout)
         return self._check_timeout(actual_timeout)
 
     def _apply_unsafe_timing(self) -> None:
@@ -380,17 +371,24 @@ class Watchdog(object):
 
     @property
     @synchronized
-    def needs_immediate_keepalive(self) -> bool:
-        """The timeout armed for the previous configuration would expire before the HA loop wakes up after the new
-        ``loop_wait``. Only the keepalive following the leader key update with the new TTL may apply the new timeout,
-        so it has to be sent right away."""
+    def keepalive_interval(self) -> Optional[float]:
+        """Seconds between HA loop runs needed to feed the watchdog, if it expires before ``loop_wait`` does.
+
+        A device might not accept a timeout that covers ``loop_wait``. Or the timeout armed for the previous
+        configuration stays in effect until the keepalive following the leader key update with the new TTL applies
+        the new one. Also a watchdog that isn't safe to lead with has to be fed until it is disabled.
+
+        :returns: half of the actual timeout if it is shorter than ``loop_wait``, otherwise ``None``.
+        """
         if not self.active or not self.impl.is_running:
-            return False
+            return None
         try:
             # The actual timeout, because a device might not have accepted the configured one.
-            return self.impl.get_timeout() < self.config.loop_wait
+            timeout = self.impl.get_timeout()
         except WatchdogError:
-            return True
+            # E.g. the device was removed, then running the HA loop more often doesn't help
+            return None
+        return timeout / 2.0 if timeout < self.config.loop_wait else None
 
     @property
     @synchronized
