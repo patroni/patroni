@@ -23,6 +23,7 @@ Feature: site awareness
     And Response on GET http://127.0.0.1:8010/patroni contains replication_state=streaming after 10 seconds
 
   Scenario: test local failover
+    Given replication works from postgres-0 to postgres-1 after 15 seconds
     When I shut down postgres-0
     Then postgres-1 role is the primary after 10 seconds
     And replication works from postgres-1 to postgres-2 after 15 seconds

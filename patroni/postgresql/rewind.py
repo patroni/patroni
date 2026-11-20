@@ -561,6 +561,7 @@ class Rewind(object):
         elif not self.check_leader_is_not_in_recovery(r):
             return
 
+        self._postgresql.config.write_restore_command(leader)
         if self.pg_rewind(r):
             self._maybe_clean_pg_replslot()
             self._state = REWIND_STATUS.SUCCESS

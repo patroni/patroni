@@ -285,6 +285,12 @@ class TestPatroni(unittest.TestCase):
         self.p._get_tags = Mock(side_effect=Exception)
         self.p.reload_config(local=True)
 
+    def test_reload_config_wakes_up_ha_for_watchdog(self):
+        with patch.object(self.p, 'watchdog', Mock(needs_immediate_keepalive=True)), \
+                patch.object(self.p.ha, 'wakeup') as mock_wakeup:
+            self.p.reload_config()
+        mock_wakeup.assert_called_once_with()
+
     def test_reload_config_checks_certificate_when_local_config_changed(self):
         """A renewed certificate must be detected even when the local config changed too."""
         self.p.api.reload_local_certificate = Mock(return_value=True)

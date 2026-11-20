@@ -1,8 +1,11 @@
 import datetime
 import os
 import shutil
+import socketserver
 import unittest
 
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event, Semaphore, Thread
 from unittest.mock import Mock, patch, PropertyMock
 
 import urllib3
@@ -19,6 +22,60 @@ from patroni.utils import RetryFailedError, tzutc
 
 class SleepException(Exception):
     pass
+
+
+class HangingHTTPRequestHandler(socketserver.BaseRequestHandler):
+
+    def handle(self):
+        self.request.recv(65536)
+        self.request.sendall(self.server.response)
+        if self.server.on_request:
+            self.server.on_request()
+        self.server.stopped.wait(30)
+
+
+class HangingHTTPServer(socketserver.ThreadingTCPServer):
+    """Sends *response* to every HTTP request and keeps the connection open, like a long-poll or a watch stream."""
+
+    daemon_threads = True
+
+    def __init__(self, response=b'', on_request=None):
+        super(HangingHTTPServer, self).__init__(('127.0.0.1', 0), HangingHTTPRequestHandler)
+        self.response = response
+        self.on_request = on_request
+        self.stopped = Event()
+        self.url = 'http://127.0.0.1:{0}'.format(self.server_address[1])
+
+    def __enter__(self):
+        Thread(target=self.serve_forever, args=(0.05,), daemon=True).start()
+        return self
+
+    def __exit__(self, *args):
+        self.stopped.set()
+        self.shutdown()
+        self.server_close()
+
+
+def read_after_kill_stream(cache, get_cluster):
+    waiting = Semaphore(0)
+    wait = cache._condition.wait
+
+    def wait_for_snapshot(timeout):
+        waiting.release()
+        return wait(timeout)
+
+    with cache._condition:
+        cache._is_ready = True
+        cache.kill_stream()
+    # The HA loop and REST API threads can wait for the same snapshot at once, and all of them must be woken up
+    with patch.object(cache._condition, 'wait', wait_for_snapshot), ThreadPoolExecutor(2) as pool:
+        readers = [pool.submit(get_cluster) for _ in range(2)]
+        for _ in readers:
+            if not waiting.acquire(timeout=5):
+                raise AssertionError('get_cluster() did not wait for a fresh snapshot')
+        with patch.object(cache, '_do_watch', lambda _: [reader.result(5) for reader in readers]):
+            cache._build_cache()
+        return [reader.result(5) for reader in readers]
 
 
 mock_available_gucs = PropertyMock(return_value={
@@ -256,6 +313,8 @@ class PostgresInit(unittest.TestCase):
     @patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
     @patch.object(ConfigHandler, 'replace_pg_hba', Mock())
     @patch.object(ConfigHandler, 'replace_pg_ident', Mock())
+    # the data dir has no PG_VERSION, and an unknown version gets no unix sockets on Windows
+    @patch.object(ConfigHandler, '_unix_sockets_supported', PropertyMock(return_value=True))
     @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='primary'))
     def setUp(self):
         self._tmp_dir = 'data'
@@ -282,8 +341,11 @@ class PostgresInit(unittest.TestCase):
 
 class BaseTestPostgresql(PostgresInit):
 
-    @patch('time.sleep', Mock())
     def setUp(self):
+        for target in ('os.fsync', 'time.sleep'):
+            patcher = patch(target, Mock())
+            self.addCleanup(patcher.stop)
+            patcher.start()
         super(BaseTestPostgresql, self).setUp()
 
         if not os.path.exists(self.p.data_dir):

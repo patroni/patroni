@@ -92,6 +92,7 @@ class Watchdog(object):
         self.active_config: WatchdogConfig = self.config
         self.lock = RLock()
         self.active = False
+        self._impl_pending = False
 
         if self.config.mode == MODE_OFF:
             self.impl = NullWatchdog()
@@ -100,22 +101,28 @@ class Watchdog(object):
             if self.config.mode == MODE_REQUIRED and self.impl.is_null:
                 logger.error("Configuration requires a watchdog, but watchdog is not supported on this platform.")
                 sys.exit(1)
+        # Activation in required mode failed because of a too long timeout of the device, see is_healthy
+        self._unsafe_timeout = False
 
     @synchronized
     def reload_config(self, config: Config) -> None:
         self.config = WatchdogConfig(config)
+        self._unsafe_timeout = False
         # Turning a watchdog off can always be done immediately
         if self.config.mode == MODE_OFF:
             if self.active:
                 self._disable()
             self.active_config = self.config
             self.impl = NullWatchdog()
+            self._impl_pending = False
         # If watchdog is not active we can apply config immediately to show any warnings early. Otherwise we need to
         # delay until next time a keepalive is sent so timeout matches up with leader key update.
         if not self.active:
-            if self.config.driver != self.active_config.driver or \
-               self.config.driver_config != self.active_config.driver_config:
+            if self._impl_pending or self.config.mode != self.active_config.mode or \
+                    self.config.driver != self.active_config.driver or \
+                    self.config.driver_config != self.active_config.driver_config:
                 self.impl = self.config.get_impl()
+                self._impl_pending = False
             self.active_config = self.config
 
     @synchronized
@@ -126,7 +133,16 @@ class Watchdog(object):
         :returns False if a safe watchdog could not be configured, but is required.
         """
         self.active = True
-        return self._activate()
+        # A configuration change might have been deferred to a keepalive that was never sent
+        if not self.impl.is_running and (self._impl_pending or self.config.mode != self.active_config.mode):
+            self.impl = self.config.get_impl()
+            self._impl_pending = False
+        if self._activate():
+            return True
+        # The HA loop gives up the leader key, so keepalive() won't apply configuration changes anymore. Unless a
+        # running watchdog has to be disabled on demotion, reload_config() must apply them, or the node stays unhealthy.
+        self.active = self.impl.is_running
+        return False
 
     def _activate(self) -> bool:
         self.active_config = self.config
@@ -135,6 +151,8 @@ class Watchdog(object):
             logger.warning('Watchdog not supported because leader TTL %s is less than 2x loop_wait %s',
                            self.config.ttl, self.config.loop_wait)
             self.impl = NullWatchdog()
+            # Reacquire the configured device once a configuration change fixes the timing.
+            self._impl_pending = True
 
         try:
             self.impl.open()
@@ -142,6 +160,8 @@ class Watchdog(object):
         except WatchdogError as e:
             log = logger.warning if self.config.mode == MODE_REQUIRED else logger.debug
             log("Could not activate %s: %s", self.impl.describe(), e)
+            # The device is armed if open() succeeded, but _set_timeout() failed
+            self._disable()
             self.impl = NullWatchdog()
             actual_timeout = self.impl.get_timeout()
 
@@ -156,6 +176,8 @@ class Watchdog(object):
                 else:
                     logger.error("Configuration requires watchdog, but a safe watchdog timeout %s could"
                                  " not be configured. Watchdog timeout is %s.", self.config.timeout, actual_timeout)
+                    # Otherwise the node would keep winning leader races only to give up the leader key again
+                    self._unsafe_timeout = True
                 return False
             else:
                 if not self.impl.is_null:
@@ -200,6 +222,9 @@ class Watchdog(object):
                 self.impl.keepalive()
                 logger.warning("Watchdog implementation can't be disabled. System will reboot after "
                                "%s seconds when watchdog times out.", self.impl.get_timeout())
+        except WatchdogError as e:
+            logger.error("Error while disabling watchdog: %s", e)
+        try:
             self.impl.close()
         except WatchdogError as e:
             logger.error("Error while disabling watchdog: %s", e)
@@ -211,19 +236,23 @@ class Watchdog(object):
                 self.impl.keepalive()
             # In case there are any pending configuration changes apply them now.
             if self.active and self.config != self.active_config:
-                if self.config.mode != MODE_OFF and self.active_config.mode == MODE_OFF:
+                if not self.impl.is_running and (self._impl_pending or self.config.mode != self.active_config.mode):
                     self.impl = self.config.get_impl()
+                    self._impl_pending = False
                     self._activate()
                 if self.config.driver != self.active_config.driver \
                    or self.config.driver_config != self.active_config.driver_config:
                     self._disable()
                     self.impl = self.config.get_impl()
                     self._activate()
-                if self.config.timeout != self.active_config.timeout:
-                    self.impl.set_timeout(self.config.timeout)
-                    if self.is_running:
+                timeout_changed = self.config.timeout != self.active_config.timeout
+                if self.impl.is_running and (timeout_changed or self.config.loop_wait != self.active_config.loop_wait):
+                    # Same checks as on activation, a device might not support setting the timeout or might not accept
+                    # one that covers the new loop_wait.
+                    actual_timeout = self._set_timeout()
+                    if timeout_changed and self.is_running:
                         logger.info("%s updated with %s second timeout, timing slack %s seconds",
-                                    self.impl.describe(), self.impl.get_timeout(), self.config.timing_slack)
+                                    self.impl.describe(), actual_timeout, self.config.timing_slack)
                 self.active_config = self.config
         except WatchdogError as e:
             logger.error("Error while sending keepalive: %s", e)
@@ -235,10 +264,24 @@ class Watchdog(object):
 
     @property
     @synchronized
+    def needs_immediate_keepalive(self) -> bool:
+        """The timeout armed for the previous configuration would expire before the HA loop wakes up after the new
+        ``loop_wait``. Only the keepalive following the leader key update with the new TTL may apply the new timeout,
+        so it has to be sent right away."""
+        if not self.active or not self.impl.is_running:
+            return False
+        try:
+            # The actual timeout, because a device might not have accepted the configured one.
+            return self.impl.get_timeout() < self.config.loop_wait
+        except WatchdogError:
+            return True
+
+    @property
+    @synchronized
     def is_healthy(self) -> bool:
         if self.config.mode != MODE_REQUIRED:
             return True
-        return self.config.timing_slack >= 0 and self.impl.is_healthy
+        return self.config.timing_slack >= 0 and not self._unsafe_timeout and self.impl.is_healthy
 
 
 class WatchdogBase(abc.ABC):

@@ -9,8 +9,9 @@ from io import StringIO
 from unittest.mock import Mock, mock_open, patch
 
 from patroni.dcs import dcs_modules
+from patroni.exceptions import ConfigParseError
 from patroni.postgresql.sync import SYNC_STRICT_PLACEHOLDER
-from patroni.validator import Directory, populate_validate_params, schema, Schema
+from patroni.validator import Directory, Or, populate_validate_params, schema, Schema, validate_host_port, WithSection
 
 available_dcs = [m.split(".")[-1] for m in dcs_modules()]
 config = {
@@ -428,6 +429,82 @@ class TestValidator(unittest.TestCase):
         errors = schema(c)
         output = "\n".join(errors)
         self.assertEqual(['postgresql.bin_dir', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))
+
+    def test_consul_host_port(self, mock_out, mock_err):
+        # The mocked agent accepts connections on ports 1000-9999 and refuses them on ports below 1000
+        def consul_errors(consul):
+            c = copy.deepcopy(config)
+            c['consul'] = consul
+            return [e for e in schema(c) if e.startswith('consul.')]
+
+        # Without a port in host and consul.port the default Consul port 8500 is used
+        self.assertEqual(consul_errors({'host': '127.0.0.1'}), [])
+        # consul.port is used if host has no port
+        self.assertEqual(consul_errors({'host': '127.0.0.1', 'port': 500}),
+                         ["consul.host 127.0.0.1 didn't pass validation: 127.0.0.1 (port 500) is not reachable"])
+        # consul.port takes precedence over the port in host
+        self.assertEqual(consul_errors({'host': '127.0.0.1:500', 'port': 8500}), [])
+        self.assertEqual(consul_errors({'host': '127.0.0.1:5000', 'port': 500}),
+                         ["consul.host 127.0.0.1:5000 didn't pass validation: "
+                          "127.0.0.1:5000 (port 500) is not reachable"])
+        # The port in host is used if consul.port is not set
+        self.assertEqual(consul_errors({'host': '127.0.0.1:500'}),
+                         ["consul.host 127.0.0.1:500 didn't pass validation: 127.0.0.1:500 is not reachable"])
+        # An invalid consul.port is reported on its own, host is checked with the port in it
+        self.assertEqual(parse_output("\n".join(consul_errors({'host': '127.0.0.1:5000', 'port': 'foo'}))),
+                         ['consul.port'])
+        self.assertEqual(parse_output("\n".join(consul_errors({'host': '127.0.0.1:invalidport'}))), ['consul.host'])
+        self.assertEqual(consul_errors({'host': 8500}), ['consul.host 8500 is not a string'])
+        # An out-of-range consul.port is reported under its own option path
+        for port in (-1, 0, 65536):
+            self.assertEqual(parse_output("\n".join(consul_errors({'host': '127.0.0.1', 'port': port}))),
+                             ['consul.port'])
+        # consul.host is not probed when consul.url is set, as the client takes the address from the URL
+        self.assertEqual(consul_errors({'url': 'http://127.0.0.1:500', 'host': '127.0.0.1:500'}), [])
+
+    def test_with_section(self, mock_out, mock_err):
+        def validate_equals_other(value, section):
+            if value != section['other']:
+                raise ConfigParseError('must be equal to other')
+            return True
+
+        validator = WithSection(validate_equals_other)
+        self.assertFalse(hasattr(validator.bind({}), 'expected_type'))
+        self.assertEqual(Schema({'value': validator, 'other': int})({'value': 1, 'other': 1}), [])
+        self.assertEqual(Schema({'value': validator, 'other': int})({'value': 1, 'other': 2}),
+                         ["value 1 didn't pass validation: must be equal to other"])
+        # A WithSection can only be bound to the section when it is a direct value of a dictionary
+        with self.assertRaises(ConfigParseError):
+            Schema({'value': Or(validator, int)})({'value': 1})
+
+    def test_dcs_ports_range(self, mock_out, mock_err):
+        c = copy.deepcopy(config)
+        c['exhibitor']['port'] = 0
+        errors = [e for e in schema(c) if e.startswith('exhibitor.')]
+        self.assertEqual(parse_output("\n".join(errors)), ['exhibitor.port'])
+
+        c = copy.deepcopy(config)
+        c['kubernetes']['ports'] = [{'name': 'x', 'port': 0}]
+        errors = [e for e in schema(c) if e.startswith('kubernetes.')]
+        self.assertEqual(parse_output("\n".join(errors)), ['kubernetes.ports.0.port'])
+
+    def test_host_port_explicit_zero(self, mock_out, mock_err):
+        # Only port 1 accepts connections, so replacing a written port 0 with port 1 becomes visible
+        connect_ex = Mock(side_effect=lambda host_port: 0 if host_port[1] == 1 else 1)
+        populate_validate_params(ignore_listen_port=False)
+        c = copy.deepcopy(config)
+        c['restapi']['listen'] = '127.0.0.1:0'
+
+        with patch('socket.socket.connect_ex', connect_ex):
+            self.assertEqual([e for e in schema(c) if e.startswith('restapi.listen')], [])
+            with self.assertRaises(ConfigParseError) as e:
+                validate_host_port('127.0.0.1:0')
+            self.assertIn('127.0.0.1:0 is not reachable', str(e.exception))
+
+            # A host without a port is still checked on port 1
+            c['restapi']['listen'] = '127.0.0.1'
+            self.assertEqual([e for e in schema(c) if e.startswith('restapi.listen')],
+                             ["restapi.listen 127.0.0.1 didn't pass validation: Port 1 is already in use."])
 
     @staticmethod
     def _wildcard_getaddrinfo(host, port, *args):

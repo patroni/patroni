@@ -277,6 +277,19 @@ def mtime(filename: str) -> Optional[float]:
         return None
 
 
+def is_unix_socket_path(host: str) -> bool:
+    """Check whether *host* is a unix socket directory rather than a host name or an IP address.
+
+    ``libpq`` treats an absolute path as a unix socket directory. On Windows that includes a path that starts with a
+    drive letter, such as ``C:/pgsock``, which unix sockets support there since PostgreSQL 13.
+
+    :param host: value of the ``host`` connection parameter or one item of ``unix_socket_directories``.
+
+    :returns: ``True`` if *host* is an absolute path on this platform.
+    """
+    return host.startswith('/') or os.path.isabs(host)
+
+
 class ConfigWriter(object):
     """Write a configuration file atomically.
 
@@ -661,8 +674,9 @@ class ConfigHandler(object):
         # when we are doing custom bootstrap we assume that we don't know superuser password
         # and in order to be able to change it, we are opening trust access from a certain address
         if self._postgresql.bootstrap.running_custom_bootstrap:
-            addresses = {} if os.name == 'nt' else {'': 'local'}  # windows doesn't yet support unix-domain sockets
-            if 'host' in self.local_replication_address and not self.local_replication_address['host'].startswith('/'):
+            addresses = {'': 'local'} if self._unix_sockets_supported else {}
+            if 'host' in self.local_replication_address \
+                    and not is_unix_socket_path(self.local_replication_address['host']):
                 addresses.update({sa[0] + '/32': 'host' for _, _, _, _, sa in getaddrinfo(
                                   self.local_replication_address['host'], self.local_replication_address['port'],
                                   0, socket.SOCK_STREAM, socket.IPPROTO_TCP)})
@@ -948,19 +962,24 @@ class ConfigHandler(object):
 
         return all(str(primary_conninfo.get(p)) == str(v) for p, v in wanted_primary_conninfo.items() if v is not None)
 
-    def check_recovery_conf(self, member: Union[Leader, Member, None]) -> Tuple[bool, bool]:
-        """Returns a tuple. The first boolean element indicates that recovery params don't match
-           and the second is set to `True` if the restart is required in order to apply new values"""
+    def _get_changed_recovery_params(self, member: Union[Leader, Member, None]) -> Optional[Dict[str, List[str]]]:
+        """Compare current values of recovery parameters with values required to replicate from the *member*.
 
+        :param member: the member to replicate from, or ``None``.
+
+        :returns: ``None`` if Postgres isn't configured as a standby or current values of recovery parameters
+            can't be determined, otherwise a :class:`dict` with ``restart`` and ``reload`` keys, containing names
+            of mismatched parameters which require a restart or a reload, respectively, to apply new values.
+        """
         # TODO: recovery.conf could be stale, would be nice to detect that.
         if self._postgresql.major_version >= 120000:
             if not os.path.exists(self._standby_signal):
-                return True, True
+                return None
 
             _read_recovery_params = self._read_recovery_params
         else:
             if not self.recovery_conf_exists():
-                return True, True
+                return None
 
             _read_recovery_params = self._read_recovery_params_pre_v12
 
@@ -969,7 +988,7 @@ class ConfigHandler(object):
         # was changed and params were read either from the config or from the database connection.
         if updated:
             if params is None:  # exception or unparsable config
-                return True, True
+                return None
 
             # We will cache parsed value until the next config change.
             self._current_recovery_params = params
@@ -978,7 +997,7 @@ class ConfigHandler(object):
                 primary_conninfo[0] = parse_dsn(params['primary_conninfo'][0])
                 # If we failed to parse non-empty connection string this indicates that config if broken.
                 if not primary_conninfo[0]:
-                    return True, True
+                    return None
             else:  # empty string, primary_conninfo is not in the config
                 primary_conninfo[0] = {}
 
@@ -989,10 +1008,6 @@ class ConfigHandler(object):
                 wal_receiver_primary_slot_name = ''
             if wal_receiver_primary_slot_name is not None:
                 self._current_recovery_params['primary_slot_name'][0] = wal_receiver_primary_slot_name
-
-        # Enforce write of postgresql.conf when joining the running postgres
-        force_reload = self._postgresql.major_version >= 120000 \
-            and not self._postgresql.cb_called and not self._postgresql.is_starting()
 
         # Names of the changed parameters. Values are not logged, they can be sensitive.
         changed: Dict[str, List[str]] = {'restart': [], 'reload': []}
@@ -1020,11 +1035,40 @@ class ConfigHandler(object):
             elif (param != 'primary_slot_name' or wanted_recovery_params.get('primary_conninfo')) \
                     and str(value[0]) != str(wanted_recovery_params.get(param, '')):
                 record_mismatch(param, value[1])
+        return changed
+
+    def check_recovery_conf(self, member: Union[Leader, Member, None]) -> Tuple[bool, bool]:
+        """Returns a tuple. The first boolean element indicates that recovery params don't match
+           and the second is set to `True` if the restart is required in order to apply new values"""
+        changed = self._get_changed_recovery_params(member)
+        if changed is None:
+            return True, True
+
+        # Enforce write of postgresql.conf when joining the running postgres
+        force_reload = self._postgresql.major_version >= 120000 \
+            and not self._postgresql.cb_called and not self._postgresql.is_starting()
+
         names = changed['restart'] + changed['reload']
         if names:
             logger.info('Recovery parameters changed, %s required: %s',
                         'restart' if changed['restart'] else 'reload', ', '.join(names))
-        return bool(force_reload or changed['restart'] or changed['reload']), bool(changed['restart'])
+        return bool(force_reload or names), bool(changed['restart'])
+
+    def recovery_params_match(self, member: Union[Leader, Member, None]) -> bool:
+        """Check whether Postgres is already configured to replicate from the *member*.
+
+        .. note::
+            Unlike :meth:`check_recovery_conf` it doesn't enforce rewrite of ``postgresql.conf`` when Patroni
+            is joining running Postgres and doesn't log names of mismatched parameters.
+
+        :param member: the member to replicate from, or ``None``.
+
+        :returns: ``True`` if current values of recovery parameters are known and match values that Patroni
+            would set in order to replicate from the *member*, ``False`` otherwise.
+        """
+        changed = self._get_changed_recovery_params(member)
+        return bool(changed is not None and self._current_recovery_params
+                    and not changed['restart'] and not changed['reload'])
 
     @staticmethod
     def _remove_file_if_exists(name: str) -> None:
@@ -1188,11 +1232,16 @@ class ConfigHandler(object):
                     for k in ('hba_file', 'ident_file', 'hosts_file') if k in ret})
         return ret
 
+    @property
+    def _unix_sockets_supported(self) -> bool:
+        """``False`` on Windows with PostgreSQL older than 13 (or a not yet known version): no unix sockets there."""
+        return os.name != 'nt' or self._postgresql.major_version >= 130000
+
     @staticmethod
     def _get_unix_local_address(unix_socket_directories: str) -> str:
         for d in unix_socket_directories.split(','):
             d = d.strip()
-            if d.startswith('/'):  # Only absolute path can be used to connect via unix-socket
+            if is_unix_socket_path(d):  # Only absolute path can be used to connect via unix-socket
                 return d
         return ''
 
@@ -1241,7 +1290,10 @@ class ConfigHandler(object):
         unix_socket_directories = self._server_parameters.get('unix_socket_directories')
         if unix_socket_directories is not None:
             # fallback to tcp if unix_socket_directories is set, but there are no suitable values
-            unix_local_address['host'] = self._get_unix_local_address(unix_socket_directories) or tcp_local_address
+            # or PostgreSQL doesn't support unix sockets on this platform
+            unix_local_address['host'] = (self._unix_sockets_supported
+                                          and self._get_unix_local_address(unix_socket_directories)
+                                          or tcp_local_address)
 
         tcp_local_address = {'host': tcp_local_address, 'port': port}
 
@@ -1558,6 +1610,24 @@ class ConfigHandler(object):
 
     def restore_command(self) -> Optional[str]:
         return (self.get('recovery_conf') or EMPTY_DICT).get('restore_command')
+
+    def write_restore_command(self, member: Union[Leader, RemoteMember]) -> None:
+        """Write ``restore_command`` to ``postgresql.conf`` so that ``pg_rewind`` can fetch WAL from the archive.
+
+        A node that is not a standby has no recovery parameters, and therefore no ``restore_command`` in its
+        config files, but ``pg_rewind --restore-target-wal`` and ``Rewind.pg_rewind()`` read it from there.
+
+        :param member: the member we are going to rewind from. For the standby cluster leader it is
+            :class:`RemoteMember` and its ``restore_command`` takes precedence.
+        """
+        if self._postgresql.major_version < 120000:
+            return
+
+        restore_command = isinstance(member, RemoteMember) and member.data.get('restore_command') \
+            or self.restore_command()
+        if restore_command:
+            self._recovery_params = CaseInsensitiveDict({'restore_command': restore_command})
+            self.write_postgresql_conf()
 
     @property
     def synchronous_standby_names(self) -> Optional[str]:

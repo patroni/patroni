@@ -1,7 +1,7 @@
 import socket
 import unittest
 
-from unittest.mock import Mock, patch, PropertyMock
+from unittest.mock import MagicMock, Mock, patch, PropertyMock
 
 import etcd
 import urllib3.util.connection
@@ -16,7 +16,7 @@ from patroni.exceptions import DCSError
 from patroni.postgresql.mpp import get_mpp
 from patroni.utils import Retry, SyncCrossSiteMode
 
-from . import MockResponse, requests_get, SleepException
+from . import HangingHTTPServer, MockResponse, requests_get, SleepException
 
 
 def etcd_watch(self, key, index=None, timeout=None, recursive=None):
@@ -238,11 +238,35 @@ class TestClient(unittest.TestCase):
         self.assertFalse(self.client._refresh_machines_cache())
         self.assertRaises(etcd.EtcdException, self.client._refresh_machines_cache, ['http://localhost:2379'])
 
+    @patch.object(EtcdClient, '_get_machines_list',
+                  Mock(return_value=['https://localhost:2379', 'https://localhost:4001']))
+    def test__refresh_machines_cache_configures_tls_for_https_members(self):
+        # An HTTP seed can advertise HTTPS client URLs via member discovery;
+        # TLS must be (re)configured when such endpoints appear even though the
+        # seed itself was HTTP.
+        self.client._tls_configured = False
+        with patch.object(EtcdClient, '_configure_tls') as configure_tls:
+            self.client._refresh_machines_cache(['http://localhost:2379'])
+        configure_tls.assert_called_once()
+        self.assertTrue(self.client._tls_configured)
+
     def test__load_machines_cache(self):
         self.client._config = {}
         self.assertRaises(Exception, self.client._load_machines_cache)
         self.client._config = {'srv': 'blabla'}
         self.assertRaises(etcd.EtcdException, self.client._load_machines_cache)
+
+    @patch.object(EtcdClient, '_get_machines_cache_from_config',
+                  Mock(return_value=['https://localhost:2379', 'https://localhost:4001']))
+    def test__load_machines_cache_configures_tls_for_https_config(self):
+        # Config/SRV endpoints that are already HTTPS must trigger TLS
+        # configuration before the first request.
+        self.client._tls_configured = False
+        with patch.object(EtcdClient, '_refresh_machines_cache', Mock(return_value=True)), \
+                patch.object(EtcdClient, '_configure_tls') as configure_tls:
+            self.client._load_machines_cache()
+        configure_tls.assert_called_once()
+        self.assertTrue(self.client._tls_configured)
 
     @patch.object(socket.socket, 'connect')
     def test_create_connection_patched(self, mock_connect):
@@ -366,6 +390,34 @@ class TestEtcd(unittest.TestCase):
         with patch.object(AbstractDCS, 'watch', Mock()):
             self.assertTrue(self.etcd.watch(20729, 19.5))
             self.assertRaises(SleepException, self.etcd.watch, 20729, 9.5)
+        self.etcd.wakeup()
+        with patch.object(EtcdClient, 'watch') as mock_watch:
+            self.assertTrue(self.etcd.watch(20729, 9.5))
+            mock_watch.assert_not_called()
+        self.assertFalse(self.etcd.event.is_set())
+
+    def test_wakeup(self):
+        timeout = urllib3.Timeout(connect=5, read=5)
+        with HangingHTTPServer(on_request=self.etcd.wakeup) as server, \
+                patch('socket.getaddrinfo', Mock(return_value=[(socket.AF_INET, 1, 6, '', server.server_address)])), \
+                patch.object(EtcdClient, 'watch', Mock(side_effect=lambda *_, **__: self.etcd._client.http.urlopen(
+                    'GET', server.url, retries=False, timeout=timeout))) as mock_watch:
+            self.assertTrue(self.etcd.watch(20729, 10))
+            mock_watch.assert_called_once()
+            server.on_request = self.etcd._watch_interrupter.interrupt
+            with patch.object(self.etcd._watch_interrupter, 'interrupt'):
+                self.etcd.wakeup()
+            self.assertTrue(self.etcd.watch(20729, 10))
+            self.assertFalse(self.etcd.event.is_set())
+            with patch.object(self.etcd.event, 'wait') as wait:
+                self.assertTrue(self.etcd.watch(20729, 10))
+                wait.assert_not_called()
+            self.assertEqual(mock_watch.call_count, 2)
+        self.assertFalse(self.etcd.event.is_set())
+        # the wakeup was consumed, the next watch waits for the leader key again
+        with patch.object(EtcdClient, 'watch', Mock(side_effect=etcd.EtcdWatchTimedOut)) as mock_watch:
+            self.assertFalse(self.etcd.watch(20729, 10))
+            mock_watch.assert_called_once()
 
     def test_other_exceptions(self):
         self.etcd.retry = Mock(side_effect=AttributeError('foo'))
@@ -402,3 +454,141 @@ class TestEtcd(unittest.TestCase):
             mock_sync_state.return_value = {'cross_site_mode': 'invalid'}
             self.etcd.set_sync_state_value = Mock(return_value='foo')
             self.etcd.write_sync_state('a', ['b'], 0, 1)
+
+class TestConfigureTLS(unittest.TestCase):
+
+    def _run(self, config, pool_kw=None):
+        from patroni.dcs.etcd import AbstractEtcdClientWithFailover
+
+        class _FakeHTTP:
+            def __init__(self):
+                self.connection_pool_kw = dict(pool_kw or {})
+                self.pool_classes_by_scheme = {'https': object}
+
+        class _FakeClient:
+            _config = config
+            http = _FakeHTTP()
+
+        client = _FakeClient()
+        AbstractEtcdClientWithFailover._configure_tls(client)
+        return client
+
+    def test_secure_defaults_are_noop(self):
+        # All defaults -> early return, pool untouched.
+        client = self._run({})
+        self.assertEqual(client.http.connection_pool_kw, {})
+
+    def test_verify_false_sets_cert_none(self):
+        client = self._run({'verify': False})
+        kw = client.http.connection_pool_kw
+        self.assertEqual(kw['cert_reqs'], 'CERT_NONE')
+        self.assertFalse(kw['assert_hostname'])
+        self.assertNotIn('ssl_context', kw)
+
+    def test_verify_hostname_false(self):
+        client = self._run({'verify_hostname': False})
+        kw = client.http.connection_pool_kw
+        self.assertEqual(kw['cert_reqs'], 'CERT_REQUIRED')
+        self.assertFalse(kw['assert_hostname'])
+
+    def test_cn_fallback_true_on_urllib3_1x(self):
+        # urllib3 1.x + cn_fallback=True -> warns, does not swap pool class.
+        with patch('patroni.dcs.etcd.urllib3.__version__', '1.26.20'):
+            client = self._run({'hostname_checks_common_name': True})
+        self.assertNotIn('ssl_context', client.http.connection_pool_kw)
+
+    def test_cn_fallback_false_on_urllib3_1x_installs_pool(self):
+        # urllib3 1.x + cn_fallback=False -> installs EtcdHTTPSConnectionPool.
+        from patroni.dcs.etcd import EtcdHTTPSConnectionPool
+        with patch('patroni.dcs.etcd.urllib3.__version__', '1.26.20'):
+            client = self._run({'hostname_checks_common_name': False})
+        self.assertIs(client.http.pool_classes_by_scheme['https'],
+                      EtcdHTTPSConnectionPool)
+
+    def test_cn_fallback_false_on_urllib3_1x_keeps_responses_interruptible(self):
+        from patroni.dcs.etcd import AbstractEtcdClientWithFailover, EtcdHTTPSConnectionPool
+        from patroni.interrupt import make_interruptible
+        http = make_interruptible(urllib3.PoolManager())
+        connection_cls = http.connection_from_url('https://etcd:2379').ConnectionCls
+        http.clear()
+        client = Mock(_config={'hostname_checks_common_name': False}, http=http)
+        with patch('patroni.dcs.etcd.urllib3.__version__', '1.26.20'):
+            AbstractEtcdClientWithFailover._configure_tls(client)
+        pool = http.connection_from_url('https://etcd:2379')
+        self.assertIsInstance(pool, EtcdHTTPSConnectionPool)
+        self.assertIs(pool.ConnectionCls, connection_cls)
+
+    def test_cn_fallback_true_on_urllib3_2x(self):
+        # urllib3 2.x + cn_fallback=True -> builds a custom ssl_context.
+        fake_ctx = MagicMock()
+        fake_ctx.hostname_checks_common_name = True
+        with patch('patroni.dcs.etcd.urllib3.__version__', '2.0.7'), \
+             patch('urllib3.connection.create_urllib3_context',
+                   return_value=fake_ctx):
+            client = self._run({'hostname_checks_common_name': True},
+                               pool_kw={'ca_certs': '/tmp/ca.pem'})
+        self.assertIs(client.http.connection_pool_kw['ssl_context'], fake_ctx)
+
+    def test_cn_fallback_false_on_urllib3_2x_is_noop(self):
+        # urllib3 2.x + cn_fallback=False -> SAN-only is already the default.
+        with patch('patroni.dcs.etcd.urllib3.__version__', '2.0.7'):
+            client = self._run({'hostname_checks_common_name': False})
+        self.assertNotIn('ssl_context', client.http.connection_pool_kw)
+
+    def test_cn_fallback_2x_setter_unsupported_warns(self):
+        # urllib3 2.x but the backend can't enable CN fallback (setter raises):
+        # warn and retain SAN-only (no ssl_context set).
+        fake_ctx = MagicMock()
+        type(fake_ctx).hostname_checks_common_name = PropertyMock(
+            side_effect=AttributeError)
+        with patch('patroni.dcs.etcd.urllib3.__version__', '2.0.7'), \
+             patch('urllib3.connection.create_urllib3_context',
+                   return_value=fake_ctx):
+            client = self._run({'hostname_checks_common_name': True})
+        self.assertNotIn('ssl_context', client.http.connection_pool_kw)
+
+    def test_cn_fallback_2x_loads_default_certs_when_no_ca(self):
+        # urllib3 2.x + cn_fallback=True + no CA configured -> load system trust.
+        fake_ctx = MagicMock()
+        fake_ctx.hostname_checks_common_name = True
+        with patch('patroni.dcs.etcd.urllib3.__version__', '2.0.7'), \
+             patch('urllib3.connection.create_urllib3_context',
+                   return_value=fake_ctx):
+            client = self._run({'hostname_checks_common_name': True})
+        # No ca_certs in pool -> load_default_certs() was invoked, context set.
+        fake_ctx.load_default_certs.assert_called_once()
+        self.assertIs(client.http.connection_pool_kw['ssl_context'], fake_ctx)
+
+    def test_cn_fallback_2x_no_load_default_certs_warns(self):
+        # urllib3 2.x + cn_fallback=True + no CA + backend without a callable
+        # load_default_certs -> warn and retain SAN-only (no ssl_context set).
+        fake_ctx = MagicMock()
+        fake_ctx.hostname_checks_common_name = True
+        fake_ctx.load_default_certs = None  # not callable
+        with patch('patroni.dcs.etcd.urllib3.__version__', '2.0.7'), \
+             patch('urllib3.connection.create_urllib3_context',
+                   return_value=fake_ctx):
+            client = self._run({'hostname_checks_common_name': True})
+        self.assertNotIn('ssl_context', client.http.connection_pool_kw)
+
+
+class TestEtcdHTTPSConnectionPool(unittest.TestCase):
+
+    def _validate(self, cert):
+        import urllib3
+
+        from patroni.dcs.etcd import EtcdHTTPSConnectionPool
+        pool = EtcdHTTPSConnectionPool.__new__(EtcdHTTPSConnectionPool)
+        conn = MagicMock()
+        conn.sock.getpeercert.return_value = cert
+        with patch.object(urllib3.HTTPSConnectionPool, '_validate_conn'):
+            pool._validate_conn(conn)
+
+    def test_san_present_passes(self):
+        # Cert with a DNS SAN passes.
+        self._validate({'subjectAltName': (('DNS', 'etcd'),)})
+
+    def test_no_san_raises(self):
+        from patroni.dcs.etcd import SSLError
+        with self.assertRaises(SSLError):
+            self._validate({'subject': ((('commonName', 'etcd'),),)})
