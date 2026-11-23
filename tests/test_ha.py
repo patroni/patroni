@@ -307,6 +307,8 @@ class TestHa(PostgresInit):
         self.p.controldata = lambda: {'Database cluster state': 'in recovery', 'Database system identifier': SYSID}
         self.p.is_running = false
         self.p.follow = true
+        with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)):
+            self.ha.demote('offline')
         self.assertEqual(self.ha.run_cycle(), 'starting as a secondary')
         self.p.is_running = true
         ha_dcs_orig_name = self.ha.dcs.__class__.__name__
@@ -397,9 +399,17 @@ class TestHa(PostgresInit):
         self.p.is_running = false
         self.p.controldata = lambda: {'Database cluster state': 'in archive recovery',
                                       'Database system identifier': SYSID}
-        self.ha._rewind.trigger_check_diverged_lsn()
+        executor = self.ha._async_executor
+        with patch.object(type(executor), 'busy', PropertyMock(return_value=True)):
+            self.ha.demote('offline')
         self.ha.cluster = get_cluster_initialized_with_leader()
-        self.assertEqual(self.ha.run_cycle(), 'doing crash recovery in a single user mode')
+        with patch.object(executor, 'run_async', return_value=None) as dispatch:
+            self.assertEqual(self.ha.run_cycle(), 'doing crash recovery in a single user mode')
+        executor.run(*dispatch.call_args[0], **dispatch.call_args[1])
+        self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('DCS unavailable'))
+        self.p.follow = Mock()
+        self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
+        self.p.follow.assert_not_called()
 
     @patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
     @patch.object(Rewind, 'can_rewind', PropertyMock(return_value=True))
