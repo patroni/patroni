@@ -2212,19 +2212,17 @@ class Ha(object):
             return (False, "restart conditions are not satisfied")
 
         with self._async_executor:
-            prev = self._async_executor.schedule('restart')
-            if prev is not None:
-                return (False, prev + ' already in progress')
+            action = self._async_executor.schedule('restart')
+            if isinstance(action, str):
+                return (False, action + ' already in progress')
 
             # Make the main loop to think that we were recovering dead postgres. If we fail
             # to start postgres after a specified timeout (see below), we need to remove
             # leader key (if it belong to us) rather than trying to start postgres once again.
             self._recovering = self._recovering or _RecoveryAction.CHECK_START
 
-        # Now that restart is scheduled we can set timeout for startup, it will get reset
-        # once async executor runs and main loop notices PostgreSQL as up.
-        timeout = restart_data.get('timeout', global_config.primary_start_timeout)
-        self.set_start_timeout(timeout)
+            timeout = restart_data.get('timeout', global_config.primary_start_timeout)
+            self.set_start_timeout(timeout)
 
         def before_shutdown() -> None:
             self.notify_mpp_coordinator('before_demote')
@@ -2240,10 +2238,10 @@ class Ha(object):
             do_restart = functools.partial(self.while_not_sync_standby, do_restart)
 
         if run_async:
-            self._async_executor.run_async(do_restart)
+            self._async_executor.run_async(action, do_restart)
             return (True, 'restart initiated')
         else:
-            res = self._async_executor.run(do_restart)
+            res = self._async_executor.run(action, do_restart)
             if res:
                 return (True, 'restarted successfully')
             elif res is None:
@@ -2282,10 +2280,10 @@ class Ha(object):
 
         with self._async_executor:
             action = self._async_executor.schedule('reinitialize')
-            if action is not None:
+            if isinstance(action, str):
                 return '{0} already in progress'.format(action)
 
-        self._async_executor.run_async(self._do_reinitialize, args=(cluster, from_leader))
+        self._async_executor.run_async(action, self._do_reinitialize, args=(cluster, from_leader))
 
     def handle_long_action_in_progress(self) -> str:
         """Figure out what to do with the task AsyncExecutor is performing."""

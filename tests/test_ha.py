@@ -175,7 +175,7 @@ zookeeper:
         self.site = 'dc1'
 
 
-def run_async(self, func, args=()):
+def run_async(self, action, func, args=()):
     self.reset_scheduled_action()
     if args:
         func(*args)
@@ -345,7 +345,7 @@ class TestHa(PostgresInit):
                 patch.object(self.p, 'terminate_starting_postmaster') as terminate:
             self.assertEqual(self.ha.run_cycle(), 'demoted self because DCS is not accessible and I was a leader')
             terminate.assert_called_once_with(postmaster=task.result)
-        executor.run(false)
+        executor.reset_scheduled_action()
         self.assertEqual(self.ha.run_cycle(), 'removed leader key after trying and failing to start postgres')
 
     @patch.object(Rewind, 'ensure_clean_shutdown', Mock())
@@ -670,7 +670,7 @@ class TestHa(PostgresInit):
             self.p.is_running = false
             self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
             self.p.follow.assert_not_called()
-        executor.run(false)
+        executor.reset_scheduled_action()
         self.p.set_role(PostgresqlRole.PRIMARY)  # start() can set the role before it notices cancellation.
         self.assertEqual(self.ha.run_cycle(), 'starting as a secondary after offline demotion')
         self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
@@ -947,6 +947,23 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.restart({}), (False, 'reinitialize already in progress'))
         with patch.object(self.ha, "restart_matches", return_value=False):
             self.assertEqual(self.ha.restart({'foo': 'bar'}), (False, "restart conditions are not satisfied"))
+
+    def test_force_reinitialize_before_restart_dispatch(self):
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        executor = self.ha._async_executor
+        run = executor.run
+
+        def reinitialize_then_run(*args):
+            self.assertIsNone(self.ha.reinitialize(force=True))
+            return run(*args)
+
+        with patch.object(executor, 'run', reinitialize_then_run), patch.object(executor, 'run_async') as dispatch, \
+                patch.object(self.p, 'restart') as restart, patch.object(self.ha, '_do_reinitialize') as reinitialize:
+            self.assertFalse(self.ha.restart({})[0])
+            restart.assert_not_called()
+            self.assertEqual(executor.scheduled_action, 'reinitialize')
+            run(*dispatch.call_args[0], **dispatch.call_args[1])
+            reinitialize.assert_called_once_with(self.ha.cluster, False)
 
     @patch('time.sleep', Mock())
     @patch.object(ConfigHandler, 'replace_pg_hba', Mock())
