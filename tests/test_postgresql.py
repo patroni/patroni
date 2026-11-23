@@ -1,4 +1,5 @@
 import datetime
+import hashlib
 import logging
 import ntpath
 import os
@@ -20,7 +21,7 @@ import patroni.psycopg as psycopg
 from patroni import global_config
 from patroni.async_executor import CriticalTask
 from patroni.collections import CaseInsensitiveDict, CaseInsensitiveSet
-from patroni.dcs import RemoteMember
+from patroni.dcs import Member, RemoteMember
 from patroni.exceptions import PatroniException, PostgresConnectionException
 from patroni.file_perm import pg_perm
 from patroni.postgresql import PgIsReadyStatus, Postgresql
@@ -1493,6 +1494,17 @@ class TestPostgresql2(BaseTestPostgresql):
         gucs = self.p.available_gucs
         self.assertIsInstance(gucs, CaseInsensitiveSet)
         self.assertEqual(gucs, mock_available_gucs.return_value)
+
+    def test_primary_conninfo_application_name(self):
+        local_member = Member(0, 'primary', 1, {'conn_url': 'postgres://replicator@127.0.0.1/postgres'})
+        params = self.p.config.primary_conninfo_params(local_member)
+        self.assertEqual(params['application_name'], self.p.name)
+
+        remote_member = RemoteMember('remote', {'conn_kwargs': {'host': 'remote.example'}})
+        params = self.p.config.primary_conninfo_params(remote_member)
+        expected = 'geo_' + hashlib.sha256(self.p.name.encode('utf-8')).hexdigest()[:59]
+        self.assertEqual(params['application_name'], expected)
+        self.assertEqual(len(params['application_name']), 63)
 
     def test_cluster_info_query(self):
         self.assertIn('diff(pg_catalog.pg_current_wal_flush_lsn(', self.p.cluster_info_query)
