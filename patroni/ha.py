@@ -236,6 +236,7 @@ class _RecoveryAction(Enum):
 class Ha(object):
 
     _RESTART_ACTIONS = ('restart', 'starting primary after failure')
+    _START_AS_REPLICA = 'restarting after failure'
 
     def __init__(self, patroni: Patroni):
         self.patroni = patroni
@@ -777,9 +778,9 @@ class Ha(object):
             if self.is_synchronous_mode():
                 self.state_handler.sync_handler.set_synchronous_standby_names(CaseInsensitiveSet())
 
-        if self._async_executor.try_run_async('restarting after failure', self.state_handler.follow,
+        if self._async_executor.try_run_async(self._START_AS_REPLICA, self.state_handler.follow,
                                               args=(node_to_follow, role, timeout)) is None:
-            self._recovering = _RecoveryAction.CHECK_START
+            self._recovering = self._recovering or _RecoveryAction.CHECK_START
         return msg
 
     def _get_node_to_follow(self, cluster: Cluster) -> Union[Leader, Member, None]:
@@ -2212,6 +2213,8 @@ class Ha(object):
             return (False, "restart conditions are not satisfied")
 
         with self._async_executor:
+            if self._recovering is _RecoveryAction.FOLLOW_OFFLINE:
+                return (False, 'offline demotion in progress')
             action = self._async_executor.schedule('restart')
             if isinstance(action, str):
                 return (False, action + ' already in progress')
@@ -2219,7 +2222,7 @@ class Ha(object):
             # Make the main loop to think that we were recovering dead postgres. If we fail
             # to start postgres after a specified timeout (see below), we need to remove
             # leader key (if it belong to us) rather than trying to start postgres once again.
-            self._recovering = self._recovering or _RecoveryAction.CHECK_START
+            self._recovering = _RecoveryAction.CHECK_START
 
             timeout = restart_data.get('timeout', global_config.primary_start_timeout)
             self.set_start_timeout(timeout)
@@ -2473,6 +2476,8 @@ class Ha(object):
             if self.state_handler.bootstrapping:
                 return self.post_bootstrap()
 
+            if self._recovering is _RecoveryAction.FOLLOW_OFFLINE and self.state_handler.is_running():
+                self._recovering = _RecoveryAction.CHECK_START
             check_start = self._recovering is _RecoveryAction.CHECK_START
             if check_start:
                 self._recovering = None
@@ -2611,7 +2616,10 @@ class Ha(object):
         finally:
             if not dcs_failed:
                 if not busy and self._recovering is _RecoveryAction.FOLLOW_OFFLINE:
-                    self._recovering = None  # Normal recovery took over once the worker finished.
+                    # Releasing the old key or queuing follow does not configure a replica. Drop the offline fallback
+                    # only if DCS chose different work (e.g. rewind) instead.
+                    if self._async_executor.scheduled_action not in (None, self._START_AS_REPLICA):
+                        self._recovering = None
                 if self.is_leader():
                     self._failsafe.set_is_active(float('-inf'))
                 self.touch_member()
@@ -2620,9 +2628,11 @@ class Ha(object):
         if not self.is_paused():
             running = self.state_handler.is_running()
             if self._recovering is _RecoveryAction.FOLLOW_OFFLINE and not self._async_executor.busy:
+                if not running and not self.state_handler.follow(None, PostgresqlRole.REPLICA) \
+                        and not self.state_handler.config.recovery_conf_exists():
+                    return 'failed to configure a secondary after offline demotion'
                 self._recovering = _RecoveryAction.CHECK_START
                 if not running:
-                    self.state_handler.follow(None, PostgresqlRole.REPLICA)
                     return 'starting as a secondary after offline demotion'
             primary = running and self.state_handler.is_primary()
             if primary and self.is_failsafe_mode() and self.check_failsafe_topology():

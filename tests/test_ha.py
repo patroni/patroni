@@ -326,8 +326,16 @@ class TestHa(PostgresInit):
             self.ha.demote('offline')
         members = self.ha.cluster.members
         self.ha.cluster = get_cluster(SYSID, Leader(0, 0, members[1]), members, None, SyncState.empty())
-        self.assertEqual(self.ha.run_cycle(), 'starting as a secondary')
+        executor = self.ha._async_executor
+        with patch.object(executor, 'run_async', return_value=None) as dispatch:
+            self.assertEqual(self.ha.run_cycle(), 'starting as a secondary')
+        executor.run(*dispatch.call_args[0], **dispatch.call_args[1])
         self.p.follow.assert_called_with(self.ha.cluster.leader, PostgresqlRole.REPLICA, None)
+        self.p.restart = true
+        self.assertEqual(self.ha.restart({}), (False, 'offline demotion in progress'))
+        self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('DCS unavailable'))
+        self.p.follow.return_value = True
+        self.assertEqual(self.ha.run_cycle(), 'starting as a secondary after offline demotion')
 
     def test_start_primary_after_failure(self):
         self.p.is_running = false
@@ -347,6 +355,14 @@ class TestHa(PostgresInit):
             terminate.assert_called_once_with(postmaster=task.result)
         executor.reset_scheduled_action()
         self.assertEqual(self.ha.run_cycle(), 'removed leader key after trying and failing to start postgres')
+        self.assertEqual(self.ha.restart({}, run_async=True), (False, 'offline demotion in progress'))
+        self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('DCS unavailable'))
+        self.p.follow = Mock(side_effect=[None, True])
+        with patch.object(ConfigHandler, 'recovery_conf_exists', false):
+            self.assertEqual(self.ha.run_cycle(), 'failed to configure a secondary after offline demotion')
+        self.assertEqual(self.ha.restart({}, run_async=True), (False, 'offline demotion in progress'))
+        self.assertEqual(self.ha.run_cycle(), 'starting as a secondary after offline demotion')
+        self.p.follow.assert_called_with(None, PostgresqlRole.REPLICA)
 
     @patch.object(Rewind, 'ensure_clean_shutdown', Mock())
     def test_crash_recovery(self):
@@ -672,9 +688,12 @@ class TestHa(PostgresInit):
             self.p.follow.assert_not_called()
         executor.reset_scheduled_action()
         self.p.set_role(PostgresqlRole.PRIMARY)  # start() can set the role before it notices cancellation.
+        self.p.restart = true
+        self.assertEqual(self.ha.restart({}), (False, 'offline demotion in progress'))
         self.assertEqual(self.ha.run_cycle(), 'starting as a secondary after offline demotion')
         self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
         self.p.follow.assert_called_once_with(None, PostgresqlRole.REPLICA)
+        self.assertEqual(self.ha.restart({}), (True, 'restarted successfully'))
 
     @patch('patroni.ha.time.monotonic', Mock(return_value=100))
     def test_check_failsafe_topology(self):
