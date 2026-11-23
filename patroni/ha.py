@@ -7,6 +7,7 @@ import sys
 import time
 import uuid
 
+from enum import Enum
 from threading import RLock
 from typing import Any, Callable, cast, Collection, Dict, List, NamedTuple, Optional, Tuple, TYPE_CHECKING, Union
 
@@ -227,7 +228,15 @@ class Failsafe(object):
                 self._last_update = value
 
 
+class _RecoveryAction(Enum):
+    CHECK_START = 'check startup result'
+    FOLLOW_OFFLINE = 'follow after offline demotion'
+
+
 class Ha(object):
+
+    _RESTART_ACTIONS = ('restart', 'starting primary after failure')
+    _START_AS_REPLICA = 'restarting after failure'
 
     def __init__(self, patroni: Patroni):
         self.patroni = patroni
@@ -242,7 +251,7 @@ class Ha(object):
         self._was_paused = False
         self._synchronous_strict_mode_activated = False
         self._leader_timeline = None
-        self.recovering = False
+        self._recovering: Optional[_RecoveryAction] = None
         self._async_response = CriticalTask()
         self._crash_recovery_started = float('-inf')
         self._start_timeout = None
@@ -726,7 +735,7 @@ class Ha(object):
             msg = 'starting primary after failure'
             if self._async_executor.try_run_async(msg, self.state_handler.start,
                                                   args=(timeout, self._async_executor.critical_task)) is None:
-                self.recovering = True
+                self._recovering = _RecoveryAction.CHECK_START
                 return msg
 
         # Postgres is not running, and we will restart in standby mode. Watchdog is not needed until we promote.
@@ -769,9 +778,9 @@ class Ha(object):
             if self.is_synchronous_mode():
                 self.state_handler.sync_handler.set_synchronous_standby_names(CaseInsensitiveSet())
 
-        if self._async_executor.try_run_async('restarting after failure', self.state_handler.follow,
+        if self._async_executor.try_run_async(self._START_AS_REPLICA, self.state_handler.follow,
                                               args=(node_to_follow, role, timeout)) is None:
-            self.recovering = True
+            self._recovering = self._recovering or _RecoveryAction.CHECK_START
         return msg
 
     def _get_node_to_follow(self, cluster: Cluster) -> Union[Leader, Member, None]:
@@ -1834,6 +1843,13 @@ class Ha(object):
 
         logger.info('Demoting self (%s)', mode)
 
+        if mode in ('offline', 'immediate-nolock') and self._async_executor.scheduled_action in self._RESTART_ACTIONS:
+            # The worker may be between stopping the old primary and publishing the new postmaster. Cancel its
+            # start under the same lock it uses to publish the result, or stop that process even without a PID file.
+            with self._async_executor.critical_task as task:
+                if not task.cancel() and isinstance(task.result, PostmasterProcess):
+                    self.state_handler.terminate_starting_postmaster(postmaster=task.result)
+
         self._rewind.trigger_check_diverged_lsn()
 
         status = {'released': False}
@@ -1913,12 +1929,13 @@ class Ha(object):
             self.state_handler.sync_handler.set_synchronous_standby_names(CaseInsensitiveSet())
 
         role = PostgresqlRole.STANDBY_LEADER if is_standby_leader else PostgresqlRole.REPLICA
-        # FIXME: with mode offline called from DCS exception handler and handle_long_action_in_progress
-        # there could be an async action already running, calling follow from here will lead
-        # to racy state handler state updates.
         if mode_control['async_req']:
             self._async_executor.try_run_async('starting after demotion', self.state_handler.follow,
                                                (node_to_follow, role,))
+        elif mode_control['offline'] and self._async_executor.busy:
+            # Stop the primary now, but don't start a replica alongside the worker, even if DCS stays offline.
+            self._recovering = _RecoveryAction.FOLLOW_OFFLINE
+            return False
         else:
             if self._rewind.rewind_or_reinitialize_needed_and_possible(leader):
                 return False  # do not start postgres, but run pg_rewind on the next iteration
@@ -2196,19 +2213,19 @@ class Ha(object):
             return (False, "restart conditions are not satisfied")
 
         with self._async_executor:
-            prev = self._async_executor.schedule('restart')
-            if prev is not None:
-                return (False, prev + ' already in progress')
+            if self._recovering is _RecoveryAction.FOLLOW_OFFLINE:
+                return (False, 'offline demotion in progress')
+            action = self._async_executor.schedule('restart')
+            if isinstance(action, str):
+                return (False, action + ' already in progress')
 
             # Make the main loop to think that we were recovering dead postgres. If we fail
             # to start postgres after a specified timeout (see below), we need to remove
             # leader key (if it belong to us) rather than trying to start postgres once again.
-            self.recovering = True
+            self._recovering = _RecoveryAction.CHECK_START
 
-        # Now that restart is scheduled we can set timeout for startup, it will get reset
-        # once async executor runs and main loop notices PostgreSQL as up.
-        timeout = restart_data.get('timeout', global_config.primary_start_timeout)
-        self.set_start_timeout(timeout)
+            timeout = restart_data.get('timeout', global_config.primary_start_timeout)
+            self.set_start_timeout(timeout)
 
         def before_shutdown() -> None:
             self.notify_mpp_coordinator('before_demote')
@@ -2224,10 +2241,10 @@ class Ha(object):
             do_restart = functools.partial(self.while_not_sync_standby, do_restart)
 
         if run_async:
-            self._async_executor.run_async(do_restart)
+            self._async_executor.run_async(action, do_restart)
             return (True, 'restart initiated')
         else:
-            res = self._async_executor.run(do_restart)
+            res = self._async_executor.run(action, do_restart)
             if res:
                 return (True, 'restarted successfully')
             elif res is None:
@@ -2259,17 +2276,17 @@ class Ha(object):
             if self.has_lock(False):
                 return 'I am the leader, can not reinitialize'
 
-            cluster = self.cluster
+            previous = self._async_executor.current_action if force else None
+            if previous is None:
+                action = self._async_executor.schedule('reinitialize')
+                if isinstance(action, str):
+                    return '{0} already in progress'.format(action)
+                self._async_executor.run_async(action, self._do_reinitialize, args=(self.cluster, from_leader))
+                return None
 
-        if force:
-            self._async_executor.cancel()
-
-        with self._async_executor:
-            action = self._async_executor.schedule('reinitialize')
-            if action is not None:
-                return '{0} already in progress'.format(action)
-
-        self._async_executor.run_async(self._do_reinitialize, args=(cluster, from_leader))
+        # An election or another job may have won the race while we waited. Recheck without cancelling again.
+        self._async_executor.cancel(previous)
+        return self.reinitialize(from_leader=from_leader)
 
     def handle_long_action_in_progress(self) -> str:
         """Figure out what to do with the task AsyncExecutor is performing."""
@@ -2290,12 +2307,6 @@ class Ha(object):
 
             if self.state_handler.role == PostgresqlRole.PRIMARY:
                 logger.info('Demoting primary during %s', self._async_executor.scheduled_action)
-                if self._async_executor.scheduled_action in ('restart', 'starting primary after failure'):
-                    # Restart needs a special interlocking cancel because postmaster may be just started in a
-                    # background thread and has not even written a pid file yet.
-                    with self._async_executor.critical_task as task:
-                        if not task.cancel() and isinstance(task.result, PostmasterProcess):
-                            self.state_handler.terminate_starting_postmaster(postmaster=task.result)
                 self.demote('immediate-nolock')
                 return 'lost leader lock during {0}'.format(self._async_executor.scheduled_action)
             # The task might have been started before we noticed that the leader key was lost, e.g. a forced
@@ -2415,6 +2426,7 @@ class Ha(object):
     def _run_cycle(self) -> str:
         self._prev_wal_lsn = self._last_wal_lsn
         dcs_failed = False
+        busy = self._async_executor.busy
         try:
             try:
                 self.load_cluster_from_dcs()
@@ -2453,7 +2465,7 @@ class Ha(object):
                 self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration, separators=(',', ':')))
                 self.cluster = self.dcs.get_cluster()
 
-            if self._async_executor.busy:
+            if busy:
                 return self.handle_long_action_in_progress()
 
             msg = self.handle_starting_instance()
@@ -2464,9 +2476,14 @@ class Ha(object):
             if self.state_handler.bootstrapping:
                 return self.post_bootstrap()
 
-            if self.recovering:
-                self.recovering = False
+            if self._recovering is _RecoveryAction.FOLLOW_OFFLINE and self.state_handler.is_running():
+                self._recovering = _RecoveryAction.CHECK_START
+            check_start = self._recovering is _RecoveryAction.CHECK_START
+            if check_start:
+                self._recovering = None
 
+            # A cancelled primary restart must still release its leader key if it survived the DCS outage.
+            if check_start or self._recovering is _RecoveryAction.FOLLOW_OFFLINE and self.has_lock(False):
                 if not self._rewind.is_needed:
                     # Check if we tried to recover from postgres crash and failed
                     msg = self.post_recover()
@@ -2598,24 +2615,40 @@ class Ha(object):
             return 'Error communicating with PostgreSQL. Will try again later'
         finally:
             if not dcs_failed:
+                if not busy and self._recovering is _RecoveryAction.FOLLOW_OFFLINE:
+                    # Releasing the old key or queuing follow does not configure a replica. Drop the offline fallback
+                    # only if DCS chose different work (e.g. rewind) instead.
+                    if self._async_executor.scheduled_action not in (None, self._START_AS_REPLICA):
+                        self._recovering = None
                 if self.is_leader():
                     self._failsafe.set_is_active(float('-inf'))
                 self.touch_member()
 
     def _handle_dcs_error(self) -> str:
-        if not self.is_paused() and self.state_handler.is_running():
-            if self.state_handler.is_primary():
-                if self.is_failsafe_mode() and self.check_failsafe_topology():
-                    self.set_is_leader(True)
-                    self._failsafe.set_is_active(time.monotonic())
-                    self.watchdog.keepalive()
-                    self._sync_replication_slots(True)
-                    return 'continue to run as a leader because failsafe mode is enabled and all members are accessible'
+        if not self.is_paused():
+            running = self.state_handler.is_running()
+            if self._recovering is _RecoveryAction.FOLLOW_OFFLINE and not self._async_executor.busy:
+                if not running and not self.state_handler.follow(None, PostgresqlRole.REPLICA) \
+                        and not self.state_handler.config.recovery_conf_exists():
+                    return 'failed to configure a secondary after offline demotion'
+                self._recovering = _RecoveryAction.CHECK_START
+                if not running:
+                    return 'starting as a secondary after offline demotion'
+            primary = running and self.state_handler.is_primary()
+            if primary and self.is_failsafe_mode() and self.check_failsafe_topology():
+                self.set_is_leader(True)
+                self._failsafe.set_is_active(time.monotonic())
+                self.watchdog.keepalive()
+                self._sync_replication_slots(True)
+                return 'continue to run as a leader because failsafe mode is enabled and all members are accessible'
+            # A restart can still launch a primary after the old postmaster has stopped.
+            if primary or self.state_handler.role == PostgresqlRole.PRIMARY \
+                    and self._async_executor.scheduled_action in self._RESTART_ACTIONS:
                 self._failsafe.set_is_active(float('-inf'))
                 logger.info('demoting self because DCS is not accessible and I was a leader')
                 self.demote('offline')
                 return 'demoted self because DCS is not accessible and I was a leader'
-            else:
+            if running:
                 # We can't renew the leader key, and without failsafe mode we would demote right after the promotion.
                 # Cancel it while still possible, otherwise the armed watchdog resets the node if it takes too long.
                 if not self.is_failsafe_mode() and self._cancel_promotion():

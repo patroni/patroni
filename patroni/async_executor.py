@@ -1,9 +1,9 @@
 """Implement facilities for executing asynchronous tasks."""
 import logging
 
-from threading import Event, Lock, RLock
+from threading import Condition, Lock, RLock
 from types import TracebackType
-from typing import Any, Callable, Optional, Tuple, Type
+from typing import Any, Callable, Optional, Tuple, Type, Union
 
 from . import thread_pool
 from .postgresql.cancellable import CancellableSubprocess
@@ -37,10 +37,10 @@ class CriticalTask(object):
         self.result = None
 
     def reset(self) -> None:
-        """Must be called every time the background task is finished.
+        """Clear the result and cancellation flag when the scheduled action is retired.
 
         .. note::
-            Must be called from async thread. Caller must hold lock on async executor when calling.
+            Caller must hold the async executor and critical task locks.
         """
         self.is_cancelled = False
         self.result = None
@@ -77,6 +77,15 @@ class CriticalTask(object):
         self._lock.release()
 
 
+class _ScheduledAction(object):
+    """One reservation. Its name may be reused while a cancelled callback is still queued."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.running = False
+        self.condition = Condition()
+
+
 class AsyncExecutor(object):
     """Asynchronous executor of (long) tasks.
 
@@ -86,8 +95,7 @@ class AsyncExecutor(object):
     def __init__(self, cancellable: CancellableSubprocess, ha_wakeup: Callable[..., None]) -> None:
         """Create a new instance of :class:`AsyncExecutor`.
 
-        Configure the given *cancellable* and *ha_wakeup*, initializes the control attributes, and instantiate the lock
-        and event objects that are used to access attributes and manage communication between threads.
+        Configure the given *cancellable* and *ha_wakeup* and initialize the locks protecting the current action.
 
         :param cancellable: a subprocess that supports being cancelled.
         :param ha_wakeup: function to wake up the HA loop.
@@ -95,10 +103,8 @@ class AsyncExecutor(object):
         self._cancellable = cancellable
         self._ha_wakeup = ha_wakeup
         self._thread_lock = RLock()
-        self._scheduled_action: Optional[str] = None
+        self._scheduled_action: Optional[_ScheduledAction] = None
         self._scheduled_action_lock = RLock()
-        self._is_cancelled = False
-        self._finish_event = Event()
         self.critical_task = CriticalTask()
 
     @property
@@ -106,7 +112,7 @@ class AsyncExecutor(object):
         """``True`` if there is an action scheduled to occur, else ``False``."""
         return self.scheduled_action is not None
 
-    def schedule(self, action: str) -> Optional[str]:
+    def schedule(self, action: str) -> Union[_ScheduledAction, str]:
         """Schedule *action* to be executed.
 
         .. note::
@@ -117,37 +123,45 @@ class AsyncExecutor(object):
 
         :param action: action to be executed.
 
-        :returns: ``None`` if *action* has been successfully scheduled, or the previously scheduled action, if any.
+        :returns: the reservation to pass to :meth:`run` or :meth:`run_async`, or the name of the conflicting action.
         """
         with self._scheduled_action_lock:
             if self._scheduled_action is not None:
-                return self._scheduled_action
-            self._scheduled_action = action
-            self._is_cancelled = False
-            self._finish_event.set()
-        return None
+                return self._scheduled_action.name
+            self._scheduled_action = _ScheduledAction(action)
+            return self._scheduled_action
+
+    @property
+    def current_action(self) -> Optional[_ScheduledAction]:
+        """The current reservation, which can be passed to :meth:`cancel`."""
+        with self._scheduled_action_lock:
+            return self._scheduled_action
 
     @property
     def scheduled_action(self) -> Optional[str]:
-        """The currently scheduled action, if any, else ``None``."""
-        with self._scheduled_action_lock:
-            return self._scheduled_action
+        """The name of the currently scheduled action, if any."""
+        action = self.current_action
+        return action.name if action else None
 
     def reset_scheduled_action(self) -> None:
         """Unschedule a previously scheduled action, if any.
 
         .. note::
-            Must be called once the scheduled task finishes or is cancelled.
+            Caller must hold the async executor lock. A running action is retired by its worker, a queued one by
+            the thread that cancels it.
         """
         with self._scheduled_action_lock:
+            with self.critical_task:
+                self.critical_task.reset()
             self._scheduled_action = None
 
-    def run(self, func: Callable[..., Any], args: Tuple[Any, ...] = ()) -> Optional[Any]:
+    def run(self, action: _ScheduledAction, func: Callable[..., Any], args: Tuple[Any, ...] = ()) -> Optional[Any]:
         """Run *func* with *args*.
 
         .. note::
             Expected to be executed through a thread.
 
+        :param action: reservation returned by :meth:`schedule`.
         :param func: function to be run. If it returns anything other than ``None``, HA loop will be woken up at the end
             of :func:`run` execution.
         :param args: arguments to be passed to *func*.
@@ -155,35 +169,35 @@ class AsyncExecutor(object):
         :returns: ``None`` if *func* execution has been cancelled or faced any exception, otherwise the result of
             *func*.
         """
+        with self:
+            if self._scheduled_action is not action or action.running:
+                return None
+            self._cancellable.reset_is_cancelled()
+            action.running = True
+
         wakeup = False
         try:
-            with self:
-                if self._is_cancelled:
-                    return
-                self._finish_event.clear()
-
-            self._cancellable.reset_is_cancelled()
             # if the func returned something (not None) - wake up main HA loop
             wakeup = func(*args) if args else func()
             return wakeup
         except Exception:
-            logger.exception('Exception during execution of long running task %s', self.scheduled_action)
+            logger.exception('Exception during execution of long running task %s', action.name)
         finally:
-            with self:
-                self.reset_scheduled_action()
-                self._finish_event.set()
-                with self.critical_task:
-                    self.critical_task.reset()
+            with action.condition:
+                with self:
+                    self.reset_scheduled_action()
+                action.condition.notify_all()
             if wakeup is not None:
                 self._ha_wakeup()
 
-    def run_async(self, func: Callable[..., Any], args: Tuple[Any, ...] = ()) -> None:
+    def run_async(self, action: _ScheduledAction, func: Callable[..., Any], args: Tuple[Any, ...] = ()) -> None:
         """Start an async thread that runs *func* with *args*.
 
+        :param action: reservation returned by :meth:`schedule`.
         :param func: function to be run.
         :param args: arguments to be passed along with *func*.
         """
-        thread_pool.get_executor().submit(self.run, func, args)
+        thread_pool.get_executor().submit(self.run, action, func, args)
 
     def try_run_async(self, action: str, func: Callable[..., Any], args: Tuple[Any, ...] = ()) -> Optional[str]:
         """Try to run an async task, if none is currently being executed.
@@ -195,29 +209,34 @@ class AsyncExecutor(object):
         :returns: ``None`` if *func* was scheduled successfully, otherwise an error message informing of an already
             ongoing task.
         """
-        prev = self.schedule(action)
-        if prev is None:
-            return self.run_async(func, args)
-        return 'Failed to run {0}, {1} is already in progress'.format(action, prev)
+        reservation = self.schedule(action)
+        if isinstance(reservation, str):
+            return 'Failed to run {0}, {1} is already in progress'.format(action, reservation)
+        return self.run_async(reservation, func, args)
 
-    def cancel(self) -> None:
+    def cancel(self, expected: Optional[_ScheduledAction] = None) -> None:
         """Request cancellation of a scheduled async task, if any.
 
         .. note::
             Wait until task is cancelled before returning control to caller.
+
+        :param expected: if given, cancel only this reservation, never its replacement.
         """
-        with self:
-            with self._scheduled_action_lock:
-                if self._scheduled_action is None:
-                    return
-                logger.warning('Cancelling long running task %s', self._scheduled_action)
-            self._is_cancelled = True
+        with self, self._scheduled_action_lock:
+            action = self._scheduled_action
+            if action is None or expected is not None and action is not expected:
+                return
+            logger.warning('Cancelling long running task %s', action.name)
+            if not action.running:
+                self.reset_scheduled_action()
+                return
 
-        self._cancellable.cancel()
-        self._finish_event.wait()
-
-        with self:
-            self.reset_scheduled_action()
+        # Keep the shared subprocess assigned to this action until cancel() finishes signalling it.
+        # The worker alone releases a running reservation; wait without holding the HA lock.
+        with action.condition:
+            if self._scheduled_action is action:
+                self._cancellable.cancel()
+                action.condition.wait_for(lambda: self._scheduled_action is not action)
 
     def __enter__(self) -> 'AsyncExecutor':
         """Acquire the thread lock when entering the context manager."""
