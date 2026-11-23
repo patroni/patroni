@@ -909,7 +909,9 @@ class TestHa(PostgresInit):
         self.assertIsNotNone(self.ha.reinitialize())
 
         self.ha.cluster = get_cluster_initialized_with_leader()
-        self.assertIsNone(self.ha.reinitialize(True, True))
+        with patch.object(self.ha, 'load_cluster_from_dcs') as load:
+            self.assertIsNone(self.ha.reinitialize(True, True))
+            load.assert_called_once_with()
         self.ha._async_executor.schedule('reinitialize')
         self.assertIsNotNone(self.ha.reinitialize())
 
@@ -968,12 +970,15 @@ class TestHa(PostgresInit):
             self.assertEqual(self.ha.restart({'foo': 'bar'}), (False, "restart conditions are not satisfied"))
 
     def test_force_reinitialize_before_restart_dispatch(self):
-        self.ha.cluster = get_cluster_initialized_with_leader()
+        before = get_cluster_initialized_with_leader()
+        after = get_cluster(SYSID, Leader(0, 0, before.members[1]), before.members, None, SyncState.empty())
+        del self.ha.load_cluster_from_dcs
+        self.ha.dcs.get_cluster = Mock(side_effect=[before, after])
         executor = self.ha._async_executor
         run = executor.run
 
         def reinitialize_then_run(*args):
-            self.assertIsNone(self.ha.reinitialize(force=True))
+            self.assertIsNone(self.ha.reinitialize(force=True, from_leader=True))
             return run(*args)
 
         with patch.object(executor, 'run', reinitialize_then_run), patch.object(executor, 'run_async') as dispatch, \
@@ -982,7 +987,27 @@ class TestHa(PostgresInit):
             restart.assert_not_called()
             self.assertEqual(executor.scheduled_action, 'reinitialize')
             run(*dispatch.call_args[0], **dispatch.call_args[1])
-            reinitialize.assert_called_once_with(self.ha.cluster, False)
+            reinitialize.assert_called_once_with(after, True)
+
+    def test_force_reinitialize_during_election(self):
+        before = get_cluster_initialized_with_leader()
+        local = before.members[1]
+        self.p.name = local.name
+        after = get_cluster(SYSID, Leader(0, 0, local), before.members, None, SyncState.empty())
+        del self.ha.load_cluster_from_dcs  # Use the real load for both cluster views.
+        self.ha.dcs.get_cluster = Mock(side_effect=[before, after])
+        executor = self.ha._async_executor
+        restart, cancel = executor.schedule('restart'), executor.cancel
+
+        def elect_then_cancel(*args):
+            executor.run(restart, false)
+            executor.schedule('promote')
+            cancel(*args)
+
+        with patch.object(executor, 'cancel', elect_then_cancel), patch.object(executor, 'run_async') as dispatch:
+            self.assertEqual(self.ha.reinitialize(force=True), 'I am the leader, can not reinitialize')
+            dispatch.assert_not_called()
+        self.assertEqual(executor.scheduled_action, 'promote')
 
     @patch('time.sleep', Mock())
     @patch.object(ConfigHandler, 'replace_pg_hba', Mock())

@@ -132,10 +132,16 @@ class AsyncExecutor(object):
             return self._scheduled_action
 
     @property
-    def scheduled_action(self) -> Optional[str]:
-        """The currently scheduled action, if any, else ``None``."""
+    def current_action(self) -> Optional[_ScheduledAction]:
+        """The current reservation, which can be passed to :meth:`cancel`."""
         with self._scheduled_action_lock:
-            return self._scheduled_action.name if self._scheduled_action else None
+            return self._scheduled_action
+
+    @property
+    def scheduled_action(self) -> Optional[str]:
+        """The name of the currently scheduled action, if any."""
+        action = self.current_action
+        return action.name if action else None
 
     def reset_scheduled_action(self) -> None:
         """Unschedule a previously scheduled action, if any.
@@ -208,15 +214,17 @@ class AsyncExecutor(object):
             return 'Failed to run {0}, {1} is already in progress'.format(action, reservation)
         return self.run_async(reservation, func, args)
 
-    def cancel(self) -> None:
+    def cancel(self, expected: Optional[_ScheduledAction] = None) -> None:
         """Request cancellation of a scheduled async task, if any.
 
         .. note::
             Wait until task is cancelled before returning control to caller.
+
+        :param expected: if given, cancel only this reservation, never its replacement.
         """
         with self, self._scheduled_action_lock:
             action = self._scheduled_action
-            if action is None:
+            if action is None or expected is not None and action is not expected:
                 return
             logger.warning('Cancelling long running task %s', action.name)
             if not action.running:

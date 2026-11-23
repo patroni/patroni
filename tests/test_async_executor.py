@@ -29,12 +29,14 @@ class TestAsyncExecutor(unittest.TestCase):
         submit = get_executor.return_value.submit
         old, replacement = Mock(), Mock()
         self.assertIsNone(self.a.try_run_async('restart', old))
+        reservation = self.a.current_action
         run_old, *old_args = submit.call_args[0]
         with self.a, self.a.critical_task as task:
             task.cancel()
         self.a.cancel()
         self.assertIsNone(self.a.try_run_async('restart', replacement))
         run_new, *new_args = submit.call_args[0]
+        self.a.cancel(reservation)
         with self.a.critical_task as task:
             self.assertFalse(task.is_cancelled)
             task.complete('replacement')

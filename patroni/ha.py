@@ -2276,17 +2276,17 @@ class Ha(object):
             if self.has_lock(False):
                 return 'I am the leader, can not reinitialize'
 
-            cluster = self.cluster
+            previous = self._async_executor.current_action if force else None
+            if previous is None:
+                action = self._async_executor.schedule('reinitialize')
+                if isinstance(action, str):
+                    return '{0} already in progress'.format(action)
+                self._async_executor.run_async(action, self._do_reinitialize, args=(self.cluster, from_leader))
+                return None
 
-        if force:
-            self._async_executor.cancel()
-
-        with self._async_executor:
-            action = self._async_executor.schedule('reinitialize')
-            if isinstance(action, str):
-                return '{0} already in progress'.format(action)
-
-        self._async_executor.run_async(action, self._do_reinitialize, args=(cluster, from_leader))
+        # An election or another job may have won the race while we waited. Recheck without cancelling again.
+        self._async_executor.cancel(previous)
+        return self.reinitialize(from_leader=from_leader)
 
     def handle_long_action_in_progress(self) -> str:
         """Figure out what to do with the task AsyncExecutor is performing."""
