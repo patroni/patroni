@@ -20,14 +20,16 @@ import urllib3.util.connection
 from dns import resolver
 from dns.exception import DNSException
 from urllib3 import Timeout
-from urllib3.exceptions import HTTPError, ProtocolError, ReadTimeoutError
+from urllib3.connection import HTTPSConnection
+from urllib3.exceptions import HTTPError, ProtocolError, ReadTimeoutError, SSLError
 
 from ..exceptions import DCSError
+from ..interrupt import InterruptibleHTTPSConnectionPool, make_interruptible, WatchInterrupted
 from ..postgresql.mpp import AbstractMPP
 from ..request import get as requests_get
-from ..utils import Retry, RetryFailedError, split_host_port, uri, USER_AGENT
-from . import AbstractDCS, catch_return_false_exception, Cluster, ClusterConfig, \
-    Failover, Leader, Member, ReturnFalseException, Status, SyncState, TimelineHistory
+from ..utils import AddrInfo, getaddrinfo, Retry, RetryFailedError, split_host_port, uri, USER_AGENT
+from . import AbstractDCS, AbstractLongPollingDCS, catch_return_false_exception, Cluster, \
+    ClusterConfig, Failover, Leader, Member, ReturnFalseException, Status, SyncState, TimelineHistory
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
@@ -47,15 +49,11 @@ class EtcdError(DCSError):
     pass
 
 
-_AddrInfo = Tuple[socket.AddressFamily, socket.SocketKind, int, str,
-                  Union[Tuple[str, int], Tuple[str, int, int, int], Tuple[int, bytes]]]
-
-
 class DnsCachingResolver(Thread):
 
     def __init__(self, cache_time: float = 600.0, cache_fail_time: float = 30.0) -> None:
         super(DnsCachingResolver, self).__init__()
-        self._cache: Dict[Tuple[str, int], Tuple[float, List[_AddrInfo]]] = {}
+        self._cache: Dict[Tuple[str, int], Tuple[float, List[AddrInfo]]] = {}
         self._cache_time = cache_time
         self._cache_fail_time = cache_fail_time
         self._resolve_queue: Queue[Tuple[Tuple[str, int], int]] = Queue()
@@ -73,7 +71,7 @@ class DnsCachingResolver(Thread):
                     self.resolve_async(host, port, attempt + 1)
                     time.sleep(1)
 
-    def resolve(self, host: str, port: int) -> List[_AddrInfo]:
+    def resolve(self, host: str, port: int) -> List[AddrInfo]:
         current_time = time.monotonic()
         cached_time, response = self._cache.get((host, port), (float('-inf'), []))
         time_passed = current_time - cached_time
@@ -91,9 +89,9 @@ class DnsCachingResolver(Thread):
         self._cache.pop((host, port), None)
 
     @staticmethod
-    def _do_resolve(host: str, port: int) -> List[_AddrInfo]:
+    def _do_resolve(host: str, port: int) -> List[AddrInfo]:
         try:
-            return socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM, socket.IPPROTO_TCP)
+            return getaddrinfo(host, port, 0, socket.SOCK_STREAM, socket.IPPROTO_TCP)
         except Exception as e:
             logger.warning('failed to resolve host %s: %s', host, e)
             return []
@@ -138,6 +136,19 @@ class StaleEtcdNodeGuard(object):
         self._raft_term = raft_term
 
 
+class EtcdHTTPSConnectionPool(InterruptibleHTTPSConnectionPool):
+    """Enforce SAN-only verification with urllib3's legacy hostname matcher."""
+
+    def _validate_conn(self, conn: HTTPSConnection) -> None:
+        super()._validate_conn(conn)
+        cert = conn.sock.getpeercert() if conn.sock is not None else None
+        # The legacy matcher only falls back to CN when there are no DNS/IP SAN entries.
+        if not cert or not any(key in ('DNS', 'IP Address') for key, _ in cert.get('subjectAltName', ())):
+            conn.close()
+            raise SSLError('Etcd TLS certificate has no DNS or IP Subject Alternative Name; '
+                           'Common Name fallback is disabled')
+
+
 class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
 
     ERROR_CLS: Type[Exception]
@@ -150,16 +161,100 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
         kwargs = {p: config.get(p) for p in ('host', 'port', 'protocol', 'use_proxies', 'version_prefix',
                                              'username', 'password', 'cert', 'ca_cert') if config.get(p)}
         super(AbstractEtcdClientWithFailover, self).__init__(read_timeout=config['retry_timeout'], **kwargs)
+        make_interruptible(self.http)
         # For some reason python3-etcd on debian and ubuntu are not based on the latest version
         # Workaround for the case when https://github.com/jplana/python-etcd/pull/196 is not applied
         self.http.connection_pool_kw.pop('ssl_version', None)
         self._config = config
+        self._tls_configured = False
         self._load_machines_cache()
         self._allow_reconnect = True
         # allow passing retry argument to api_execute in params
         self._comparison_conditions.add('retry')
         self._read_options.add('retry')
         self._del_conditions.add('retry')
+
+    def _configure_tls(self) -> None:
+        """Apply opt-in TLS verification settings for discovered HTTPS client endpoints.
+
+        With no overrides, preserve the installed urllib3's behavior.
+        If Common Name fallback cannot be enabled, log a warning and retain SAN-only verification.
+
+        Behavior matrix (verify / verify_hostname / hostname_checks_common_name)::
+
+          false / any   / any   -> no CA-chain or hostname verification
+          true  / false / any   -> CA-chain validation only; hostname check off
+          true  / true  / unset -> preserve python-etcd / urllib3 defaults
+          true  / true  / false -> CA-chain + SAN validation; no CN fallback
+          true  / true  / true  -> CA-chain + hostname validation, allowing CN fallback
+                                  if supported by the TLS backend; otherwise warn and retain SAN-only
+        """
+        config = self._config
+        verify = config.get('verify', True)
+        verify_hostname = config.get('verify_hostname', True)
+        cn_fallback = config.get('hostname_checks_common_name')
+
+        # Nothing to do when everything is at its secure default: leave the
+        # stock python-etcd / urllib3 TLS setup unchanged. This also avoids
+        # building an SSLContext (and loading the platform trust store) for
+        # existing configurations that set none of these flags.
+        if verify and verify_hostname and cn_fallback is None:
+            return
+
+        pool_kw = self.http.connection_pool_kw
+
+        if not verify:
+            pool_kw['cert_reqs'] = 'CERT_NONE'
+            pool_kw['assert_hostname'] = False
+            pool_kw.pop('ca_certs', None)
+            return logger.warning('Etcd TLS certificate verification is disabled')
+
+        pool_kw['cert_reqs'] = 'CERT_REQUIRED'
+        if not verify_hostname:
+            pool_kw['assert_hostname'] = False
+            return logger.warning('Etcd TLS hostname verification is disabled')
+
+        if int(urllib3.__version__.split('.')[0]) < 2:
+            if cn_fallback:
+                return logger.warning('Etcd TLS Common Name fallback is enabled')
+            self.http.pool_classes_by_scheme = dict(self.http.pool_classes_by_scheme,
+                                                    https=EtcdHTTPSConnectionPool)
+            return
+
+        # urllib3 2.x already enforces SAN-only verification by default.
+        # A custom context is needed only to enable CN fallback.
+        if not cn_fallback:
+            return
+
+        import ssl
+
+        from urllib3.connection import create_urllib3_context
+
+        ctx = create_urllib3_context(cert_reqs=ssl.CERT_REQUIRED)
+        # Delegate identity verification to urllib3's matcher, which honors
+        # hostname_checks_common_name on this context.
+        ctx.check_hostname = False
+        try:
+            ctx.hostname_checks_common_name = True
+            cn_fallback_enabled = ctx.hostname_checks_common_name
+        except AttributeError:
+            cn_fallback_enabled = False
+
+        if not cn_fallback_enabled:
+            return logger.warning('This TLS backend cannot enable Common Name fallback; '
+                                  'retaining SAN-only verification')
+
+        # urllib3 loads explicit CA/client files from pool options.
+        # For a supplied context, load system trust ourselves.
+        if not any(pool_kw.get(key) for key in ('ca_certs', 'ca_cert_dir', 'ca_cert_data')):
+            load_default_certs = getattr(ctx, 'load_default_certs', None)
+            if not callable(load_default_certs):
+                return logger.warning('This TLS backend requires an explicit cacert '
+                                      'when enabling Common Name fallback; retaining SAN-only verification')
+            load_default_certs()
+
+        pool_kw['ssl_context'] = ctx
+        logger.warning('Etcd TLS Common Name fallback is enabled')
 
     def _calculate_timeouts(self, etcd_nodes: int, timeout: Optional[float] = None) -> Tuple[int, float, int]:
         """Calculate a request timeout and number of retries per single etcd node.
@@ -266,6 +361,11 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
     def set_read_timeout(self, timeout: float) -> None:
         self._read_timeout = timeout
 
+    def _on_successful_retry(self, base_uri: str) -> None:
+        """Select the responding node and refresh cluster membership."""
+        self.set_base_uri(base_uri)
+        self._refresh_machines_cache()
+
     def _do_http_request(self, retry: Optional[Retry], machines_cache: List[str],
                          request_executor: Callable[..., urllib3.response.HTTPResponse],
                          method: str, path: str, fields: Optional[Dict[str, Any]] = None,
@@ -281,8 +381,7 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
                 response = request_executor(method, base_uri + path, **kwargs)
                 response.data.decode('utf-8')
                 if some_request_failed:
-                    self.set_base_uri(base_uri)
-                    self._refresh_machines_cache()
+                    self._on_successful_retry(base_uri)
                 return self._handle_server_response(response)
             except (HTTPError, HTTPException, socket.error, socket.timeout, StaleEtcdNode) as e:
                 self.http.clear()
@@ -397,9 +496,7 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
     def _get_machines_cache_from_dns(self, host: str, port: int) -> List[str]:
         """One host might be resolved into multiple ip addresses. We will make list out of it"""
         if self.protocol == 'http':
-            # Filter out unexpected results when python is compiled with --disable-ipv6 and running on IPv6 system.
-            ret = [uri(self.protocol, (res[4][0], res[4][1])) for res in self._dns_resolver.resolve(host, port)
-                   if isinstance(res[4][0], str) and isinstance(res[4][1], int)]
+            ret = [uri(self.protocol, (res[4][0], res[4][1])) for res in self._dns_resolver.resolve(host, port)]
             if ret:
                 return list(set(ret))
         return [uri(self.protocol, (host, port))]
@@ -443,6 +540,12 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
         if not machines_cache:
             raise etcd.EtcdException
 
+        # Config/SRV endpoints may already be HTTPS; configure TLS before the
+        # first request so the initial contact uses the right settings.
+        if not self._tls_configured and any(urlparse(url).scheme == 'https' for url in machines_cache):
+            self._configure_tls()
+            self._tls_configured = True
+
         # enforce resolving dns name,they might get new ips
         self._update_dns_cache(self._dns_resolver.remove, machines_cache)
 
@@ -475,6 +578,13 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
         if value:
             ret = set(self._machines_cache) != set(value)
             self._machines_cache = value
+            # Endpoints learned through member discovery may use a different
+            # protocol than the seed (e.g. an HTTP seed advertising HTTPS
+            # client URLs), so (re)configure TLS whenever an HTTPS endpoint
+            # appears and it has not been configured yet.
+            if not self._tls_configured and any(urlparse(url).scheme == 'https' for url in value):
+                self._configure_tls()
+                self._tls_configured = True
         elif machines_cache:  # we are just starting or all nodes were not available at some point
             raise etcd.EtcdException("Could not get the list of servers, "
                                      "maybe you provided the wrong "
@@ -701,7 +811,7 @@ def catch_etcd_errors(func: Callable[..., Any]) -> Any:
     return wrapper
 
 
-class Etcd(AbstractEtcd):
+class Etcd(AbstractEtcd, AbstractLongPollingDCS):
 
     def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
         super(Etcd, self).__init__(config, mpp, EtcdClient, (etcd.EtcdLeaderElectionInProgress, EtcdRaftInternal))
@@ -897,17 +1007,23 @@ class Etcd(AbstractEtcd):
             self.__do_not_watch = False
             return True
 
-        if leader_version:
+        # wakeup() sets the event before it interrupts, so dropping old interruptions can't miss a new wakeup
+        self._watch_interrupter.clear()
+        if leader_version and not self.event.is_set():
             end_time = time.monotonic() + timeout
 
             while timeout >= 1:  # when timeout is too small urllib3 doesn't have enough time to connect
                 try:
-                    result = self._client.watch(self.leader_path, index=leader_version, timeout=timeout + 0.5)
+                    with self._watch_interrupter.armed():
+                        result = self._client.watch(self.leader_path, index=leader_version, timeout=timeout + 0.5)
                     self._has_failed = False
                     if result.action == 'compareAndSwap':
                         time.sleep(0.01)
                     # Synchronous work of all cluster members with etcd is less expensive
                     # than reestablishing http connection every time from every replica.
+                    return True
+                except WatchInterrupted:
+                    self.event.clear()
                     return True
                 except etcd.EtcdWatchTimedOut:
                     self._has_failed = False

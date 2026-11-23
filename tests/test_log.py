@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import threading
 import unittest
 
 from io import StringIO
@@ -63,7 +64,7 @@ class TestPatroniLogger(unittest.TestCase):
         _LOG.exception('test')
         logger.start()
 
-        with patch.object(logging.Handler, 'format', Mock(side_effect=Exception)), \
+        with patch.object(logging.LogRecord, 'getMessage', Mock(side_effect=Exception)), \
                 patch('_pytest.logging.LogCaptureHandler.emit', Mock()):
             logging.error('test')
 
@@ -78,13 +79,47 @@ class TestPatroniLogger(unittest.TestCase):
                               Mock(side_effect=[logging.LogRecord('', logging.INFO, '', 0, '', (), None), Exception])):
                 logging.exception('test')
             logging.error('test')
+            # Stop the logger thread before mocking put_nowait(), otherwise its asynchronous
+            # "Failed to close the old log handler" record could be lost and counted in records_lost.
+            self.assertRaises(Exception, logger.shutdown)
             with patch.object(Queue, 'put_nowait', Mock(side_effect=Full)):
                 self.assertRaises(SystemExit, logger.shutdown)
-            self.assertRaises(Exception, logger.shutdown)
         self.assertLessEqual(logger.queue_size, 2)  # "Failed to close the old log handler" could be still in the queue
         self.assertEqual(logger.records_lost, 0)
         del config['log']['traceback_level']
         logger.reload_config(config)
+
+    def test_traceback_is_formatted_in_logger_thread(self):
+        """The caller thread must not format the traceback.
+
+        Traceback formatting reads source files from disk. If the disk stalls,
+        the caller thread (for example, the HA loop) would block in the kernel.
+        """
+        format_threads = []
+        orig = logging.Formatter.formatException
+
+        def formatException(self, ei):
+            format_threads.append(threading.get_ident())
+            return orig(self, ei)
+
+        with patch('sys.stderr', StringIO()) as stderr_output, \
+                patch.object(logging.Formatter, 'formatException', formatException):
+            logger = PatroniLogger()
+            logger.reload_config({'level': 'INFO'})
+            logger.start()
+            try:
+                raise ValueError('boom')
+            except ValueError:
+                record = _LOG.makeRecord(_LOG.name, logging.ERROR, __file__, 0, 'test', (), sys.exc_info())
+            # start() returns before the logger thread installs the QueueHandler.
+            # Until then the root logger formats records in the caller thread.
+            # Send the record to the QueueHandler directly.
+            logger._queue_handler.handle(record)
+            logger.shutdown()
+
+        self.assertIn('ValueError: boom', stderr_output.getvalue())
+        self.assertEqual(format_threads, [logger.ident])
+        self.assertEqual(logger.records_lost, 0)
 
     def test_interceptor(self):
         logger = PatroniLogger()

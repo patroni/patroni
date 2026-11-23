@@ -44,6 +44,7 @@ class MockIMDSFetcher(object):
         return botocore.awsrequest.AWSResponse(url='', status_code=200, headers={}, raw=None)
 
 
+@patch('time.sleep', Mock())
 @patch('boto3.resource', Mock(return_value=MockEc2Connection()))
 @patch('patroni.scripts.aws.IMDSFetcher', MockIMDSFetcher)
 class TestAWSConnection(unittest.TestCase):

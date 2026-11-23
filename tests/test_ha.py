@@ -112,7 +112,7 @@ def _check_timeline_and_lsn(self, *args):
 def get_node_status(reachable=True, in_recovery=True, dcs_last_seen=0,
                     timeline=2, wal_position=10, nofailover=False,
                     watchdog_failed=False, failover_priority=1, sync_priority=1,
-                    site='dc1'):
+                    site='dc1', replay_lsn=None):
     def fetch_node_status(e):
         tags = {}
         if nofailover:
@@ -121,7 +121,8 @@ def get_node_status(reachable=True, in_recovery=True, dcs_last_seen=0,
         tags['sync_priority'] = sync_priority
         return _MemberStatus(e, reachable, in_recovery, wal_position,
                              {'tags': tags, 'watchdog_failed': watchdog_failed,
-                              'dcs_last_seen': dcs_last_seen, 'timeline': timeline, 'site': site})
+                              'dcs_last_seen': dcs_last_seen, 'timeline': timeline, 'site': site,
+                              **({'wal': {'replayed_location': replay_lsn}} if replay_lsn is not None else {})})
     return fetch_node_status
 
 
@@ -174,7 +175,7 @@ zookeeper:
         self.site = 'dc1'
 
 
-def run_async(self, func, args=()):
+def run_async(self, action, func, args=()):
     self.reset_scheduled_action()
     if args:
         func(*args)
@@ -274,6 +275,11 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_not_initialized_without_leader(
             cluster_config=ClusterConfig(1, {"standby_cluster": {"port": 5432, 'primary_slot_name': None}}, 1))
         self.assertEqual(self.ha.run_cycle(), 'trying to bootstrap a new standby leader')
+        with self.ha._async_response:
+            self.ha._async_response.complete(True)
+        with patch.object(Watchdog, 'activate') as mock_activate:
+            self.assertEqual(self.ha.run_cycle(), 'initialized a new cluster')
+        mock_activate.assert_not_called()
 
     def test_bootstrap_waiting_for_standby_leader(self):
         self.p.data_directory_empty = true
@@ -301,6 +307,8 @@ class TestHa(PostgresInit):
         self.p.controldata = lambda: {'Database cluster state': 'in recovery', 'Database system identifier': SYSID}
         self.p.is_running = false
         self.p.follow = true
+        with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)):
+            self.ha.demote('offline')
         self.assertEqual(self.ha.run_cycle(), 'starting as a secondary')
         self.p.is_running = true
         ha_dcs_orig_name = self.ha.dcs.__class__.__name__
@@ -309,22 +317,54 @@ class TestHa(PostgresInit):
         self.ha.dcs.__class__.__name__ = ha_dcs_orig_name
 
     def test_recover_former_primary(self):
-        self.p.follow = false
+        self.p.follow = Mock(return_value=False)
         self.p.is_running = false
         self.p.name = 'leader'
         self.p.set_role(PostgresqlRole.DEMOTED)
         self.p.controldata = lambda: {'Database cluster state': 'shut down', 'Database system identifier': SYSID}
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertEqual(self.ha.run_cycle(), 'starting as readonly because i had the session lock')
+        with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)):
+            self.ha.demote('offline')
+        members = self.ha.cluster.members
+        self.ha.cluster = get_cluster(SYSID, Leader(0, 0, members[1]), members, None, SyncState.empty())
+        executor = self.ha._async_executor
+        with patch.object(executor, 'run_async', return_value=None) as dispatch:
+            self.assertEqual(self.ha.run_cycle(), 'starting as a secondary')
+        executor.run(*dispatch.call_args[0], **dispatch.call_args[1])
+        self.p.follow.assert_called_with(self.ha.cluster.leader, PostgresqlRole.REPLICA, None)
+        self.p.restart = true
+        self.assertEqual(self.ha.restart({}), (False, 'offline demotion in progress'))
+        self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('DCS unavailable'))
+        self.p.follow.return_value = True
+        self.assertEqual(self.ha.run_cycle(), 'starting as a secondary after offline demotion')
 
     def test_start_primary_after_failure(self):
-        self.p.start = false
         self.p.is_running = false
         self.p.name = 'leader'
         self.p.set_role(PostgresqlRole.PRIMARY)
         self.p.controldata = lambda: {'Database cluster state': 'in production', 'Database system identifier': SYSID}
         self.ha.cluster = get_cluster_initialized_with_leader()
+        executor = self.ha._async_executor
+        executor.run_async = Mock(return_value=None)
         self.assertEqual(self.ha.run_cycle(), 'starting primary after failure')
+        with executor.critical_task as task:
+            task.complete(Mock(spec=PostmasterProcess))
+        with patch.object(type(executor), 'busy', PropertyMock(return_value=True)), \
+                patch.object(self.ha, 'update_lock', side_effect=DCSError('DCS unavailable')), \
+                patch.object(self.p, 'terminate_starting_postmaster') as terminate:
+            self.assertEqual(self.ha.run_cycle(), 'demoted self because DCS is not accessible and I was a leader')
+            terminate.assert_called_once_with(postmaster=task.result)
+        executor.reset_scheduled_action()
+        self.assertEqual(self.ha.run_cycle(), 'removed leader key after trying and failing to start postgres')
+        self.assertEqual(self.ha.restart({}, run_async=True), (False, 'offline demotion in progress'))
+        self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('DCS unavailable'))
+        self.p.follow = Mock(side_effect=[None, True])
+        with patch.object(ConfigHandler, 'recovery_conf_exists', false):
+            self.assertEqual(self.ha.run_cycle(), 'failed to configure a secondary after offline demotion')
+        self.assertEqual(self.ha.restart({}, run_async=True), (False, 'offline demotion in progress'))
+        self.assertEqual(self.ha.run_cycle(), 'starting as a secondary after offline demotion')
+        self.p.follow.assert_called_with(None, PostgresqlRole.REPLICA)
 
     @patch.object(Rewind, 'ensure_clean_shutdown', Mock())
     def test_crash_recovery(self):
@@ -359,9 +399,17 @@ class TestHa(PostgresInit):
         self.p.is_running = false
         self.p.controldata = lambda: {'Database cluster state': 'in archive recovery',
                                       'Database system identifier': SYSID}
-        self.ha._rewind.trigger_check_diverged_lsn()
+        executor = self.ha._async_executor
+        with patch.object(type(executor), 'busy', PropertyMock(return_value=True)):
+            self.ha.demote('offline')
         self.ha.cluster = get_cluster_initialized_with_leader()
-        self.assertEqual(self.ha.run_cycle(), 'doing crash recovery in a single user mode')
+        with patch.object(executor, 'run_async', return_value=None) as dispatch:
+            self.assertEqual(self.ha.run_cycle(), 'doing crash recovery in a single user mode')
+        executor.run(*dispatch.call_args[0], **dispatch.call_args[1])
+        self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('DCS unavailable'))
+        self.p.follow = Mock()
+        self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
+        self.p.follow.assert_not_called()
 
     @patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
     @patch.object(Rewind, 'can_rewind', PropertyMock(return_value=True))
@@ -407,8 +455,33 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.run_cycle(), 'promoted self to leader because I had the session lock')
 
     @patch('patroni.psycopg.connect', psycopg_connect)
+    @patch.object(Watchdog, 'is_running', PropertyMock(return_value=True))
     def test_acquire_lock_as_primary(self):
-        self.assertEqual(self.ha.run_cycle(), 'acquired session lock as a leader')
+        with patch.object(Watchdog, 'keepalive') as mock_keepalive:
+            self.assertEqual(self.ha.run_cycle(), 'acquired session lock as a leader')
+            mock_keepalive.assert_called_once_with()
+            # primary_race_backoff doesn't postpone the keepalive
+            with patch.object(global_config.__class__, 'primary_race_backoff', PropertyMock(return_value=3)):
+                self.assertEqual(self.ha.run_cycle(), 'acquired session lock as a leader')
+            self.assertEqual(mock_keepalive.call_count, 2)
+
+    def test_leader_race_with_deferred_watchdog_config(self):
+        # After running as a primary with the watchdog mode off the watchdog stays active without a device,
+        # therefore switching to the required mode is deferred
+        self.assertTrue(self.ha.watchdog.activate())
+        self.ha.watchdog.reload_config({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}})
+        # a device with a fixed timeout that is too long for the ttl
+        device = Mock(is_null=False, is_running=False, can_be_disabled=True)
+        device.has_set_timeout.return_value = False
+        device.get_timeout.return_value = 60
+        device.open.side_effect = lambda: setattr(device, 'is_running', True)
+        device.close.side_effect = lambda: setattr(device, 'is_running', False)
+        # the watchdog isn't healthy, but a manual failover candidate skips the check
+        self.p.is_primary = false
+        self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', self.p.name, None, None))
+        with patch('patroni.watchdog.base.WatchdogConfig.get_impl', Mock(return_value=device)):
+            self.assertEqual(self.ha.run_cycle(), 'Not promoting self because watchdog could not be activated')
+        self.assertFalse(device.is_running)
 
     def test_leader_race_stale_primary(self):
         with patch.object(Postgresql, 'get_primary_timeline', Mock(return_value=1)), \
@@ -425,14 +498,43 @@ class TestHa(PostgresInit):
         self.p.is_primary = false
         self.p._pre_promote = false
         self.ha._is_healthiest_node = true
-        self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
-        self.assertEqual(self.ha.run_cycle(), 'Promotion cancelled because the pre-promote script failed')
-        self.assertEqual(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
+        with patch.object(Watchdog, 'disable') as mock_disable:
+            self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
+            mock_disable.assert_not_called()
+            self.assertEqual(self.ha.run_cycle(), 'Promotion cancelled because the pre-promote script failed')
+            # the leader key is released, nobody feeds the watchdog anymore
+            mock_disable.assert_called_once()
+            self.assertEqual(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
 
+    def test_pre_promote_failed_keeps_watchdog_on_primary(self):
+        self.p.is_primary = false
+        self.p._pre_promote = false
+        self.ha._is_healthiest_node = true
+        with patch.object(Watchdog, 'disable') as mock_disable:
+            self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
+            self.p.is_primary = true
+            self.assertEqual(self.ha.run_cycle(), 'Promotion cancelled because the pre-promote script failed')
+            mock_disable.assert_not_called()
+
+    @patch.object(Watchdog, 'is_running', PropertyMock(return_value=True))
     def test_lost_leader_lock_during_promote(self):
-        with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)):
+        self.p.is_primary = false
+        with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)), \
+                patch.object(Watchdog, 'disable') as mock_disable:
             self.ha._async_executor.schedule('promote')
             self.assertEqual(self.ha.run_cycle(), 'lost leader before promote')
+            mock_disable.assert_called_once_with()
+            # too late to cancel, the watchdog must stay armed
+            with self.ha._async_response:
+                self.ha._async_response.complete(True)
+            self.assertEqual(self.ha.run_cycle(), 'promote in progress')
+            mock_disable.assert_called_once_with()
+            # PostgreSQL was promoted manually, a primary without the leader key must stay fenced
+            self.p.is_primary = true
+            with self.ha._async_response:
+                self.ha._async_response.reset()
+            self.assertEqual(self.ha.run_cycle(), 'lost leader before promote')
+            mock_disable.assert_called_once_with()
 
     @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
     def test_long_promote(self):
@@ -473,7 +575,10 @@ class TestHa(PostgresInit):
         with patch.object(Watchdog, 'activate', Mock(return_value=False)):
             self.assertEqual(self.ha.run_cycle(), 'Demoting self because watchdog could not be activated')
             self.p.is_primary = false
-            self.assertEqual(self.ha.run_cycle(), 'Not promoting self because watchdog could not be activated')
+            with patch.object(Watchdog, 'disable') as mock_disable:
+                self.assertEqual(self.ha.run_cycle(), 'Not promoting self because watchdog could not be activated')
+            # a device with a too long timeout stays armed after a failed activation, and the next cycle would promote
+            mock_disable.assert_called_once_with()
 
     def test_leader_with_lock(self):
         self.ha.cluster = get_cluster_initialized_with_leader()
@@ -500,6 +605,41 @@ class TestHa(PostgresInit):
         self.p.is_primary = false
         self.assertEqual(self.ha.run_cycle(), 'not promoting because failed to update leader lock in DCS')
 
+    @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
+    @patch.object(Watchdog, 'is_running', PropertyMock(return_value=True))
+    def test_disable_watchdog_when_not_promoting_because_update_lock_failed(self):
+        self.ha.has_lock = true
+        self.ha.update_lock = false
+        self.p.is_primary = false
+        with patch.object(Watchdog, 'disable') as mock_disable:
+            self.assertEqual(self.ha.run_cycle(), 'not promoting because failed to update leader lock in DCS')
+            mock_disable.assert_called_once_with()
+            self.p.set_role(PostgresqlRole.PROMOTED)
+            self.assertEqual(self.ha.run_cycle(), 'not promoting because failed to update leader lock in DCS')
+            mock_disable.assert_called_once_with()
+
+    @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
+    @patch.object(Watchdog, 'is_running', PropertyMock(return_value=True))
+    def test_disable_watchdog_without_lock(self):
+        self.p.is_primary = false
+        with patch.object(Watchdog, 'disable') as mock_disable:
+            self.assertEqual(self.ha.run_cycle(),
+                             'no action. I am (postgresql0), a secondary, and following a leader ()')
+            mock_disable.assert_called_once_with()
+            # the promotion has not completed yet, see test_long_promote
+            for role in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED):
+                self.p.set_role(role)
+                self.ha.run_cycle()
+                mock_disable.assert_called_once_with()
+            # e.g. pg_ctl stop failed during demote and is_primary() fell back to the cached role
+            self.p.set_role(PostgresqlRole.DEMOTED)
+            self.ha._disable_watchdog_unless_primary()
+            mock_disable.assert_called_once_with()
+            self.p.set_role(PostgresqlRole.REPLICA)
+            self.p.is_primary = true
+            self.ha._disable_watchdog_unless_primary()
+            mock_disable.assert_called_once_with()
+
     def test_get_node_to_follow_nostream(self):
         self.ha.patroni.nostream = True
         self.ha.cluster = get_cluster_initialized_with_leader()
@@ -510,6 +650,11 @@ class TestHa(PostgresInit):
         self.p.is_primary = false
         self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), a secondary, and following a leader ()')
         self.ha.patroni.replicatefrom = "foo"
+        self.p.config.check_recovery_conf = Mock(return_value=(True, True))
+        with patch('patroni.async_executor.AsyncExecutor.try_run_async') as mock_try_run_async:
+            self.ha.run_cycle()
+            self.assertEqual(mock_try_run_async.call_args[0][0],
+                             'changing replication-related parameters and restarting')
         self.p.config.check_recovery_conf = Mock(return_value=(True, False))
         self.ha.cluster.config.data.update({'slots': {'l': {'database': 'a', 'plugin': 'b'}}})
         self.ha.cluster.members[1].data['tags']['replicatefrom'] = 'postgresql0'
@@ -539,7 +684,26 @@ class TestHa(PostgresInit):
 
     def test_no_dcs_connection_primary_demote(self):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
-        self.assertEqual(self.ha.run_cycle(), 'demoted self because DCS is not accessible and I was a leader')
+        executor = self.ha._async_executor
+        executor.schedule('restart')
+        self.p.set_role(PostgresqlRole.PRIMARY)
+        self.p.follow = Mock()
+        self.p.stop = Mock()
+        with patch.object(type(executor), 'busy', PropertyMock(return_value=True)):
+            self.assertEqual(self.ha.run_cycle(), 'demoted self because DCS is not accessible and I was a leader')
+            self.assertEqual(self.p.stop.call_args[0], ('fast',))
+            self.assertTrue(executor.critical_task.is_cancelled)
+            self.p.is_running = false
+            self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
+            self.p.follow.assert_not_called()
+        executor.reset_scheduled_action()
+        self.p.set_role(PostgresqlRole.PRIMARY)  # start() can set the role before it notices cancellation.
+        self.p.restart = true
+        self.assertEqual(self.ha.restart({}), (False, 'offline demotion in progress'))
+        self.assertEqual(self.ha.run_cycle(), 'starting as a secondary after offline demotion')
+        self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
+        self.p.follow.assert_called_once_with(None, PostgresqlRole.REPLICA)
+        self.assertEqual(self.ha.restart({}), (True, 'restarted successfully'))
 
     @patch('patroni.ha.time.monotonic', Mock(return_value=100))
     def test_check_failsafe_topology(self):
@@ -547,7 +711,9 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
         global_config.update(self.ha.cluster)
         self.ha.dcs._last_failsafe = self.ha.cluster.failsafe
+        self.p.follow = Mock()
         self.assertEqual(self.ha.run_cycle(), 'demoted self because DCS is not accessible and I was a leader')
+        self.p.follow.assert_called_once_with(None, PostgresqlRole.REPLICA)
         self.ha.state_handler.name = self.ha.cluster.leader.name
         self.assertFalse(self.ha.failsafe_is_active())
         self.assertEqual(self.ha.run_cycle(),
@@ -571,8 +737,13 @@ class TestHa(PostgresInit):
         global_config.update(self.ha.cluster)
         self.ha.dcs._last_failsafe = self.ha.cluster.failsafe
         self.ha.state_handler.name = self.ha.cluster.leader.name
+        self.p.set_role(PostgresqlRole.PRIMARY)
+        self.ha._async_executor.schedule('restart')
         self.assertEqual(self.ha.run_cycle(),
                          'continue to run as a leader because failsafe mode is enabled and all members are accessible')
+        self.ha.is_paused = true
+        self.assertEqual(self.ha.run_cycle(), 'PAUSE: DCS is not accessible')
+        self.assertFalse(self.ha._async_executor.critical_task.is_cancelled)
 
     def test_readonly_dcs_primary_failsafe(self):
         self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
@@ -600,7 +771,31 @@ class TestHa(PostgresInit):
         self.ha.update_failsafe({'name': 'leader', 'api_url': 'http://127.0.0.1:8008/patroni',
                                  'conn_url': 'postgres://127.0.0.1:5432/postgres', 'slots': {'foo': 1000}})
         self.p.is_primary = false
+        self.ha._async_executor.schedule('restart')
         self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
+        self.assertFalse(self.ha._async_executor.critical_task.is_cancelled)
+
+    @patch.object(Watchdog, 'is_running', PropertyMock(return_value=True))
+    def test_no_dcs_connection_replica_disables_watchdog(self):
+        self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
+        self.p.is_primary = false
+        with patch.object(Watchdog, 'disable') as mock_disable:
+            self.ha._async_executor.schedule('promote')
+            # in failsafe mode the promotion might succeed
+            with patch.object(Ha, 'is_failsafe_mode', true):
+                self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
+            # too late to cancel it
+            self.ha._async_response.complete(True)
+            self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
+            mock_disable.assert_not_called()
+            self.ha._async_response.reset()
+            self.assertEqual(self.ha.run_cycle(), 'cancelled promotion because DCS is not accessible')
+            self.assertTrue(self.ha._async_response.is_cancelled)
+            self.assertTrue(self.p.cancellable.is_cancelled)
+            mock_disable.assert_called_once_with()
+            self.ha._async_executor.reset_scheduled_action()
+            self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
+            self.assertEqual(mock_disable.call_count, 2)
 
     def test_update_failsafe(self):
         self.assertRaises(Exception, self.ha.update_failsafe, {})
@@ -724,7 +919,9 @@ class TestHa(PostgresInit):
         self.assertIsNotNone(self.ha.reinitialize())
 
         self.ha.cluster = get_cluster_initialized_with_leader()
-        self.assertIsNone(self.ha.reinitialize(True, True))
+        with patch.object(self.ha, 'load_cluster_from_dcs') as load:
+            self.assertIsNone(self.ha.reinitialize(True, True))
+            load.assert_called_once_with()
         self.ha._async_executor.schedule('reinitialize')
         self.assertIsNotNone(self.ha.reinitialize())
 
@@ -782,6 +979,46 @@ class TestHa(PostgresInit):
         with patch.object(self.ha, "restart_matches", return_value=False):
             self.assertEqual(self.ha.restart({'foo': 'bar'}), (False, "restart conditions are not satisfied"))
 
+    def test_force_reinitialize_before_restart_dispatch(self):
+        before = get_cluster_initialized_with_leader()
+        after = get_cluster(SYSID, Leader(0, 0, before.members[1]), before.members, None, SyncState.empty())
+        del self.ha.load_cluster_from_dcs
+        self.ha.dcs.get_cluster = Mock(side_effect=[before, after])
+        executor = self.ha._async_executor
+        run = executor.run
+
+        def reinitialize_then_run(*args):
+            self.assertIsNone(self.ha.reinitialize(force=True, from_leader=True))
+            return run(*args)
+
+        with patch.object(executor, 'run', reinitialize_then_run), patch.object(executor, 'run_async') as dispatch, \
+                patch.object(self.p, 'restart') as restart, patch.object(self.ha, '_do_reinitialize') as reinitialize:
+            self.assertFalse(self.ha.restart({})[0])
+            restart.assert_not_called()
+            self.assertEqual(executor.scheduled_action, 'reinitialize')
+            run(*dispatch.call_args[0], **dispatch.call_args[1])
+            reinitialize.assert_called_once_with(after, True)
+
+    def test_force_reinitialize_during_election(self):
+        before = get_cluster_initialized_with_leader()
+        local = before.members[1]
+        self.p.name = local.name
+        after = get_cluster(SYSID, Leader(0, 0, local), before.members, None, SyncState.empty())
+        del self.ha.load_cluster_from_dcs  # Use the real load for both cluster views.
+        self.ha.dcs.get_cluster = Mock(side_effect=[before, after])
+        executor = self.ha._async_executor
+        restart, cancel = executor.schedule('restart'), executor.cancel
+
+        def elect_then_cancel(*args):
+            executor.run(restart, false)
+            executor.schedule('promote')
+            cancel(*args)
+
+        with patch.object(executor, 'cancel', elect_then_cancel), patch.object(executor, 'run_async') as dispatch:
+            self.assertEqual(self.ha.reinitialize(force=True), 'I am the leader, can not reinitialize')
+            dispatch.assert_not_called()
+        self.assertEqual(executor.scheduled_action, 'promote')
+
     @patch('time.sleep', Mock())
     @patch.object(ConfigHandler, 'replace_pg_hba', Mock())
     @patch.object(ConfigHandler, 'replace_pg_ident', Mock())
@@ -820,6 +1057,25 @@ class TestHa(PostgresInit):
 
             self.ha.is_paused = true
             self.assertEqual(self.ha.run_cycle(), 'PAUSE: restart in progress')
+
+    @patch.object(Watchdog, 'is_running', PropertyMock(return_value=True))
+    def test_disable_watchdog_during_long_action_without_lock(self):
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.p.is_primary = false
+        with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)), \
+                patch.object(Watchdog, 'disable') as mock_disable:
+            # e.g. a forced reinitialize cancelled the promotion before the HA loop noticed the lost leader key
+            self.ha._async_executor.schedule('reinitialize')
+            self.assertEqual(self.ha.run_cycle(), 'reinitialize in progress')
+            mock_disable.assert_called_once_with()
+
+            # too late to cancel, the watchdog must stay armed
+            self.ha._async_executor.reset_scheduled_action()
+            self.ha._async_executor.schedule('promote')
+            with self.ha._async_response:
+                self.ha._async_response.complete(True)
+            self.assertEqual(self.ha.run_cycle(), 'promote in progress')
+            mock_disable.assert_called_once_with()
 
     @patch('patroni.postgresql.mpp.AbstractMPPHandler.is_coordinator', Mock(return_value=False))
     def test_manual_failover_from_leader(self):
@@ -1303,6 +1559,113 @@ class TestHa(PostgresInit):
             self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, 'leader', None, None, 'dc1'))
             self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
 
+    def test__is_healthiest_node_peer_on_older_timeline(self):
+        self.p.is_primary = false
+        history = TimelineHistory(1, '[]', [(1, 5, 'x'), (2, 8, 'x')])
+        self.ha.cluster = get_cluster_initialized_without_leader()
+        global_config.update(self.ha.cluster)
+        members = self.ha.old_cluster.members
+        with patch.object(Cluster, 'timeline', PropertyMock(return_value=3)), \
+                patch.object(Cluster, 'history', PropertyMock(return_value=history)), \
+                patch('patroni.postgresql.Postgresql.replica_cached_timeline', return_value=3):
+            self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=2, replay_lsn=9)
+            with patch('patroni.ha.logger.info') as mock_info:
+                self.assertTrue(self.ha._is_healthiest_node(members))
+                self.assertIn('Ignoring %s being ahead of us', mock_info.call_args_list[0][0][0])
+            self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=2, replay_lsn=8)
+            self.assertFalse(self.ha._is_healthiest_node(members))
+            self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=2)
+            self.assertFalse(self.ha._is_healthiest_node(members))
+            self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=3, replay_lsn=11)
+            self.assertFalse(self.ha._is_healthiest_node(members))
+            self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=0)
+            self.assertTrue(self.ha._is_healthiest_node(members))
+            self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=None)
+            self.assertTrue(self.ha._is_healthiest_node(members))
+            self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=2, replay_lsn=9)
+            with patch.object(Ha, 'check_timeline', Mock(return_value=False)):
+                self.assertFalse(self.ha._is_healthiest_node(members))
+
+            self.ha.fetch_node_status = get_node_status(timeline=2, failover_priority=2, replay_lsn=9)
+            self.assertTrue(self.ha._is_healthiest_node(members))
+            self.ha.fetch_node_status = get_node_status(timeline=2, failover_priority=2, replay_lsn=8)
+            self.assertFalse(self.ha._is_healthiest_node(members))
+            self.ha.fetch_node_status = get_node_status(timeline=3, failover_priority=2)
+            self.assertFalse(self.ha._is_healthiest_node(members))
+            self.ha.fetch_node_status = get_node_status(timeline=None, failover_priority=2)
+            self.assertTrue(self.ha._is_healthiest_node(members))
+            self.ha.fetch_node_status = get_node_status(timeline=2, failover_priority=2, replay_lsn=9)
+            with patch.object(Ha, 'check_timeline', Mock(return_value=False)):
+                self.assertFalse(self.ha._is_healthiest_node(members))
+
+            self.ha.fetch_node_status = get_node_status(in_recovery=False, timeline=2, replay_lsn=9)
+            self.assertFalse(self.ha._is_healthiest_node(members))
+
+            self.ha.patroni.site = 'dc2'
+            self.ha.fetch_node_status = get_node_status(timeline=3)
+            self.assertFalse(self.ha._is_healthiest_node(members))
+            self.ha.fetch_node_status = get_node_status(timeline=2, replay_lsn=9)
+            self.assertTrue(self.ha._is_healthiest_node(members))
+            self.ha.fetch_node_status = get_node_status(timeline=2, replay_lsn=8)
+            self.assertFalse(self.ha._is_healthiest_node(members))
+            self.ha.cluster = get_cluster_initialized_without_leader(
+                failover=Failover(0, 'leader', None, None, 'dc1'))
+            self.ha.fetch_node_status = get_node_status(timeline=3, site='dc1')
+            self.assertFalse(self.ha._is_healthiest_node(members))
+            self.ha.fetch_node_status = get_node_status(timeline=2, site='dc1', replay_lsn=9)
+            self.assertTrue(self.ha._is_healthiest_node(members))
+            self.ha.fetch_node_status = get_node_status(timeline=2, site='dc1', replay_lsn=8)
+            self.assertFalse(self.ha._is_healthiest_node(members))
+
+    def test__is_healthiest_node_peer_switchpoint_unknown(self):
+        self.p.is_primary = false
+        self.ha.cluster = get_cluster_initialized_without_leader()
+        global_config.update(self.ha.cluster)
+        members = self.ha.old_cluster.members
+        with patch.object(Cluster, 'timeline', PropertyMock(return_value=3)), \
+                patch('patroni.postgresql.Postgresql.replica_cached_timeline', return_value=3):
+            self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=2, replay_lsn=11)
+            self.assertTrue(self.ha._is_healthiest_node(members))
+            self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=2, replay_lsn=10)
+            self.assertFalse(self.ha._is_healthiest_node(members))
+            bad_history = TimelineHistory(1, '[]', [('a', 'b')])
+            with patch.object(Cluster, 'history', PropertyMock(return_value=bad_history)):
+                self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=2, replay_lsn=11)
+                self.assertTrue(self.ha._is_healthiest_node(members))
+
+    @patch.object(global_config.__class__, 'is_quorum_commit_mode', PropertyMock(return_value=True))
+    @patch.object(Postgresql, 'supports_multiple_sync', PropertyMock(return_value=True))
+    def test__is_healthiest_node_quorum_vote_from_older_timeline(self):
+        self.p.is_primary = false
+        history = TimelineHistory(1, '[]', [(1, 5, 'x'), (2, 8, 'x')])
+        self.ha.cluster = get_cluster_initialized_without_leader(sync=('leader', self.p.name + ',other', 1))
+        global_config.update(self.ha.cluster)
+        members = self.ha.cluster.members
+        with patch.object(Cluster, 'timeline', PropertyMock(return_value=3)), \
+                patch.object(Cluster, 'history', PropertyMock(return_value=history)), \
+                patch('patroni.postgresql.Postgresql.replica_cached_timeline', return_value=3):
+            self.ha.fetch_node_status = get_node_status(wal_position=9, timeline=2, replay_lsn=9)
+            with patch('patroni.ha.logger.info') as mock_info:
+                self.assertTrue(self.ha._is_healthiest_node(members))
+                self.assertIn('Got quorum vote from %s', [c[0][0] for c in mock_info.call_args_list])
+            # diverged voter ahead of us still votes, but only if the divergence is proven by a known switchpoint
+            self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=2, replay_lsn=9)
+            self.assertTrue(self.ha._is_healthiest_node(members))
+            self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=2, replay_lsn=11)
+            with patch.object(Cluster, 'history', PropertyMock(return_value=None)):
+                self.assertFalse(self.ha._is_healthiest_node(members))
+
+    @patch.object(global_config.__class__, 'is_synchronous_mode', PropertyMock(return_value=True))
+    def test__is_healthiest_node_respects_quorum_in_sync_key(self):
+        # synchronous_mode was switched from quorum to on, but /sync key still contains a non-zero quorum
+        self.p.is_primary = false
+        self.ha.cluster = get_cluster_initialized_without_leader(sync=('leader', self.p.name + ',other', 1))
+        global_config.update(self.ha.cluster)
+        self.ha.fetch_node_status = get_node_status(reachable=False)
+        self.assertFalse(self.ha._is_healthiest_node(self.ha.cluster.members))
+        self.ha.fetch_node_status = get_node_status()
+        self.assertTrue(self.ha._is_healthiest_node(self.ha.cluster.members))
+
     def test_fetch_node_status(self):
         member = Member(0, 'test', 1, {'api_url': 'http://127.0.0.1:8011/patroni'})
         self.ha.fetch_node_status(member)
@@ -1419,6 +1782,27 @@ class TestHa(PostgresInit):
         self.ha.sysid_valid = true
         self.p._sysid = True
         self.assertEqual(self.ha.run_cycle(), 'promoted self to a standby leader by acquiring session lock')
+
+    @patch.object(Cluster, 'is_unlocked', Mock(return_value=True))
+    def test_process_unhealthy_standby_cluster_as_standby_leader_in_pause(self):
+        self.ha.is_paused = true
+        self.p.is_primary = false
+        self.p.name = 'leader'
+        self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
+        global_config.update(self.ha.cluster)
+        self.ha.sysid_valid = true
+        self.p._sysid = True
+        with patch.object(ConfigHandler, 'recovery_params_match', Mock(return_value=False)):
+            self.assertFalse(self.ha.is_healthiest_node())
+        with patch.object(ConfigHandler, 'recovery_params_match', Mock(return_value=True)) as mock_match:
+            self.ha.patroni.nostream = True
+            self.assertFalse(self.ha.is_healthiest_node())
+            self.ha.patroni.nostream = False
+            self.p._sysid = '1'
+            self.assertFalse(self.ha.is_healthiest_node())
+            self.p._sysid = True
+            self.assertEqual(self.ha.run_cycle(), 'PAUSE: promoted self to a standby leader by acquiring session lock')
+            self.assertIsInstance(mock_match.call_args[0][0], RemoteMember)
 
     @patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
     @patch.object(Rewind, 'can_rewind', PropertyMock(return_value=True))

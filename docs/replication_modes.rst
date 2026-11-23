@@ -51,7 +51,8 @@ When it is absolutely necessary to guarantee that each write is stored durably
 on at least two nodes, enable ``synchronous_mode_strict`` in addition to the
 ``synchronous_mode``. This parameter prevents Patroni from disabling
 synchronous replication on the primary when no synchronous standby candidates
-unless the Postgres transaction explicitly turns off ``synchronous_commit``),
+are available. As a downside, the primary is not available for writes
+(unless the Postgres transaction explicitly turns off ``synchronous_commit``),
 blocking all client write requests until at least one synchronous replica comes
 up.
 
@@ -62,12 +63,18 @@ the value of ``synchronous_standby_names`` as follows:
 1. **Last known sync nodes are available in the** ``/sync`` key in DCS Patroni
    sets (or keeps) ``synchronous_standby_names`` to the nodes stored there.
    For example, if ``/sync`` contains ``leader=node1, sync_standby=node2,node3``
-   and both standbys stop streaming, Patroni will continue using::
+   (``synchronous_node_count: 2``) and both standbys stop streaming, Patroni will
+   continue using::
 
-       synchronous_standby_names = 'node2,node3'
+       synchronous_standby_names = '2 (node2,node3)'
 
    because those nodes are the last ones known to have received the latest
-   commit. Commits will block until at least one of them reconnects.
+   commit and any of them is allowed to be promoted. With
+   ``synchronous_mode: quorum`` the value is ``ANY N (node2,node3)``, where
+   ``N`` is the number of ``sync_standby`` nodes minus ``quorum`` stored in
+   ``/sync`` (``ANY 2 (node2,node3)`` in this example). Commits will block until
+   at least one of them reconnects, after which Patroni reduces
+   ``synchronous_standby_names`` to the reconnected nodes.
 
 2. **Manual failover to an asynchronous node** – When a node that was not in the
    ``/sync`` key is promoted (e.g. via ``patronictl failover --force``), it sets
@@ -92,7 +99,7 @@ the value of ``synchronous_standby_names`` as follows:
    ``patroni.yaml``. Patroni will refuse to start if this name is configured.
 
 When strict mode is active, Patroni emits a log warning:
-``"No active replication connections and synchronous_mode_strict is requested. Commits will be delayed."``
+``"No active replication connections from Patroni members and synchronous_mode_strict is requested. Commits will be delayed."``
 This warning is emitted once per activation event, not on every HA loop iteration.
 
 You can ensure that a standby never becomes the synchronous standby by setting ``nosync`` tag to true. This is recommended to set for standbys that are behind slow network connections and would cause performance degradation when becoming a synchronous standby. Setting tag ``nostream`` to true will also have the same effect.

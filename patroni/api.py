@@ -15,7 +15,6 @@ import os
 import socket
 import sys
 import time
-import traceback
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from ipaddress import ip_address, ip_network, IPv4Network, IPv6Network
@@ -31,7 +30,7 @@ from .dcs import Cluster
 from .exceptions import PostgresConnectionException, PostgresException
 from .postgresql.misc import postgres_version_to_int, PostgresqlRole, PostgresqlState
 from .thread_pool import PatroniThreadPoolExecutor
-from .utils import cluster_as_json, deep_compare, enable_keepalive, parse_bool, \
+from .utils import cluster_as_json, deep_compare, enable_keepalive, getaddrinfo, parse_bool, \
     parse_int, patch_config, Retry, RetryFailedError, split_host_port, tzutc, uri
 
 logger = logging.getLogger(__name__)
@@ -1795,10 +1794,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
         if hostname in ('', '*'):
             hostname = None
 
-        # Filter out unexpected results when python is compiled with --disable-ipv6 and running on IPv6 system.
         info = [(a[0], a[4][0], a[4][1])
-                for a in socket.getaddrinfo(hostname, port, socket.AF_UNSPEC, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
-                if isinstance(a[4][0], str) and isinstance(a[4][1], int)]
+                for a in getaddrinfo(hostname, port, socket.AF_UNSPEC, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)]
         # in case dual stack is not supported we want IPv4 to be preferred over IPv6
         info.sort(key=lambda x: x[0] == socket.AF_INET, reverse=not dual_stack)
 
@@ -2091,11 +2088,11 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
                      client_address: Tuple[str, int]) -> None:
         """Handle any exception that is thrown while handling a request to the REST API.
 
-        Logs ``WARNING`` messages with the client information, and the stack trace of the faced exception.
+        Logs a ``WARNING`` message with client information and exception details.
+        Traceback formatting is left to the logging handler.
 
         :param request: the request that faced an exception.
         :param client_address: a tuple composed of the IP and port of the client connection.
         """
         logger.warning('Exception happened during processing of request from %s:%s',
-                       client_address[0], client_address[1])
-        logger.warning(traceback.format_exc())
+                       client_address[0], client_address[1], exc_info=True)

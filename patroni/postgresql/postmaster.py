@@ -335,7 +335,13 @@ class PostmasterProcess(psutil.Process):
         parent_conn, child_conn = ctx.Pipe(False)
         proc = ctx.Process(target=pg_ctl_start, args=(child_conn, cmdline, env))
         proc.start()
-        pid = parent_conn.recv()
+        # Our copy of the child end must be closed, otherwise recv() would block forever if the child process
+        # dies before sending the pid, e.g. when it can't chdir to the current working directory.
+        child_conn.close()
+        try:
+            pid = parent_conn.recv()
+        except EOFError:
+            pid = None
         proc.join()
         if pid is None:
             return

@@ -1,4 +1,6 @@
 import datetime
+import logging
+import ntpath
 import os
 import re
 import stat
@@ -24,7 +26,7 @@ from patroni.file_perm import pg_perm
 from patroni.postgresql import PgIsReadyStatus, Postgresql
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
-from patroni.postgresql.config import _false_validator, ConfigWriter, get_param_diff
+from patroni.postgresql.config import _false_validator, ConfigHandler, ConfigWriter, get_param_diff
 from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.validator import _get_postgres_guc_validators, _load_postgres_gucs_validators, \
@@ -312,14 +314,29 @@ class TestPostgresql(BaseTestPostgresql):
         mock_get_pg_settings.return_value['primary_conninfo'][1] = ''
         mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '1'
         self.assertEqual(self.p.config.check_recovery_conf(None), (False, False))
+        # Nothing changed, but postgresql.conf must be written when joining the running postgres
+        with patch.object(Postgresql, 'cb_called', PropertyMock(return_value=False)), \
+                patch('patroni.postgresql.config.logger.info') as mock_info:
+            self.assertEqual(self.p.config.check_recovery_conf(None), (True, False))
+            mock_info.assert_not_called()
         mock_get_pg_settings.return_value['recovery_min_apply_delay'][5] = self.p.config._auto_conf
-        self.assertEqual(self.p.config.check_recovery_conf(None), (True, False))
+        mock_get_pg_settings.return_value['restore_command'] = [
+            'restore_command', 'foo', None, 'string', 'sighup', self.p.config._auto_conf]
+        with self.assertLogs('patroni.postgresql.config', logging.INFO) as logs:
+            self.assertEqual(self.p.config.check_recovery_conf(None), (True, False))
+        self.assertEqual(logs.output, ['INFO:patroni.postgresql.config:Recovery parameters changed, '
+                                       'reload required: recovery_min_apply_delay, restore_command'])
+        del mock_get_pg_settings.return_value['restore_command']
         mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '0'
         self.assertEqual(self.p.config.check_recovery_conf(None), (False, False))
         conninfo = {'host': '1', 'password': 'bar'}
         with patch('patroni.postgresql.config.ConfigHandler.primary_conninfo_params', Mock(return_value=conninfo)):
             mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '1'
-            self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
+            with self.assertLogs('patroni.postgresql.config', logging.INFO) as logs:
+                self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
+            # Only names are logged. The password from primary_conninfo must not appear.
+            self.assertEqual(logs.output, ['INFO:patroni.postgresql.config:Recovery parameters changed, '
+                                           'restart required: primary_conninfo, recovery_min_apply_delay'])
             mock_get_pg_settings.return_value['primary_conninfo'][1] = 'host=1 target_session_attrs=read-write'\
                 + ' dbname=postgres passfile=' + re.sub(r'([\'\\ ])', r'\\\1', self.p.config._pgpass)
             mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '0'
@@ -332,6 +349,24 @@ class TestPostgresql(BaseTestPostgresql):
                 mock_get_pg_settings.return_value['primary_slot_name'] = [
                     'primary_slot_name', '', '', 'string', 'postmaster', self.p.config._postgresql_conf]
                 self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
+
+    @patch('patroni.postgresql.config.mtime', mock_mtime)
+    @patch('patroni.postgresql.config.ConfigHandler._get_pg_settings')
+    def test_recovery_params_match(self, mock_get_pg_settings):
+        mock_get_pg_settings.return_value = {
+            'primary_conninfo': ['primary_conninfo', '', None, 'string', 'postmaster', self.p.config._auto_conf]}
+        # not a standby
+        self.assertFalse(self.p.config.recovery_params_match(None))
+        self.p.config.write_recovery_conf({'standby_mode': 'on'})
+        # current values of recovery parameters are unknown
+        with patch.object(Postgresql, 'is_starting', Mock(return_value=True)):
+            self.assertFalse(self.p.config.recovery_params_match(None))
+        # unlike check_recovery_conf() it doesn't enforce reload when joining running postgres
+        with patch.object(Postgresql, 'cb_called', PropertyMock(return_value=False)):
+            self.assertTrue(self.p.config.recovery_params_match(None))
+        mock_get_pg_settings.return_value['restore_command'] = [
+            'restore_command', 'foo', None, 'string', 'sighup', self.p.config._auto_conf]
+        self.assertFalse(self.p.config.recovery_params_match(None))
 
     @patch.object(Postgresql, 'major_version', PropertyMock(return_value=120000))
     @patch.object(Postgresql, 'is_running', MockPostmaster)
@@ -379,14 +414,150 @@ class TestPostgresql(BaseTestPostgresql):
 
         mock_read_auto = mock_open(read_data=read_data)
         mock_read_auto.return_value.__iter__ = lambda o: iter(o.readline, '')
-        with patch('builtins.open', Mock(side_effect=[mock_open()(), mock_read_auto(), IOError])), \
+        with patch('builtins.open', Mock(side_effect=[mock_read_auto(), IOError])), \
                 patch('os.chmod', Mock()):
             self.p.config.write_postgresql_conf()
 
-        with patch('builtins.open', Mock(side_effect=[mock_open()(), IOError])), patch('os.chmod', Mock()):
+        with patch('builtins.open', Mock(side_effect=IOError)), patch('os.chmod', Mock()):
             self.p.config.write_postgresql_conf()
         self.p.config.write_recovery_conf({'foo': 'bar'})
         self.p.config.write_postgresql_conf()
+
+    def test_write_restore_command(self):
+        def postgresql_conf():
+            with open(self.p.config.postgresql_conf) as f:
+                return f.read()
+
+        self.p.config.remove_recovery_conf()
+        self.p.config._config['recovery_conf'] = {'restore_command': 'cp /archive/%f %p'}
+        self.p.config.write_restore_command(self.leader)
+        self.assertIn("restore_command = 'cp /archive/%f %p'", postgresql_conf())
+
+        # the standby cluster leader uses restore_command of the remote member
+        self.p.config.write_restore_command(RemoteMember('remote', {'restore_command': 'cp /remote/%f %p'}))
+        content = postgresql_conf()
+        self.assertIn("restore_command = 'cp /remote/%f %p'", content)
+        self.assertNotIn('/archive/', content)
+        self.p.config.write_restore_command(RemoteMember('remote', {}))
+        self.assertIn("restore_command = 'cp /archive/%f %p'", postgresql_conf())
+
+        # nothing configured: postgresql.conf is not rewritten
+        self.p.config._config['recovery_conf'] = {}
+        with patch.object(ConfigHandler, 'write_postgresql_conf') as mock_write:
+            self.p.config.write_restore_command(self.leader)
+            mock_write.assert_not_called()
+
+        # before 12 restore_command lives in recovery.conf: postgresql.conf is not rewritten
+        self.p.config._config['recovery_conf'] = {'restore_command': 'cp /archive/%f %p'}
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=110000)), \
+                patch.object(ConfigHandler, 'write_postgresql_conf') as mock_write:
+            self.p.config.write_restore_command(self.leader)
+            mock_write.assert_not_called()
+
+    def test_config_writer(self):
+        config_dir = os.path.join(self.p.data_dir, 'config_writer')
+        os.makedirs(config_dir)
+        filename = os.path.join(config_dir, 'postgresql.conf')
+        with open(filename, 'w') as f:
+            f.write('old content\n')
+
+        def read():
+            with open(filename) as f:
+                return f.read()
+
+        # Success: the writer replaces the target and removes the temporary file.
+        with ConfigWriter(filename) as f:
+            f.write_param('foo', 'bar')
+        self.assertTrue(read().endswith("foo = 'bar'\n"))
+        self.assertEqual(os.listdir(config_dir), ['postgresql.conf'])
+
+        # A write fails (for example ENOSPC on fsync): the writer keeps the target and removes the temporary file.
+        with open(filename, 'w') as f:
+            f.write('old content\n')
+        with patch('os.fsync', Mock(side_effect=OSError)):
+            with self.assertRaises(OSError):
+                with ConfigWriter(filename) as f:
+                    f.write_param('foo', 'baz')
+        self.assertEqual(read(), 'old content\n')
+        self.assertEqual(os.listdir(config_dir), ['postgresql.conf'])
+
+        # The fsync of the directory fails after the rename: the writer logs a warning and does not raise.
+        with patch('patroni.postgresql.config.fsync_dir', Mock(side_effect=OSError)), \
+                patch('patroni.postgresql.config.logger.warning') as mock_warning:
+            with ConfigWriter(filename) as f:
+                f.write_param('foo', 'qux')
+            mock_warning.assert_called_once()
+        self.assertTrue(read().endswith("foo = 'qux'\n"))
+        with open(filename, 'w') as f:
+            f.write('old content\n')
+
+        # The caller raises an exception: the writer keeps the target.
+        with self.assertRaises(ValueError):
+            with ConfigWriter(filename) as f:
+                f.write_param('foo', 'baz')
+                raise ValueError
+        self.assertEqual(read(), 'old content\n')
+        self.assertEqual(os.listdir(config_dir), ['postgresql.conf'])
+
+        # The write of the header fails: the writer keeps the target.
+        with patch.object(ConfigWriter, 'writeline', Mock(side_effect=OSError)):
+            self.assertRaises(OSError, ConfigWriter(filename).__enter__)
+        self.assertEqual(read(), 'old content\n')
+        self.assertEqual(os.listdir(config_dir), ['postgresql.conf'])
+
+        # The writer does not raise errors from the cleanup.
+        writer = ConfigWriter(filename)
+        writer._fd = Mock(close=Mock(side_effect=OSError))
+        writer._tmpfile = os.path.join(config_dir, 'does_not_exist')
+        with patch('patroni.postgresql.config.logger.error') as mock_error:
+            writer._discard()
+            mock_error.assert_called_once()
+
+    @unittest.skipIf(os.name == 'nt', "Windows not supported")
+    def test_config_writer_permissions(self):
+        config_dir = os.path.join(self.p.data_dir, 'config_writer')
+        os.makedirs(config_dir)
+        filename = os.path.join(config_dir, 'postgresql.conf')
+
+        # The writer sets the permissions of the temporary file before it writes data.
+        def set_permissions(tmpfile):
+            self.assertEqual(os.path.dirname(tmpfile), os.path.realpath(config_dir))
+            self.assertEqual(os.path.getsize(tmpfile), 0)
+            os.chmod(tmpfile, 0o604)
+
+        with ConfigWriter(filename, set_permissions) as f:
+            f.write_param('foo', 'bar')
+        self.assertEqual(stat.S_IMODE(os.stat(filename).st_mode), 0o604)
+
+        # config_writer() sets the permissions with set_file_permissions().
+        with self.p.config.config_writer(filename) as f:
+            f.write_param('foo', 'baz')
+        self.assertEqual(stat.S_IMODE(os.stat(filename).st_mode), pg_perm.file_create_mode)
+
+        # The function that sets the permissions fails: the writer keeps the target.
+        with patch('os.chmod', Mock(side_effect=OSError)):
+            with self.assertRaises(OSError):
+                with self.p.config.config_writer(filename) as f:
+                    f.write_param('foo', 'qux')
+        with open(filename) as fd:
+            self.assertTrue(fd.read().endswith("foo = 'baz'\n"))
+        self.assertEqual(os.listdir(config_dir), ['postgresql.conf'])
+
+    @unittest.skipIf(os.name == 'nt', "Windows not supported")
+    def test_config_writer_symlink(self):
+        config_dir = os.path.join(self.p.data_dir, 'config_writer')
+        os.makedirs(config_dir)
+        target = os.path.join(config_dir, 'real.conf')
+        link = os.path.join(self.p.data_dir, 'link.conf')
+        open(target, 'w').close()
+        os.symlink(os.path.abspath(target), link)
+
+        with ConfigWriter(link) as f:
+            f.write_param('foo', 'bar')
+        self.assertTrue(os.path.islink(link))
+        with open(target) as f:
+            self.assertTrue(f.read().endswith("foo = 'bar'\n"))
+        self.assertEqual(os.listdir(config_dir), ['real.conf'])
 
     @patch.object(Postgresql, 'is_running', Mock(return_value=False))
     @patch.object(Postgresql, 'start', Mock())
@@ -471,7 +642,15 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.set_role(PostgresqlRole.REPLICA)
         self.p.config._config['pre_promote'] = 'test'
         with patch('patroni.postgresql.cancellable.CancellableSubprocess.is_cancelled', PropertyMock(return_value=1)):
+            with patch('patroni.postgresql.logger.info') as mock_info:
+                self.assertFalse(self.p.promote(0, task))
+            mock_info.assert_called_with('PostgreSQL promote cancelled.')
+        self.assertIsNone(task.result)
+        # cancelled after the pre_promote script succeeded
+        with patch('patroni.postgresql.cancellable.CancellableSubprocess.is_cancelled',
+                   PropertyMock(side_effect=[False, True])):
             self.assertFalse(self.p.promote(0, task))
+        self.assertTrue(task.result)
 
         mock_popen.side_effect = Exception
         self.assertFalse(self.p.promote(0, task))
@@ -777,12 +956,58 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.config._config['use_unix_socket'] = self.p.config._config['use_unix_socket_repl'] = True
         self.p.config.resolve_connection_addresses()
         self.assertEqual(self.p.config.local_replication_address, {'host': '/tmp', 'port': '5432'})
+        # a Windows socket directory with a drive letter, as libpq accepts it there
+        with patch('os.path.isabs', ntpath.isabs):
+            self.p.config._server_parameters['unix_socket_directories'] = 'C:/pgsock'
+            self.p.config.resolve_connection_addresses()
+            self.assertEqual(self.p.config.local_replication_address, {'host': 'C:/pgsock', 'port': '5432'})
+            # but not with PostgreSQL 12 and older on Windows, which have no unix sockets there: fall back to TCP
+            with patch('os.name', 'nt'), patch.object(Postgresql, 'major_version', PropertyMock(return_value=120000)):
+                self.p.config.resolve_connection_addresses()
+                tcp_local_address = self.p.config._get_tcp_local_address()
+            self.assertEqual(self.p.config.local_replication_address, {'host': tcp_local_address, 'port': '5432'})
+        # the same for a directory without a drive letter
+        self.p.config._server_parameters['unix_socket_directories'] = '/pgsock'
+        with patch('os.name', 'nt'), patch.object(Postgresql, 'major_version', PropertyMock(return_value=120000)):
+            self.p.config.resolve_connection_addresses()
+        self.assertEqual(self.p.config.local_replication_address, {'host': tcp_local_address, 'port': '5432'})
         self.p.config._server_parameters.pop('unix_socket_directories')
         self.p.config.resolve_connection_addresses()
         self.assertEqual(self.p.connection_pool.conn_kwargs,
                          {'connect_timeout': 3, 'dbname': 'postgres', 'fallback_application_name': 'Patroni',
                           'options': '-c statement_timeout=2000 -c pg_stat_statements.track=none',
                           'password': 'test', 'port': '5432', 'user': 'foo'})
+
+    def test__get_unix_local_address(self):
+        get = self.p.config._get_unix_local_address
+        self.assertEqual(get('/tmp'), '/tmp')
+        self.assertEqual(get('relative, /var/run/postgresql'), '/var/run/postgresql')
+        self.assertEqual(get('relative'), '')  # only an absolute path can be used, so fall back to TCP
+        with patch('os.path.isabs', ntpath.isabs):  # what Windows accepts as an absolute path
+            self.assertEqual(get('C:/pgsock'), 'C:/pgsock')
+            self.assertEqual(get('relative, C:\\pgsock'), 'C:\\pgsock')
+            self.assertEqual(get('/tmp'), '/tmp')
+            self.assertEqual(get('C:pgsock'), '')  # relative to the current directory of drive C:
+
+    @patch.object(Bootstrap, 'running_custom_bootstrap', PropertyMock(return_value=True))
+    def test_replace_pg_hba_custom_bootstrap_on_windows(self):
+        with patch('os.name', 'nt'), patch('os.path.isabs', ntpath.isabs), \
+                patch.object(ConfigWriter, 'writeline') as mock_writeline, \
+                patch('patroni.postgresql.config.getaddrinfo',
+                      Mock(return_value=[(0, 0, 0, '', ('127.0.0.1', 5432))])) as mock_getaddrinfo:
+            # PostgreSQL 13+ on Windows: a socket directory gets local rules, and isn't resolved as a host name
+            self.p.config.local_replication_address = {'host': 'C:/pgsock', 'port': '5432'}
+            with patch.object(Postgresql, 'major_version', PropertyMock(return_value=130000)):
+                self.p.config.replace_pg_hba()
+            mock_getaddrinfo.assert_not_called()
+            self.assertTrue(mock_writeline.call_args[0][0].startswith('local\t'))
+            # PostgreSQL 12 and older on Windows: no unix sockets, so only the TCP address gets rules
+            mock_writeline.reset_mock()
+            self.p.config.local_replication_address = {'host': '127.0.0.1', 'port': '5432'}
+            with patch.object(Postgresql, 'major_version', PropertyMock(return_value=120000)):
+                self.p.config.replace_pg_hba()
+            self.assertEqual([c[0][0].split('\t')[0] for c in mock_writeline.call_args_list
+                              if not c[0][0].startswith('#')], ['host'])  # the header aside
 
     @patch.object(Postgresql, '_version_file_exists', Mock(return_value=True))
     def test_get_major_version(self):

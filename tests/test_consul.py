@@ -3,16 +3,17 @@ import unittest
 from unittest.mock import Mock, patch, PropertyMock
 
 import consul
+import urllib3
 
 from consul import ConsulException, NotFound
 
-from patroni.dcs import get_dcs
-from patroni.dcs.consul import AbstractDCS, Cluster, Consul, ConsulClient, ConsulError, \
-    ConsulInternalError, HTTPClient, InvalidSession, InvalidSessionTTL, RetryFailedError
+from patroni.dcs import AbstractDCS, Cluster, get_dcs
+from patroni.dcs.consul import Consul, ConsulClient, ConsulError, ConsulInternalError, \
+    HTTPClient, InvalidSession, InvalidSessionTTL, RetryFailedError
 from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 from patroni.postgresql.mpp import get_mpp
 
-from . import SleepException
+from . import HangingHTTPServer, SleepException
 
 
 def kv_get(self, key, **kwargs):
@@ -236,6 +237,34 @@ class TestConsul(unittest.TestCase):
         self.c.watch(6429, 1)
         with patch.object(KV, 'get', Mock(side_effect=ConsulException)):
             self.c.watch(6429, 1)
+        self.c.wakeup()
+        with patch.object(KV, 'get') as mock_get:
+            self.assertTrue(self.c.watch(6429, 1))
+            mock_get.assert_not_called()
+        self.assertFalse(self.c.event.is_set())
+
+    def test_wakeup(self):
+        self.c.watch(None, 1)  # returns right away, because setUp() changed the TTL
+        timeout = urllib3.Timeout(connect=5, read=5)
+        with HangingHTTPServer(on_request=self.c.wakeup) as server, \
+                patch.object(KV, 'get', Mock(side_effect=lambda *_, **__: self.c._client.http.http.urlopen(
+                    'GET', server.url, retries=False, timeout=timeout))) as mock_get:
+            self.assertTrue(self.c.watch(6429, 10))
+            mock_get.assert_called_once()
+            server.on_request = self.c._watch_interrupter.interrupt
+            with patch.object(self.c._watch_interrupter, 'interrupt'):
+                self.c.wakeup()
+            self.assertTrue(self.c.watch(6429, 10))
+            self.assertFalse(self.c.event.is_set())
+            with patch.object(self.c.event, 'wait') as wait:
+                self.assertTrue(self.c.watch(6429, 10))
+                wait.assert_not_called()
+            self.assertEqual(mock_get.call_count, 2)
+        self.assertFalse(self.c.event.is_set())
+        # the wakeup was consumed, the next watch waits for the leader key again
+        with patch.object(KV, 'get', Mock(return_value=(6429, None))) as mock_get:
+            self.assertFalse(self.c.watch(6429, 1))
+            mock_get.assert_called_once()
 
     def test_set_retry_timeout(self):
         self.c.set_retry_timeout(10)
