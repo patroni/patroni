@@ -315,22 +315,38 @@ class TestHa(PostgresInit):
         self.ha.dcs.__class__.__name__ = ha_dcs_orig_name
 
     def test_recover_former_primary(self):
-        self.p.follow = false
+        self.p.follow = Mock(return_value=False)
         self.p.is_running = false
         self.p.name = 'leader'
         self.p.set_role(PostgresqlRole.DEMOTED)
         self.p.controldata = lambda: {'Database cluster state': 'shut down', 'Database system identifier': SYSID}
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertEqual(self.ha.run_cycle(), 'starting as readonly because i had the session lock')
+        with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)):
+            self.ha.demote('offline')
+        members = self.ha.cluster.members
+        self.ha.cluster = get_cluster(SYSID, Leader(0, 0, members[1]), members, None, SyncState.empty())
+        self.assertEqual(self.ha.run_cycle(), 'starting as a secondary')
+        self.p.follow.assert_called_with(self.ha.cluster.leader, PostgresqlRole.REPLICA, None)
 
     def test_start_primary_after_failure(self):
-        self.p.start = false
         self.p.is_running = false
         self.p.name = 'leader'
         self.p.set_role(PostgresqlRole.PRIMARY)
         self.p.controldata = lambda: {'Database cluster state': 'in production', 'Database system identifier': SYSID}
         self.ha.cluster = get_cluster_initialized_with_leader()
+        executor = self.ha._async_executor
+        executor.run_async = Mock(return_value=None)
         self.assertEqual(self.ha.run_cycle(), 'starting primary after failure')
+        with executor.critical_task as task:
+            task.complete(Mock(spec=PostmasterProcess))
+        with patch.object(type(executor), 'busy', PropertyMock(return_value=True)), \
+                patch.object(self.ha, 'update_lock', side_effect=DCSError('DCS unavailable')), \
+                patch.object(self.p, 'terminate_starting_postmaster') as terminate:
+            self.assertEqual(self.ha.run_cycle(), 'demoted self because DCS is not accessible and I was a leader')
+            terminate.assert_called_once_with(postmaster=task.result)
+        executor.run(false)
+        self.assertEqual(self.ha.run_cycle(), 'removed leader key after trying and failing to start postgres')
 
     @patch.object(Rewind, 'ensure_clean_shutdown', Mock())
     def test_crash_recovery(self):
@@ -642,7 +658,23 @@ class TestHa(PostgresInit):
 
     def test_no_dcs_connection_primary_demote(self):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
-        self.assertEqual(self.ha.run_cycle(), 'demoted self because DCS is not accessible and I was a leader')
+        executor = self.ha._async_executor
+        executor.schedule('restart')
+        self.p.set_role(PostgresqlRole.PRIMARY)
+        self.p.follow = Mock()
+        self.p.stop = Mock()
+        with patch.object(type(executor), 'busy', PropertyMock(return_value=True)):
+            self.assertEqual(self.ha.run_cycle(), 'demoted self because DCS is not accessible and I was a leader')
+            self.assertEqual(self.p.stop.call_args[0], ('fast',))
+            self.assertTrue(executor.critical_task.is_cancelled)
+            self.p.is_running = false
+            self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
+            self.p.follow.assert_not_called()
+        executor.run(false)
+        self.p.set_role(PostgresqlRole.PRIMARY)  # start() can set the role before it notices cancellation.
+        self.assertEqual(self.ha.run_cycle(), 'starting as a secondary after offline demotion')
+        self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
+        self.p.follow.assert_called_once_with(None, PostgresqlRole.REPLICA)
 
     @patch('patroni.ha.time.monotonic', Mock(return_value=100))
     def test_check_failsafe_topology(self):
@@ -650,7 +682,9 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
         global_config.update(self.ha.cluster)
         self.ha.dcs._last_failsafe = self.ha.cluster.failsafe
+        self.p.follow = Mock()
         self.assertEqual(self.ha.run_cycle(), 'demoted self because DCS is not accessible and I was a leader')
+        self.p.follow.assert_called_once_with(None, PostgresqlRole.REPLICA)
         self.ha.state_handler.name = self.ha.cluster.leader.name
         self.assertFalse(self.ha.failsafe_is_active())
         self.assertEqual(self.ha.run_cycle(),
@@ -674,8 +708,13 @@ class TestHa(PostgresInit):
         global_config.update(self.ha.cluster)
         self.ha.dcs._last_failsafe = self.ha.cluster.failsafe
         self.ha.state_handler.name = self.ha.cluster.leader.name
+        self.p.set_role(PostgresqlRole.PRIMARY)
+        self.ha._async_executor.schedule('restart')
         self.assertEqual(self.ha.run_cycle(),
                          'continue to run as a leader because failsafe mode is enabled and all members are accessible')
+        self.ha.is_paused = true
+        self.assertEqual(self.ha.run_cycle(), 'PAUSE: DCS is not accessible')
+        self.assertFalse(self.ha._async_executor.critical_task.is_cancelled)
 
     def test_readonly_dcs_primary_failsafe(self):
         self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
@@ -703,7 +742,9 @@ class TestHa(PostgresInit):
         self.ha.update_failsafe({'name': 'leader', 'api_url': 'http://127.0.0.1:8008/patroni',
                                  'conn_url': 'postgres://127.0.0.1:5432/postgres', 'slots': {'foo': 1000}})
         self.p.is_primary = false
+        self.ha._async_executor.schedule('restart')
         self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
+        self.assertFalse(self.ha._async_executor.critical_task.is_cancelled)
 
     @patch.object(Watchdog, 'is_running', PropertyMock(return_value=True))
     def test_no_dcs_connection_replica_disables_watchdog(self):
