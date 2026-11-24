@@ -25,6 +25,13 @@ DCS Failsafe Mode
 
 We introduce a new special option, the ``failsafe_mode``. It could be enabled only via global :ref:`dynamic configuration <dynamic_configuration>` stored in the DCS ``/config`` key. If the failsafe mode is enabled and the leader lock update in DCS failed due to reasons different from the version/value/index mismatch, Postgres may continue to run as a primary if it can access all known members of the cluster via Patroni REST API.
 
+.. warning::
+    when using **failsafe_mode** ensure there is some margin for the **ttl** value, to allow the failsafe check to complete before the leader lock expires:
+
+    .. code-block:: python
+
+        loop_wait + 2 * retry_timeout + 10 <= ttl
+
 
 Low-level implementation details
 --------------------------------
