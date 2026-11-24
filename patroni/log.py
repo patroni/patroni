@@ -11,7 +11,7 @@ from copy import deepcopy
 from io import TextIOWrapper
 from logging.handlers import RotatingFileHandler
 from queue import Full, Queue
-from threading import Lock, Thread
+from threading import current_thread, Lock, Thread
 from typing import Any, cast, Dict, List, Optional, TYPE_CHECKING, Union
 
 from .file_perm import pg_perm
@@ -564,6 +564,31 @@ class PatroniLogger(Thread):
         :returns: ``True`` if the record contains a heartbeat message, ``False`` otherwise.
         """
         return record.msg.startswith('no action. ') or record.msg.startswith('PAUSE: no action')
+
+    def report_shutdown_timeout(self) -> None:
+        """Report guard takeover without waiting for the log queue, and silence normal logging from this thread.
+
+        Called once by the shutdown guard. Its PostgreSQL and watchdog driver calls must not wait for a handler
+        lock or the queue mutex, even when they encounter an error while fencing.
+        """
+        guard = current_thread()
+
+        def other_thread(record: logging.LogRecord) -> bool:
+            return current_thread() is not guard
+
+        self._proxy_handler.addFilter(other_thread)
+        self._queue_handler.addFilter(other_thread)
+        queue = self._queue_handler.queue
+        if queue.mutex.acquire(False):
+            try:
+                # Queue.put() takes this same non-reentrant mutex. For this one diagnostic, enqueue directly
+                # and keep the unfinished-task count and reader notification consistent with a normal put.
+                queue.queue.append(logging.LogRecord(__name__, logging.ERROR, __file__, 0,
+                                                     'Main loop did not exit within the shutdown timeout', (), None))
+                queue.unfinished_tasks += 1
+                queue.not_empty.notify()
+            finally:
+                queue.mutex.release()
 
     def shutdown(self) -> None:
         """Shut down the logger thread."""

@@ -215,6 +215,21 @@ class Watchdog(object):
         self._disable()
         self.active = False
 
+    def try_disable(self) -> bool:
+        """Try to release the watchdog without waiting for a thread that may be stuck holding its lock.
+
+        :returns: ``True`` if the driver reports the device closed, ``False`` if the lock is busy or the device
+                  is still open.
+        """
+        if not self.lock.acquire(False):
+            return False
+        try:
+            if self.active or self.impl.is_running:
+                self.disable()
+            return not self.impl.is_running
+        finally:
+            self.lock.release()
+
     def _disable(self) -> None:
         try:
             if self.impl.is_running and not self.impl.can_be_disabled:

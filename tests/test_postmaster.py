@@ -1,23 +1,15 @@
 import multiprocessing
+import os
 import unittest
 
-from unittest.mock import Mock, mock_open, patch
+from functools import partial
+from pickle import UnpicklingError
+from threading import Thread
+from unittest.mock import call, MagicMock, Mock, mock_open, patch
 
 import psutil
 
-from patroni.postgresql.postmaster import PostmasterProcess
-
-
-class MockProcess:
-    def __init__(self, target, args):
-        self.target = target
-        self.args = args
-
-    def start(self):
-        self.target(*self.args)
-
-    def join(self):
-        pass
+from patroni.postgresql.postmaster import pg_ctl_start, PostmasterProcess
 
 
 class TestPostmasterProcess(unittest.TestCase):
@@ -174,29 +166,90 @@ class TestPostmasterProcess(unittest.TestCase):
             proc = PostmasterProcess(123)
             self.assertIsNone(proc.wait_for_user_backends_to_close(None))
 
-    @patch('subprocess.Popen')
     @patch('os.setsid', Mock(), create=True)
-    @patch('multiprocessing.Process', MockProcess)
-    @patch('multiprocessing.get_context', Mock(return_value=multiprocessing), create=True)
+    @patch('subprocess.Popen')
+    def test_pg_ctl_start_without_handoff(self, popen):
+        conn = Mock(poll=Mock(side_effect=[False] * 4))
+        conn.recv.side_effect = [False, True, True, True]
+        start = partial(pg_ctl_start, conn, ['postgres'], {})
+        start()
+        popen.assert_not_called()
+        postmaster = popen.return_value
+        popen.side_effect = [FileNotFoundError('postgres'), postmaster, postmaster]
+        with patch('patroni.postgresql.postmaster.logger.exception') as log:
+            start()
+            log.assert_called_once_with('Failed to execute %s', ['postgres'])
+
+        with patch('os.getppid', side_effect=[100, 1]):
+            start()
+        postmaster.kill.assert_called_once_with()
+        postmaster.poll.side_effect = [None, 0]
+        start()
+        self.assertEqual(postmaster.poll.call_count, 2)
+        postmaster.kill.assert_called_once_with()
+
+    @patch('os.setsid', Mock(), create=True)
+    @patch('subprocess.Popen')
+    def test_pg_ctl_start_acknowledgment(self, popen):
+        postmaster = popen.return_value = Mock(pid=123, poll=Mock(return_value=None))
+        with self.assertLogs('patroni.postgresql.postmaster', level='ERROR') as logs:
+            for reply in ('ack', 'disconnect', 'invalid'):
+                with self.subTest(reply=reply):
+                    parent, child = multiprocessing.Pipe()
+                    helper = Thread(target=pg_ctl_start, args=(child, ['postgres'], {}), daemon=True)
+                    helper.start()
+                    try:
+                        with parent:
+                            parent.send(True)
+                            self.assertTrue(parent.poll(1), 'helper did not report the postmaster PID')
+                            self.assertEqual(parent.recv(), postmaster.pid)
+                            if reply == 'ack':
+                                parent.send(True)
+                            elif reply == 'invalid':
+                                parent.send_bytes(b'?')
+                    finally:
+                        helper.join(2)
+                    self.assertFalse(helper.is_alive())
+                    self.assertTrue(child.closed)
+                    self.assertEqual(postmaster.kill.call_count, 0 if reply == 'ack' else 1)
+                    postmaster.kill.reset_mock()
+        self.assertEqual([record.exc_info[0] for record in logs.records], [UnpicklingError])
+
+    @patch('multiprocessing.get_context')
     @patch('os.environ', {'PG_MALLOC_ARENA_MAX': ''})
     @patch.object(PostmasterProcess, 'from_pid')
+    @patch('patroni.postgresql.postmaster.psutil.Process')
     @patch.object(PostmasterProcess, '_from_pidfile')
-    def test_start(self, mock_frompidfile, mock_frompid, mock_popen):
+    def test_start(self, mock_frompidfile, mock_helper, mock_frompid, mock_context):
         mock_frompidfile.return_value._is_postmaster_process.return_value = False
-        mock_frompid.return_value = "proc 123"
-        mock_popen.return_value.pid = 123
-        self.assertEqual(PostmasterProcess.start('true', '/tmp', '/tmp/test.conf', []), "proc 123")
-        mock_frompid.assert_called_with(123)
+        helper = mock_helper.return_value = Mock(pid=321, ppid=Mock(return_value=os.getpid()))
+        postmaster = mock_frompid.return_value = Mock(pid=123, ppid=Mock(return_value=321))
+        parent = MagicMock()
+        mock_context.return_value.Pipe.return_value = parent, MagicMock()
+        mock_context.return_value.Process.return_value.pid = 321
+        parent.recv.return_value = 123
+        handoff = Mock()
+        parent.send = handoff.send
+        start = partial(PostmasterProcess.start, 'true', '/tmp', '/tmp/test.conf', [])
+        permit = [call.publish(helper), call.send(True)]
+        acknowledged = permit + [call.publish(postmaster), call.send(True)]
+        cases = (
+            (321, [True, True], postmaster, acknowledged), (321, [True, False], None, acknowledged),
+            (1, [True], None, permit), (321, [False], None, [call.publish(helper), call.send(False)]),
+        )
+        for ppid, decisions, result, messages in cases:
+            postmaster.ppid.return_value = ppid
+            handoff.reset_mock()
+            handoff.publish.side_effect = decisions
+            self.assertIs(start(handoff.publish), result, (ppid, decisions))
+            self.assertEqual(handoff.mock_calls, messages, (ppid, decisions))
+        mock_frompid.assert_called_with(postmaster.pid)
 
         mock_frompidfile.side_effect = psutil.NoSuchProcess(123)
-        self.assertEqual(PostmasterProcess.start('true', '/tmp', '/tmp/test.conf', []), "proc 123")
-
-        mock_popen.side_effect = Exception
-        self.assertIsNone(PostmasterProcess.start('true', '/tmp', '/tmp/test.conf', []))
-
-        # the child process died without sending anything
-        with patch.object(MockProcess, 'start', Mock()):
-            self.assertIsNone(PostmasterProcess.start('true', '/tmp', '/tmp/test.conf', []))
+        parent.recv.side_effect = EOFError
+        self.assertIsNone(start())
+        mock_helper.side_effect = psutil.AccessDenied(321)
+        self.assertIsNone(start())
 
     @patch('psutil.Process.__init__', Mock(side_effect=psutil.NoSuchProcess(123)))
     def test_read_postmaster_pidfile(self):

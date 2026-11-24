@@ -11,7 +11,7 @@ import signal
 import sys
 
 from threading import Lock, stack_size
-from typing import Any, Optional, Type, TYPE_CHECKING
+from typing import Any, Callable, Optional, Type, TYPE_CHECKING
 
 try:  # pragma: no cover
     from time import monotonic_ns
@@ -109,26 +109,37 @@ class AbstractPatroniDaemon(abc.ABC):
         notify_systemd("RELOADING=1\nMONOTONIC_USEC={0}".format(monotonic_us()))
 
     def api_sigterm(self) -> bool:
-        """Guarantee only a single SIGTERM is being processed.
+        """Serialize shutdown requests from API threads.
 
-        Flag the daemon as "SIGTERM received" with a lock-based approach.
-
-        :returns: ``True`` if the daemon was flagged as "SIGTERM received".
+        :returns: ``True`` if this call requested shutdown, ``False`` if shutdown was already requested.
         """
         ret = False
         with self._sigterm_lock:
             if not self._received_sigterm:
                 self._received_sigterm = True
                 ret = True
+        if ret and self._on_sigterm:
+            # No OS signal was delivered, so CPython will not write a wakeup byte on our behalf.
+            self._on_sigterm()
         return ret
 
     def sigterm_handler(self, *_: Any) -> None:
         """Handle SIGTERM signals.
 
-        Terminate the daemon process through :func:`api_sigterm`.
+        A running cycle must release its locks before entering shutdown. During construction there is no HA loop
+        to observe the request, e.g. while waiting for DCS. Daemons that never install a guard also exit immediately.
+
+        :param _: signal number and interrupted frame supplied by Python; both are ignored.
+        :raises SystemExit: on the first request if no shutdown guard is armed.
         """
-        if self.api_sigterm():
-            sys.exit()
+        # Do not call api_sigterm(): the signal could interrupt this thread while it holds _sigterm_lock.
+        # Raising here can also interrupt lock cleanup, leaving shutdown waiting for a lock this thread still owns.
+        # With a guard installed, return to the interrupted code; check_shutdown() raises at a safe boundary.
+        if not self._received_sigterm:
+            self._received_sigterm = True
+            if self._on_sigterm is None:
+                sys.exit()
+            self._on_sigterm()
 
     def setup_signal_handlers(self) -> None:
         """Set up daemon signal handlers.
@@ -142,15 +153,23 @@ class AbstractPatroniDaemon(abc.ABC):
         self._received_sighup = False
         self._sigterm_lock = Lock()
         self._received_sigterm = False
+        self._on_sigterm: Optional[Callable[[], None]] = None
         if os.name != 'nt':
             signal.signal(signal.SIGHUP, self.sighup_handler)
         signal.signal(signal.SIGTERM, self.sigterm_handler)
 
     @property
     def received_sigterm(self) -> bool:
-        """If daemon was signaled with SIGTERM."""
-        with self._sigterm_lock:
-            return self._received_sigterm
+        """:returns: ``True`` once shutdown has been requested or has begun, otherwise ``False``."""
+        return self._received_sigterm
+
+    def check_shutdown(self) -> None:
+        """Check for a shutdown request at a safe point in the main loop.
+
+        :raises SystemExit: if shutdown was requested.
+        """
+        if self.received_sigterm:
+            sys.exit()
 
     def reload_config(self, sighup: bool = False, local: Optional[bool] = False) -> None:
         """Reload configuration.
@@ -183,6 +202,7 @@ class AbstractPatroniDaemon(abc.ABC):
                 self.reload_config(True, self.config.reload_local_configuration())
                 notify_systemd("READY=1")
 
+            self.check_shutdown()
             self._run_cycle()
 
     @abc.abstractmethod
@@ -194,8 +214,7 @@ class AbstractPatroniDaemon(abc.ABC):
 
         Shut down the daemon process and the logger thread.
         """
-        with self._sigterm_lock:
-            self._received_sigterm = True
+        self._received_sigterm = True
         notify_systemd("STOPPING=1")
         self._shutdown()
         self.logger.shutdown()

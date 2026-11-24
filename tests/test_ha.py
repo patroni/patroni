@@ -9,6 +9,7 @@ import etcd
 from patroni import global_config
 from patroni.collections import CaseInsensitiveSet
 from patroni.config import Config
+from patroni.daemon import AbstractPatroniDaemon
 from patroni.dcs import Cluster, ClusterConfig, Failover, get_dcs, \
     Leader, Member, RemoteMember, Status, SyncState, TimelineHistory
 from patroni.dcs.etcd import AbstractEtcdClientWithFailover
@@ -132,6 +133,13 @@ postmaster_start_time = datetime.datetime.now(tzutc)
 
 class MockPatroni(object):
 
+    received_sigterm = False
+    check_shutdown = AbstractPatroniDaemon.check_shutdown
+
+    def request_shutdown(self, *args, **kwargs):
+        self.received_sigterm = True
+        return True
+
     def __init__(self, p, d):
         os.environ[Config.PATRONI_CONFIG_VARIABLE] = """
 restapi:
@@ -169,6 +177,7 @@ zookeeper:
         self.scheduled_restart = {'schedule': future_restart_time,
                                   'postmaster_start_time': str(postmaster_start_time)}
         self.watchdog = Watchdog(self.config)
+        self.shutdown_guard = Mock(owns_stop=Mock(return_value=False))
         self.request = lambda *args, **kwargs: requests_get(args[0].api_url, *args[1:], **kwargs)
         self.failover_priority = 1
         self.sync_priority = 1
@@ -247,6 +256,15 @@ class TestHa(PostgresInit):
         self.assertRaises(DCSError, self.ha.update_lock)
         self.assertFalse(self.ha.update_lock(True))
 
+        def interrupted_renewal(*args):
+            self.ha.patroni.received_sigterm = True
+            return False
+
+        self.ha.set_is_leader(True)
+        self.ha.dcs.update_leader.side_effect = interrupted_renewal
+        self.assertRaises(SystemExit, self.ha.update_lock)
+        self.assertFalse(self.ha.is_leader())
+
     @patch.object(Postgresql, 'received_timeline', Mock(return_value=None))
     def test_touch_member(self):
         self.p._major_version = 110000
@@ -264,6 +282,24 @@ class TestHa(PostgresInit):
 
     def test_is_leader(self):
         self.assertFalse(self.ha.is_leader())
+
+    def test_shutdown_during_election(self):
+        self.ha.watchdog = Mock(is_running=True)
+        self.ha.is_healthiest_node = self.ha.patroni.request_shutdown
+        self.e.acquire_leader_lock = Mock(side_effect=self.ha.patroni.request_shutdown)
+        self.assertRaises(SystemExit, self.ha.process_unhealthy_cluster)
+        self.e.acquire_leader_lock.assert_not_called()
+        self.ha.patroni.received_sigterm = False
+        executor, work = self.ha._async_executor, Mock()
+        action = executor.schedule('restart')
+        self.assertIs(action, executor.current_action)
+        self.assertRaises(SystemExit, self.ha.acquire_lock)
+        self.assertTrue(self.ha.is_leader())
+        self.ha.watchdog.keepalive.assert_not_called()
+        executor.run(action, work)
+        self.assertIsNone(executor.current_action)
+        self.assertIn('shutdown', executor.try_run_async('restart', work))
+        work.assert_not_called()
 
     def test_start_as_replica(self):
         self.p.is_healthy = false
@@ -794,6 +830,10 @@ class TestHa(PostgresInit):
             self.assertTrue(self.p.cancellable.is_cancelled)
             mock_disable.assert_called_once_with()
             self.ha._async_executor.reset_scheduled_action()
+            self.ha._async_response.reset()
+            self.p.cancellable.reset_is_cancelled()
+            with patch('subprocess.call', return_value=1):
+                self.assertIs(self.p.promote(0, self.ha._async_response), False)
             self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
             self.assertEqual(mock_disable.call_count, 2)
 
@@ -820,6 +860,43 @@ class TestHa(PostgresInit):
             self.assertEqual(mock_logger.call_args_list[0][0],
                              ('Request failed to %s: POST %s (%s)', 'test', 'http://localhost:8011/failsafe', e))
             self.assertFalse(ret.accepted)
+
+    def test_sigterm_during_demotion(self):
+        def stop(*args, **callbacks):
+            if callbacks['on_shutdown'] is None:
+                self.ha.patroni.request_shutdown()
+            else:
+                callbacks['on_safepoint']()
+                callbacks['on_shutdown'](128, 64)
+
+        self.ha._rewind.rewind_or_reinitialize_needed_and_possible = false
+        self.p.stop = stop
+        self.p.follow = Mock(side_effect=AssertionError)
+        self.assertFalse(self.ha.demote('offline'))
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.ha.touch_member = Mock()
+        self.ha.watchdog = Mock(is_running=True)
+        self.p.latest_checkpoint_locations = Mock(return_value=(128, 64))
+        self.ha.set_is_leader(True)
+        self.ha.dcs.delete_leader = Mock()
+        self.ha.is_failover_possible = Mock(side_effect=self.ha.patroni.request_shutdown)
+        with patch.object(self.ha, 'release_leader_key_voluntarily', side_effect=AssertionError):
+            self.assertFalse(self.ha.demote('graceful'))
+            self.ha.is_failover_possible.assert_not_called()
+            self.ha.patroni.received_sigterm = False
+            self.assertFalse(self.ha.demote('graceful'))
+            self.ha.is_failover_possible.assert_called_once_with(cluster_lsn=128)
+        self.assertEqual(self.ha.watchdog.disable.call_count, 2)
+        self.ha.dcs.delete_leader.assert_not_called()
+        self.assertRaises(SystemExit, self.ha.release_leader_key_voluntarily)
+        self.assertTrue(self.ha.is_leader())
+
+        self.p.stop = Mock()
+        self.p.is_running = Mock(side_effect=[True, False])
+        self.ha.shutdown()
+        self.ha.dcs.delete_leader.assert_not_called()
+        self.ha.shutdown()
+        self.ha.dcs.delete_leader.assert_called_once_with(self.ha.cluster.leader, 64)
 
     @patch('time.sleep', Mock())
     def test_bootstrap_from_another_member(self):
@@ -1916,13 +1993,15 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.primary_stop_timeout(), None)
         self.ha.cluster.config.data.update({'primary_stop_timeout': 30})
         global_config.update(self.ha.cluster)
-        with patch.object(Ha, 'is_synchronous_mode', Mock(return_value=True)):
-            self.assertEqual(self.ha.primary_stop_timeout(), 30)
-        with patch.object(Ha, 'is_synchronous_mode', Mock(return_value=False)):
-            self.assertEqual(self.ha.primary_stop_timeout(), None)
-            self.ha.cluster.config.data['primary_stop_timeout'] = None
-            global_config.update(self.ha.cluster)
-            self.assertEqual(self.ha.primary_stop_timeout(), None)
+        with patch.object(self.p, 'shutdown_fence', return_value=None) as fence, \
+                patch.object(self.ha.watchdog, 'try_disable', return_value=True):
+            for sync, timeout in ((True, 30), (False, None)):
+                with patch.object(Ha, 'is_synchronous_mode', return_value=sync):
+                    self.ha.shutdown_fence()
+                    fence.assert_called_with(timeout)
+        self.ha.cluster.config.data['primary_stop_timeout'] = None
+        global_config.update(self.ha.cluster)
+        self.assertIsNone(self.ha.primary_stop_timeout())
 
     @patch('patroni.postgresql.Postgresql.follow')
     def test_demote_immediate(self, follow):
@@ -2278,6 +2357,18 @@ class TestHa(PostgresInit):
 
     def test_wakeup(self):
         self.ha.wakeup()
+
+    def test_shutdown_leaves_paused_or_aborted_node_alone(self):
+        self.p.stop = self.p.shutdown_fence = self.ha.watchdog.disable = Mock(side_effect=AssertionError)
+        self.ha.watchdog.try_disable = Mock(return_value=True)
+        self.ha.patroni.shutdown_guard.claim_normal.return_value = False
+        self.ha.is_paused = lambda: not self.ha._join_aborted
+        for aborted in (True, False):
+            self.ha._join_aborted = aborted
+            self.ha.shutdown()
+            self.ha.shutdown_fence()
+        self.assertEqual(self.ha.patroni.shutdown_guard.claim_normal.call_count, 2)
+        self.ha.watchdog.try_disable.assert_called_once_with()
 
     def test_shutdown(self):
         self.p.is_running = false

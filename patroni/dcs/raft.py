@@ -121,6 +121,13 @@ class KVStoreTTL(DynMemberSyncObj):
 
     def __init__(self, on_ready: Optional[Callable[..., Any]], on_set: Optional[Callable[[str, Dict[str, Any]], None]],
                  on_delete: Optional[Callable[[str], None]], **config: Any) -> None:
+        """Initialize the replicated key-value store.
+
+        :param on_ready: optional callback invoked without arguments when Raft is ready for writes.
+        :param on_set: optional callback receiving the key and its stored value, including metadata, after a write.
+        :param on_delete: optional callback receiving the key after it is deleted or expires.
+        :param config: Raft settings, including member addresses, persistence directory, and timeouts.
+        """
         self.__thread = None
         self.__on_set = on_set
         self.__on_delete = on_delete
@@ -150,12 +157,15 @@ class KVStoreTTL(DynMemberSyncObj):
                 syncobj_kwargs[syncobj_key] = value
                 applied_patroni_keys[patroni_key] = value
 
+        # A snapshot child inherits Patroni's signal wakeup socket. Without a child hook, SIGTERM sent to the
+        # writer could shut down the parent. Keep taking snapshots, but without forking on those runtimes.
         conf = SyncObjConf(password=config.get('password'), autoTick=False, appendEntriesUseBatch=False,
                            bindAddress=config.get('bind_addr'), dnsFailCacheTime=(config.get('loop_wait') or 10),
                            dnsCacheTime=(config.get('ttl') or 30), commandsWaitLeader=config.get('commandsWaitLeader'),
                            fullDumpFile=(file_template + '.dump' if self_addr else None),
                            journalFile=(file_template + '.journal' if self_addr else None),
-                           onReady=on_ready, dynamicMembershipChange=True, **syncobj_kwargs)
+                           onReady=on_ready, dynamicMembershipChange=True,
+                           useFork=hasattr(os, 'register_at_fork'), **syncobj_kwargs)
 
         if syncobj_kwargs:
             logger.info('Applying custom pysyncobj timeouts: %s',

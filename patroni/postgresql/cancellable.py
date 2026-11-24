@@ -80,8 +80,13 @@ class CancellableExecutor(object):
 
 class CancellableSubprocess(CancellableExecutor):
 
-    def __init__(self) -> None:
+    def __init__(self, stopping: Callable[[], bool] = lambda: False) -> None:
+        """Set up a cancellable subprocess runner.
+
+        :param stopping: callback returning ``True`` when shutdown should prevent launching another subprocess.
+        """
         super(CancellableSubprocess, self).__init__()
+        self._stopping = stopping
         self._is_cancelled = False
 
     def _communicate_streaming(self, stream_cb: Callable[[str, bytes], None]) -> Tuple[bytes, bytes]:
@@ -145,22 +150,23 @@ class CancellableSubprocess(CancellableExecutor):
 
         return b''.join(stdout_chunks), b''.join(stderr_chunks)
 
-    def call(self, *args: Any, **kwargs: Any) -> Optional[int]:
+    def call(self, *args: Any, stopping: Optional[Callable[[], bool]] = None, **kwargs: Any) -> Optional[int]:
         """Start a cancellable subprocess, optionally capture/stream its output, and wait for it to finish.
 
-        Positional and keyword arguments are forwarded to :class:`psutil.Popen`, except for the two special
-        keyword arguments below, which are consumed here.
-
-        :param communicate: optional :class:`dict` used to exchange data with the process. When provided,
-                            *stdout* and *stderr* are captured and stored back into it under the ``stdout`` and
-                            ``stderr`` keys, and an optional ``input`` value is sent to *stdin*.
-        :param stream_cb: optional callback invoked as ``stream_cb(stream_name, line)`` for every complete line
-                          of *stdout*/*stderr* as it arrives. Effective only when there is no ``input`` to send;
-                          forces binary pipes.
+        :param args: positional arguments for :class:`psutil.Popen`, including the command to run.
+        :param stopping: optional callback overriding the runner's default check for this call. Returning ``True``
+                         prevents launch even if the executor has not been cancelled.
+        :param kwargs: keyword arguments for :class:`psutil.Popen`, except for the following options consumed here.
+        :keyword communicate: optional :class:`dict` used to exchange data with the process. When provided,
+                              *stdout* and *stderr* are captured and stored back into it under the ``stdout`` and
+                              ``stderr`` keys, and an optional ``input`` value is sent to *stdin*.
+        :keyword stream_cb: optional callback invoked as ``stream_cb(stream_name, line)`` for every complete line
+                            of *stdout*/*stderr* as it arrives. Effective only when there is no ``input`` to send;
+                            forces binary pipes.
 
         :raises PostgresException: if the executor was already cancelled.
 
-        :returns: the process' exit code, or ``None`` if it could not be started.
+        :returns: the process' exit code, or ``None`` if launch was refused or failed.
         """
         communicate: Optional[Dict[str, Any]] = kwargs.pop('communicate', None)
         input_data = None
@@ -188,7 +194,7 @@ class CancellableSubprocess(CancellableExecutor):
                     raise PostgresException('cancelled')
 
                 self._is_cancelled = False
-                started = self._start_process(*args, **kwargs)
+                started = not (stopping or self._stopping)() and self._start_process(*args, **kwargs)
 
             if started and self._process is not None:
                 if stream_cb and not input_data:

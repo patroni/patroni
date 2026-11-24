@@ -8,7 +8,7 @@ import subprocess
 import sys
 
 from multiprocessing.connection import Connection
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 import psutil
 
@@ -33,15 +33,46 @@ STOP_SIGNALS = {
 
 
 def pg_ctl_start(conn: Connection, cmdline: List[str], env: Dict[str, str]) -> None:
+    """Wait for Patroni's permission to start PostgreSQL, then send it the new postmaster's PID.
+
+    Once Patroni confirms it is tracking the postmaster, the helper exits and leaves PostgreSQL running.
+    If Patroni disconnects before confirming, the helper kills the postmaster rather than leave it unmanaged.
+
+    :param conn: the helper's end of the pipe used to receive permission, send the PID, and receive acknowledgment.
+    :param cmdline: the PostgreSQL executable and arguments to launch.
+    :param env: environment variables for the new postmaster.
+    """
     if os.name != 'nt':
         os.setsid()
+    parent_pid = os.getppid()
+    postmaster = None
     try:
-        postmaster = subprocess.Popen(cmdline, close_fds=True, env=env)
+        if conn.recv() is not True:
+            return
+        try:
+            postmaster = subprocess.Popen(cmdline, close_fds=True, env=env)
+        except OSError:
+            logger.exception('Failed to execute %s', cmdline)
+            return
         conn.send(postmaster.pid)
+        # Another child can inherit Patroni's end of the pipe and keep it open after Patroni exits.
+        # On POSIX the helper is then reparented, so a changed parent PID tells us to stop waiting for EOF or a reply.
+        while not conn.poll(0.1) and os.getppid() == parent_pid:
+            if postmaster.poll() is not None:
+                postmaster = None
+                return
+        # Honor an acknowledgment that Patroni sent just before it exited.
+        if conn.poll() and conn.recv() is True:
+            postmaster = None
+    except (EOFError, OSError):
+        pass
     except Exception:
         logger.exception('Failed to execute %s', cmdline)
-        conn.send(None)
-    conn.close()
+    finally:
+        conn.close()
+        if postmaster is not None:
+            # No acknowledgment: the helper is still responsible for the postmaster.
+            postmaster.kill()
 
 
 class PostmasterProcess(psutil.Process):
@@ -296,18 +327,36 @@ class PostmasterProcess(psutil.Process):
             return True
 
     @staticmethod
-    def start(pgcommand: str, data_dir: str, conf: str, options: List[str]) -> Optional['PostmasterProcess']:
-        # Unfortunately `pg_ctl start` does not return postmaster pid to us. Without this information
-        # it is hard to know the current state of postgres startup, so we had to reimplement pg_ctl start
-        # in python. It will start postgres, wait for port to be open and wait until postgres will start
-        # accepting connections.
-        # Important!!! We can't just start postgres using subprocess.Popen, because in this case it
-        # will be our child for the rest of our live and we will have to take care of it (`waitpid`).
-        # So we will use the same approach as pg_ctl uses: start a new process, which will start postgres.
-        # This process will write postmaster pid to stdout and exit immediately. Now it's responsibility
-        # of init process to take care about postmaster.
-        # In order to make everything portable we can't use fork&exec approach here, so  we will call
-        # ourselves and pass list of arguments which must be used to start postgres.
+    def alive(process: psutil.Process) -> bool:
+        """Check whether a previously identified process may still be alive.
+
+        :param process: the launcher or postmaster being tracked.
+        :returns: ``False`` if the process is gone, dead, or a zombie; ``True`` if alive or access is denied.
+        """
+        try:
+            return process.is_running() and str(process.status()) not in (psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD)
+        except psutil.NoSuchProcess:
+            return False
+        except psutil.AccessDenied:
+            return True
+
+    @staticmethod
+    def start(pgcommand: str, data_dir: str, conf: str, options: List[str],
+              publish: Callable[[psutil.Process], bool] = lambda process: True) -> Optional['PostmasterProcess']:
+        """Start PostgreSQL through a short-lived helper so Patroni need not reap the postmaster.
+
+        The helper waits for permission before starting PostgreSQL, then reports the PID and waits for acknowledgment.
+        Acknowledge a published postmaster even if shutdown cancelled startup: the parent now owns its PID.
+
+        :param pgcommand: path or name of the PostgreSQL server executable.
+        :param data_dir: data directory to pass to PostgreSQL with ``-D``.
+        :param conf: path to the PostgreSQL configuration file.
+        :param options: additional server command-line arguments.
+        :param publish: callback invoked first with the launcher, then with the verified postmaster. Returning
+                ``False`` for the launcher prevents startup; for the postmaster it cancels startup but
+                still acknowledges that Patroni is tracking the process.
+        :returns: the verified postmaster, or ``None`` if startup was refused or the helper did not hand it over.
+        """
         # On Windows, in order to run a side-by-side assembly the specified env must include a valid SYSTEMROOT.
         # We also remove NOTIFY_SOCKET environment variable so that PostgreSQL doesn't send READY=1 or STOPPING=1
         # to systemd, because it is exclusively responsibility of Patroni to do it.
@@ -332,22 +381,32 @@ class PostmasterProcess(psutil.Process):
         cmdline = [pgcommand, '-D', data_dir, '--config-file={}'.format(conf)] + options
         logger.debug("Starting postgres: %s", " ".join(cmdline))
         ctx = multiprocessing.get_context('spawn')
-        parent_conn, child_conn = ctx.Pipe(False)
-        proc = ctx.Process(target=pg_ctl_start, args=(child_conn, cmdline, env))
-        proc.start()
-        # Our copy of the child end must be closed, otherwise recv() would block forever if the child process
-        # dies before sending the pid, e.g. when it can't chdir to the current working directory.
-        child_conn.close()
-        try:
-            pid = parent_conn.recv()
-        except EOFError:
-            pid = None
-        proc.join()
-        if pid is None:
-            return
-        logger.info('postmaster pid=%s', pid)
-
-        # TODO: In an extremely unlikely case, the process could have exited and the pid reassigned. The start
-        # initiation time is not accurate enough to compare to create time as start time would also likely
-        # be relatively close. We need the subprocess extract pid+start_time in a race free manner.
-        return PostmasterProcess.from_pid(pid)
+        parent_conn, child_conn = ctx.Pipe()
+        with parent_conn, child_conn:
+            launcher = ctx.Process(target=pg_ctl_start, args=(child_conn, cmdline, env))
+            launcher.start()
+            # Leaving our copy open would prevent recv() from seeing EOF if the helper dies before sending its PID.
+            child_conn.close()
+            try:
+                helper = psutil.Process(launcher.pid)
+                if helper.ppid() != os.getpid() or not publish(helper):
+                    parent_conn.send(False)
+                    return None
+                parent_conn.send(True)
+                pid = parent_conn.recv()
+                postmaster = PostmasterProcess.from_pid(pid)
+                # Check parentage before acknowledging the PID. Once the helper exits, the postmaster is reparented
+                # and that check is no longer possible.
+                if not postmaster or postmaster.ppid() != helper.pid:
+                    return None
+                accepted = publish(postmaster)
+                parent_conn.send(True)
+                if not accepted:
+                    return None
+                logger.info('postmaster pid=%s', pid)
+                return postmaster
+            except (EOFError, OSError, psutil.Error):
+                return None
+            finally:
+                parent_conn.close()
+                launcher.join()

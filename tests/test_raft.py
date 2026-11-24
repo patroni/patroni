@@ -83,6 +83,13 @@ class TestKVStoreTTL(unittest.TestCase):
         if self.so:
             self.so.destroy()
 
+    @patch.object(DynMemberSyncObj, '__init__', return_value=None)
+    def test_snapshot_fork(self, init):
+        for hooks in ([], ['register_at_fork']):
+            with patch('patroni.dcs.raft.os', spec=['name', 'path'] + hooks):
+                KVStoreTTL(None, None, None)
+            self.assertEqual(init.call_args[0][2].useFork, bool(hooks))
+
     def test_set(self):
         self.assertTrue(self.ready.wait(10))
         self.assertTrue(self.so.set('foo', 'bar', prevExist=False, ttl=30))
