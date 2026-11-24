@@ -174,21 +174,41 @@ class ZooKeeper(AbstractDCS):
     def set_ttl(self, ttl: int) -> Optional[bool]:
         """It is not possible to change ttl (session_timeout) in zookeeper without
         destroying old session and creating the new one. This method returns `!True`
-        if session_timeout has been changed (`restart()` has been called)."""
+        if session_timeout has been changed (`_restart_session()` has been called)."""
         ttl = int(ttl * 1000)
         if self._client._session_timeout != ttl:
             self._client._session_timeout = ttl
-            self._client.restart()
+            self._restart_session()
             return True
+
+    def _restart_session(self) -> None:
+        """Close the current ZooKeeper session and start a new one.
+
+        .. note::
+            We can't use :meth:`~kazoo.client.KazooClient.restart` for that, because if
+            :meth:`~kazoo.client.KazooClient.start` fails to connect within the timeout, it stops and closes
+            the client. After that kazoo never tries to reconnect, and all requests are failing with
+            :exc:`~kazoo.exceptions.ConnectionClosedError`. Therefore we wait for the new session not longer
+            than ``retry_timeout`` (this method may be executed from the main HA loop) and let kazoo continue
+            reconnecting in the background if it takes longer.
+        """
+        self._client.stop()
+        retry_timeout = self._command_retry.deadline
+        if not self._client.start_async().wait(retry_timeout):
+            logger.warning('Failed to establish a new ZooKeeper session within %s seconds, '
+                           'will keep trying in background', retry_timeout)
 
     @property
     def ttl(self) -> int:
         return int(self._client._session_timeout / 1000.0)
 
-    def set_retry_timeout(self, retry_timeout: int) -> None:
+    @property
+    def _command_retry(self) -> KazooRetry:
         old_kazoo = isinstance(self._client.retry, KazooRetry)  # pyright: ignore [reportUnnecessaryIsInstance]
-        retry = cast(KazooRetry, self._client.retry) if old_kazoo else self._client._retry
-        retry.deadline = retry_timeout
+        return cast(KazooRetry, self._client.retry) if old_kazoo else self._client._retry
+
+    def set_retry_timeout(self, retry_timeout: int) -> None:
+        self._command_retry.deadline = retry_timeout
 
     def get_node(
             self, key: str, watch: Optional[Callable[[WatchedEvent], None]] = None
@@ -425,7 +445,7 @@ class ZooKeeper(AbstractDCS):
         return True
 
     def _delete_leader(self, leader: Leader) -> bool:
-        self._client.restart()
+        self._restart_session()
         return True
 
     def _cancel_initialization(self) -> None:
