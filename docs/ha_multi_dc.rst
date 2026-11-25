@@ -14,13 +14,11 @@ In both cases, it is important to be clear about the following concepts:
 Synchronous Replication
 -----------------------
 
-To have a multi DC cluster that can automatically tolerate a zone drop, a minimum of 3 is required.
-
 The architecture diagram would be the following:
 
 .. image:: _static/multi-dc-synchronous-replication.png
 
-We must deploy a cluster of etcd, ZooKeeper or Consul through the different DC, with a minimum of 3 nodes, one in each zone.
+We must deploy a DCS cluster (with a minimum of 3 nodes), with one cluster in each zone. For information on DCS options, please see https://patroni.readthedocs.io/en/latest/modules/patroni.dcs.html
 
 Regarding postgres, we must deploy at least 2 nodes, in different DC. Then you have to set ``synchronous_mode: true`` in the global :ref:`dynamic configuration <dynamic_configuration>`.
 
