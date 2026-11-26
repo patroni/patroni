@@ -156,6 +156,14 @@ class TestCtl(unittest.TestCase):
                 self.assertIsNone(output_members(cluster, name='abc'))
                 self.assertIn('to: site dc2', mock_echo.call_args_list[1][0][0])
 
+                # the lock holder is shown as 'Promoted' while Postgres promotion has not completed yet
+                mock_echo.reset_mock()
+                cluster = get_cluster_initialized_with_leader()
+                cluster.members[0].data.update(role=PostgresqlRole.PROMOTED, state='running',
+                                               replication_state='in archive recovery')
+                self.assertIsNone(output_members(cluster, name='abc', fmt='tsv'))
+                self.assertIn('\tPromoted\trunning\t', mock_echo.call_args_list[1][0][0])
+
     @patch('patroni.dcs.AbstractDCS.set_failover_value', Mock())
     def test_switchover(self):
         # Confirm
@@ -535,6 +543,16 @@ class TestCtl(unittest.TestCase):
                 self.assertEqual(len(r), 1)
                 self.assertEqual(r[0].name, 'leader')
 
+            # a lock holder whose promotion has not completed yet is neither a primary nor a standby leader,
+            # but it is still the leader (it holds the lock)
+            cluster = get_cluster_initialized_with_leader()
+            cluster.members[0].data['role'] = PostgresqlRole.PROMOTED
+            self.assertEqual(list(get_all_members(cluster, None, role=CtlPostgresqlRole.PRIMARY)), [])
+            self.assertEqual(list(get_all_members(cluster, None, role=CtlPostgresqlRole.STANDBY_LEADER)), [])
+            r = list(get_all_members(cluster, None, role=CtlPostgresqlRole.LEADER))
+            self.assertEqual(len(r), 1)
+            self.assertEqual(r[0].name, 'leader')
+
             r = list(get_all_members(get_cluster_initialized_with_leader(), None, role=CtlPostgresqlRole.REPLICA))
             self.assertEqual(len(r), 1)
             self.assertEqual(r[0].name, 'other')
@@ -604,6 +622,13 @@ class TestCtl(unittest.TestCase):
             assert '|\n| dc1  |     0 | + other         | 127.0.0.1:5436 | Replica |' in result.output
             assert '|\n|      |     0 |   + cascade     | 127.0.0.1:5437 | Replica |' in result.output
             assert '|\n|      |     0 | + wrong_cascade | 127.0.0.1:5438 | Replica |' in result.output
+
+        # a 'promoted' lock holder is rendered as the root of the tree, not as a replica
+        cluster.members[0].data['role'] = PostgresqlRole.PROMOTED
+        with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=cluster)):
+            result = self.runner.invoke(ctl, ['topology', 'dummy'])
+            assert '+\n| dc1  |     0 | leader          | 127.0.0.1:5435 | Promoted |' in result.output
+            assert '|\n| dc1  |     0 | + other         | 127.0.0.1:5436 | Replica  |' in result.output
 
         with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=get_cluster_initialized_without_leader())):
             result = self.runner.invoke(ctl, ['topology', 'dummy'])
@@ -887,6 +912,13 @@ class TestCtl(unittest.TestCase):
         with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=only_leader_cluster)):
             result = self.runner.invoke(ctl, ['promote-cluster', 'dummy'])
             assert 'Cluster is already in the required state' in result.output
+        # a 'promoted' lock holder means promotion is already initiated
+        m = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
+                                     'role': PostgresqlRole.PROMOTED, 'state': 'running'})
+        promoted_cluster = get_cluster('12345678901', Leader(0, 0, m), [m], None, SyncState.empty(), None)
+        with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=promoted_cluster)):
+            result = self.runner.invoke(ctl, ['promote-cluster', 'dummy'])
+            assert 'Cluster is already in the required state' in result.output
         # PATCH error
         mock_patch.return_value.status = 500
         result = self.runner.invoke(ctl, ['demote-cluster', 'dummy', '--restore-command', 'foo', '--force'])
@@ -902,6 +934,13 @@ class TestCtl(unittest.TestCase):
                 patch('time.sleep', Mock()):
             result = self.runner.invoke(ctl, ['promote-cluster', 'dummy', '--force'])
             assert result.exit_code == 0
+        # success as soon as promotion is initiated (role 'promoted'), without waiting for it to complete
+        with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(side_effect=[standby_cluster, standby_cluster,
+                                                                            promoted_cluster])), \
+                patch('time.sleep', Mock()):
+            result = self.runner.invoke(ctl, ['promote-cluster', 'dummy', '--force'])
+            assert result.exit_code == 0
+            assert 'cluster is successfully promoted' in result.output
 
 
 class TestPatronictlPrettyTable(unittest.TestCase):

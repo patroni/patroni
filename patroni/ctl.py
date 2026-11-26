@@ -537,14 +537,16 @@ def get_all_members(cluster: Cluster, group: Optional[int],
     if is_citus_cluster() and group is None:
         clusters.update(cluster.workers)
     if role in (CtlPostgresqlRole.LEADER, CtlPostgresqlRole.PRIMARY, CtlPostgresqlRole.STANDBY_LEADER):
-        # In the DCS the members' role can be one among: ``primary``, ``master``, ``replica`` or ``standby_leader``.
-        # ``primary`` and ``master`` are the same thing.
+        # In the DCS the members' role can be one among: ``primary``, ``master``, ``replica``, ``standby_leader``,
+        # or ``promoted``. ``primary`` and ``master`` are the same thing. ``promoted`` means the member holds the
+        # leader lock but Postgres promotion has not completed yet.
         for cluster in clusters.values():
             if cluster.leader is not None and cluster.leader.name and\
                 (role == CtlPostgresqlRole.LEADER
-                 or cluster.leader.data.get('role') not in (PostgresqlRole.PRIMARY, PostgresqlRole.MASTER)
+                 or cluster.leader.data.get('role') not in (PostgresqlRole.PRIMARY, PostgresqlRole.MASTER,
+                                                            PostgresqlRole.PROMOTED)
                  and role == CtlPostgresqlRole.STANDBY_LEADER
-                 or cluster.leader.data.get('role') != PostgresqlRole.STANDBY_LEADER
+                 or cluster.leader.data.get('role') not in (PostgresqlRole.STANDBY_LEADER, PostgresqlRole.PROMOTED)
                  and role == CtlPostgresqlRole.PRIMARY):
                 yield cluster.leader.member
         return
@@ -1536,7 +1538,7 @@ def topology_sort(members: List[Dict[str, Any]]) -> Iterator[Dict[str, Any]]:
     :param members: list of members in the cluster. Each item should contain at least these keys:
 
         * ``name``: name of the node, according to ``name`` configuration;
-        * ``role``: ``leader``, ``standby_leader`` or ``replica``.
+        * ``role``: ``leader``, ``standby_leader``, ``promoted`` or ``replica``.
 
         Cascading replicas are identified through ``tags`` -> ``replicatefrom`` value -- if that is set, and they are
         in fact attached to another replica.
@@ -1549,10 +1551,11 @@ def topology_sort(members: List[Dict[str, Any]]) -> Iterator[Dict[str, Any]]:
         in the topology.
     """
     topology: Dict[Optional[str], List[Dict[str, Any]]] = defaultdict(list)
-    leader = next((m for m in members if m['role'].endswith('leader')), {'name': None})
-    replicas = set(member['name'] for member in members if not member['role'].endswith('leader'))
+    leader = next((m for m in members if m['role'] == 'promoted' or m['role'].endswith('leader')), {'name': None})
+    replicas = set(member['name'] for member in members
+                   if member['role'] != 'promoted' and not member['role'].endswith('leader'))
     for member in members:
-        if not member['role'].endswith('leader'):
+        if member['role'] != 'promoted' and not member['role'].endswith('leader'):
             parent = member.get('tags', {}).get('replicatefrom')
             parent = parent if parent and parent != member['name'] and parent in replicas else leader['name']
             topology[parent].append(member)
@@ -1593,7 +1596,8 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
         * ``Site``: site of the Patroni node, as per ``site`` configuration;
         * ``Member``: name of the Patroni node, as per ``name`` configuration;
         * ``Host``: hostname (or IP) and port, as per ``postgresql.listen`` configuration;
-        * ``Role``: ``Leader``, ``Standby Leader``, ``Sync Standby`` or ``Replica``;
+        * ``Role``: ``Leader``, ``Promoted`` (holds the leader lock but promotion has not completed yet),
+          ``Standby Leader``, ``Sync Standby`` or ``Replica``;
         * ``State``: one of :class:`~patroni.postgresql.misc.PostgresqlState`;
         * ``TL``: current timeline in Postgres;
         * ``Receive LSN``: last received LSN (``pg_catalog.pg_last_(xlog|wal)_receive_(location|lsn)()``);
@@ -2367,14 +2371,16 @@ def change_cluster_role(cluster_name: str, force: bool, standby_config: Optional
     """
     demote = bool(standby_config)
     action_name = 'demot' if demote else 'promot'
-    target_role = PostgresqlRole.STANDBY_LEADER if demote else PostgresqlRole.PRIMARY
+    # the member key reports role 'promoted' as soon as promotion is initiated with ``pg_ctl promote``, and only
+    # switches to 'primary' once Postgres has left recovery; don't make the user wait for the latter
+    target_roles = (PostgresqlRole.STANDBY_LEADER,) if demote else (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED)
 
     dcs = get_dcs(cluster_name, None)
     cluster = dcs.get_cluster()
     leader_name = cluster.leader and cluster.leader.name
     if not leader_name:
         raise PatroniCtlException(f'Cluster has no leader, {action_name}ion is not possible')
-    if cluster.leader and cluster.leader.data.get('role') == target_role:
+    if cluster.leader and cluster.leader.data.get('role') in target_roles:
         raise PatroniCtlException('Cluster is already in the required state')
 
     click.echo('Current cluster topology')
@@ -2404,7 +2410,7 @@ def change_cluster_role(cluster_name: str, force: bool, standby_config: Optional
         old_leader = cluster.get_member(leader_name, False)
         old_leader_state = old_leader and old_leader.data.get('state')
 
-        if not is_unlocked and leader_role == target_role and leader_state == PostgresqlState.RUNNING:
+        if not is_unlocked and leader_role in target_roles and leader_state == PostgresqlState.RUNNING:
             if not demote or old_leader_state == PostgresqlState.RUNNING:
                 click.echo(
                     f'{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")} cluster is successfully {action_name}ed')
