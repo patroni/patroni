@@ -243,7 +243,7 @@ CTL
 -  **PATRONI\_CTL\_PASSWORD**: (optional) Basic-auth password for accessing protected REST API endpoints. If not provided :ref:`patronictl` will use the value provided for REST API "password" parameter.
 -  **PATRONI\_CTL\_INSECURE**: (optional) Allow connections to REST API without verifying SSL certs.
 -  **PATRONI\_CTL\_CACERT**: (optional) Specifies the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs. If not provided :ref:`patronictl` will use the value provided for REST API "cafile" parameter.
--  **PATRONI\_CTL\_CRLFILE**: (optional) Specifies the file with certificate revocation lists (CRLs) in the PEM format, to check REST API SSL certs against. It is used only when REST API SSL certs are verified (not with ``PATRONI_CTL_INSECURE``). If not provided :ref:`patronictl` will use the value provided for REST API "crlfile" parameter.
+-  **PATRONI\_CTL\_CRLFILE**: (optional) Specifies the file with certificate revocation lists (CRLs) in the PEM format, to check REST API SSL certs against. With ``PATRONI_CTL_INSECURE`` and ``PATRONI_CTL_CERTFILE``, only the hostname check is skipped and the certs are still checked against the CRLs. With ``PATRONI_CTL_INSECURE`` and no ``PATRONI_CTL_CERTFILE``, REST API SSL certs are not verified and the CRL file is not used. If not provided :ref:`patronictl` will use the value provided for REST API "crlfile" parameter.
 -  **PATRONI\_CTL\_CERTFILE**: (optional) Specifies the file with the client certificate in the PEM format.
 -  **PATRONI\_CTL\_KEYFILE**: (optional) Specifies the file with the client secret key in the PEM format.
 -  **PATRONI\_CTL\_KEYFILE\_PASSWORD**: (optional) Specifies a password for decrypting the client keyfile.

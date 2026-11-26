@@ -437,7 +437,7 @@ CTL
       -  **password**: Basic-auth password for accessing protected REST API endpoints. If not provided :ref:`patronictl` will use the value provided for REST API "password" parameter.
    -  **insecure**: Allow connections to REST API without verifying SSL certs.
    -  **cacert**: Specifies the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs. If not provided :ref:`patronictl` will use the value provided for REST API "cafile" parameter.
-   -  **crlfile**: Specifies the file with certificate revocation lists (CRLs) in the PEM format, to check REST API SSL certs against. It is used only when REST API SSL certs are verified (not with ``insecure``). If not provided :ref:`patronictl` will use the value provided for REST API "crlfile" parameter.
+   -  **crlfile**: Specifies the file with certificate revocation lists (CRLs) in the PEM format, to check REST API SSL certs against. With ``insecure`` and a ``certfile``, only the hostname check is skipped and the certs are still checked against the CRLs. With ``insecure`` and no ``certfile``, REST API SSL certs are not verified and ``crlfile`` is not used. If not provided :ref:`patronictl` will use the value provided for REST API "crlfile" parameter.
    -  **certfile**: Specifies the file with the client certificate in the PEM format.
    -  **keyfile**: Specifies the file with the client secret key in the PEM format.
    -  **keyfile\_password**: Specifies a password for decrypting the client keyfile.
