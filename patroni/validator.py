@@ -1233,6 +1233,7 @@ schema = Schema({
     Optional("ctl"): {
         Optional("insecure"): bool,
         Optional("cacert"): str,
+        Optional("crlfile"): str,
         Optional("certfile"): str,
         Optional("keyfile"): str,
         Optional("keyfile_password"): str
@@ -1249,6 +1250,7 @@ schema = Schema({
         Optional("keyfile"): str,
         Optional("keyfile_password"): str,
         Optional("cafile"): str,
+        Optional("crlfile"): str,
         Optional("ciphers"): str,
         Optional("verify_client"): EnumValidator(("none", "optional", "required"),
                                                  case_sensitive=True, raise_assert=True),
