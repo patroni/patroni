@@ -216,6 +216,20 @@ class TestZooKeeper(unittest.TestCase):
     def test_delete_leader(self):
         self.assertTrue(self.zk.delete_leader(self.zk.get_cluster().leader))
 
+    @patch('patroni.dcs.zookeeper.logger.warning')
+    def test_delete_leader_reconnect_timeout(self, mock_logger):
+        leader = self.zk.get_cluster().leader
+        self.zk._client = client = PatroniKazooClient('127.0.0.1:1')
+        try:
+            # new session wasn't established in time, but the client must keep reconnecting in background
+            with patch.object(client._live, 'wait', Mock(return_value=False)):
+                self.assertTrue(self.zk.delete_leader(leader))
+            mock_logger.assert_called_once()
+            self.assertFalse(client._stopped.is_set())
+        finally:
+            client.stop()
+            client.close()
+
     def test_set_failover_value(self):
         self.zk.set_failover_value('')
         self.zk.set_failover_value('ok')
