@@ -56,6 +56,13 @@ After a host reset, Patroni starts an existing stopped PostgreSQL instance in re
 
 The watchdog relies on the leader key expiring only when Patroni stops updating it. With Consul, keep ``consul.checks`` empty (the default): a session tied to node health checks can be invalidated before the watchdog fires, while PostgreSQL is still running. With :ref:`DCS failsafe mode <dcs_failsafe_mode>` enabled, a primary can continue without the key during a DCS outage, so routing and alerts that look only at the key must take that state into account.
 
+Containers
+~~~~~~~~~~
+
+Patroni supports only the Linux watchdog device, and a container sees ``/dev/watchdog`` only if the host device is passed into it with write permission for the Patroni user. Several things follow. The device resets the whole host, so every container on that node is reset with it. A Linux watchdog device accepts a single opener, so two Patroni members on the same host cannot both use it. In Kubernetes, passing the device needs a privileged pod, which many clusters do not allow, and the :ref:`Kubernetes <kubernetes>` integration does not provide a watchdog. With ``mode: required`` and no device, no member can become leader at all.
+
+Where no watchdog is possible, the setup loses one layer and the others carry more weight. Keep strict synchronous replication: once the replicas follow a new leader, an isolated old primary can no longer get a synchronous acknowledgement, so it stops acknowledging writes even though it is still running. Fence through ``pre_promote`` using the orchestrator (for example, delete the former leader's pod and confirm it is gone) rather than a cloud power API. Treat a member that reports ``watchdog_failed`` as a reason not to promote, and monitor it. Without a watchdog, a primary whose Patroni process is suspended keeps running until something external stops it; the fence and the write probe are the only protections left.
+
 Fencing
 -------
 
