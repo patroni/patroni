@@ -155,6 +155,12 @@ class TestConfig(unittest.TestCase):
             env_config = Config._build_environment_configuration()
         self.assertEqual(env_config, {'restapi': {'thread_pool_size': 10}})
 
+    def test_consul_scheme_from_environment(self):
+        with patch.dict('os.environ', {'PATRONI_CONSUL_HOST': '127.0.0.1:8501',
+                                       'PATRONI_CONSUL_SCHEME': 'https'}, clear=True):
+            env_config = Config._build_environment_configuration()
+        self.assertEqual(env_config, {'consul': {'host': '127.0.0.1:8501', 'scheme': 'https'}})
+
     @patch('tempfile.mkstemp', Mock(return_value=[3000, 'blabla']))
     @patch('os.path.exists', Mock(return_value=True))
     @patch('os.remove', Mock(side_effect=IOError))
