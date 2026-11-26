@@ -29,7 +29,7 @@ from .bootstrap import Bootstrap
 from .callback_executor import CallbackAction, CallbackExecutor
 from .cancellable import CancellableSubprocess
 from .config import ConfigHandler, mtime
-from .connection import ConnectionPool, get_connection_cursor
+from .connection import ConnectionPool, get_connection_cursor, relax_localhost_sslmode
 from .misc import parse_history, parse_lsn, postgres_major_version_to_int, PostgresqlRole, PostgresqlState
 from .mpp import AbstractMPP
 from .postmaster import PostmasterProcess
@@ -1124,6 +1124,7 @@ class Postgresql(ClusterSite):
         member = RemoteMember('', {'conn_kwargs': {'host': host, 'port': port}})
         conn_kwargs = member.conn_kwargs(self.config.replication)
         conn_kwargs.update(replication=1)
+        relax_localhost_sslmode(conn_kwargs)
         with get_connection_cursor(**conn_kwargs) as cur:
             yield cur
 
