@@ -7,6 +7,7 @@ import sys
 import time
 import uuid
 
+from contextlib import suppress
 from enum import Enum
 from threading import RLock
 from typing import Any, Callable, cast, Collection, Dict, List, NamedTuple, Optional, Tuple, TYPE_CHECKING, Union
@@ -239,6 +240,10 @@ class Ha(object):
     _START_AS_REPLICA = 'restarting after failure'
 
     def __init__(self, patroni: Patroni):
+        """Set up the high-availability loop for this member.
+
+        :param patroni: daemon providing the PostgreSQL handler, DCS client, watchdog, and shutdown state.
+        """
         self.patroni = patroni
         self.state_handler = patroni.postgresql
         self._rewind = Rewind(self.state_handler)
@@ -255,7 +260,8 @@ class Ha(object):
         self._async_response = CriticalTask()
         self._crash_recovery_started = float('-inf')
         self._start_timeout = None
-        self._async_executor = AsyncExecutor(self.state_handler.cancellable, self.wakeup)
+        self._async_executor = AsyncExecutor(self.state_handler.cancellable, self.wakeup,
+                                             lambda: self.patroni.received_sigterm)
         self.watchdog = patroni.watchdog
 
         # Each member publishes various pieces of information to the DCS using touch_member. This lock protects
@@ -383,6 +389,13 @@ class Ha(object):
         self._leader_timeline = cluster.leader.timeline if cluster.leader else None
 
     def acquire_lock(self) -> bool:
+        """Try to acquire the leader key and record the result before acting on a concurrent shutdown request.
+
+        :returns: ``True`` if the leader key was acquired, otherwise ``False``.
+        :raises DCSError: if the DCS cannot establish the result of the operation.
+        :raises SystemExit: if shutdown was requested.
+        """
+        self.patroni.check_shutdown()
         try:
             ret = self.dcs.acquire_leader_lock()
         except DCSError:
@@ -390,7 +403,9 @@ class Ha(object):
         except Exception:
             logger.exception('Unexpected exception raised from acquire_leader_lock, please report it as a BUG')
             ret = False
+        # SIGTERM may arrive during the DCS call. Record a successful acquisition before leaving the HA cycle.
         self.set_is_leader(ret)
+        self.patroni.check_shutdown()
         # The watchdog is still armed if we were running as a primary while the leader key was missing. Don't call
         # keepalive() otherwise, it would apply deferred config changes ignoring activation failures. A device left
         # armed with an unsafe timeout would make enforce_primary_role() skip the activation and promote.
@@ -415,8 +430,8 @@ class Ha(object):
             The ``/status`` key contains the last known LSN on the leader node and the last known state
             of permanent replication slots including permanent physical replication slot for the leader.
 
-            Last, but not least, this method calls a :meth:`Watchdog.keepalive` method after the leader key
-            was successfully updated.
+            Record the renewal result before checking for shutdown. Feed the watchdog only if renewal succeeds
+            and the HA loop continues.
 
         :param update_status: ``True`` if we also need to update the ``/status`` key in DCS, otherwise ``False``.
 
@@ -430,6 +445,7 @@ class Ha(object):
                 slots = self.cluster.maybe_filter_permanent_slots(self.state_handler, self.state_handler.slots())
             except Exception:
                 logger.exception('Exception when called state_handler.last_operation()')
+        self.patroni.check_shutdown()
         try:
             ret = self.dcs.update_leader(self.cluster, last_lsn, slots, self._failsafe_config())
         except DCSError:
@@ -438,6 +454,7 @@ class Ha(object):
             logger.exception('Unexpected exception raised from update_leader, please report it as a BUG')
             ret = False
         self.set_is_leader(ret)
+        self.patroni.check_shutdown()
         if ret:
             self.watchdog.keepalive()
         return ret
@@ -461,7 +478,7 @@ class Ha(object):
     def _cancel_promotion(self) -> bool:
         """Cancel the promotion running in the background, unless it is too late.
 
-        :returns: ``True`` if the promotion was cancelled.
+        :returns: ``True`` if the promotion was cancelled, ``False`` if none was scheduled or it is too late to cancel.
         """
         if self._async_executor.scheduled_action == 'promote':
             with self._async_response:
@@ -607,6 +624,12 @@ class Ha(object):
             self.state_handler.remove_data_directory()
 
     def bootstrap(self) -> str:
+        """Schedule cluster initialization or replica creation when a bootstrap source is available.
+
+        :returns: a message describing the scheduled action or why this member must wait.
+        :raises SystemExit: if shutdown was requested before bootstrap.
+        """
+        self.patroni.check_shutdown()
         # no initialize key and node is allowed to be primary and has 'bootstrap' section in a configuration file
         if self.cluster.is_unlocked() and self.cluster.initialize is None\
                 and not self.patroni.nofailover and 'bootstrap' in self.patroni.config:
@@ -722,6 +745,7 @@ class Ha(object):
             timeout = None
 
         data = self.state_handler.controldata()
+        self.patroni.check_shutdown()
         logger.info('pg_controldata:\n%s\n', '\n'.join('  {0}: {1}'.format(k, v) for k, v in data.items()))
 
         # timeout > 0 indicates that we still have the leader lock, and it was just updated
@@ -1810,6 +1834,12 @@ class Ha(object):
         return self._is_healthiest_node(members.values(), leader=self.old_cluster.leader)
 
     def _delete_leader(self, last_lsn: Optional[int] = None) -> None:
+        """Clear local leadership and delete the leader key in the DCS.
+
+        :param last_lsn: optional WAL position to publish when releasing the leader key.
+        :raises SystemExit: if shutdown was requested before the release.
+        """
+        self.patroni.check_shutdown()
         self.set_is_leader(False)
         self.dcs.delete_leader(self.cluster.leader, last_lsn)
         self.dcs.reset_cluster()
@@ -1822,7 +1852,9 @@ class Ha(object):
     def demote(self, mode: str) -> Optional[bool]:
         """Demote PostgreSQL running as primary.
 
-        :param mode: One of offline, graceful, immediate or immediate-nolock.
+        Once daemon shutdown is requested, leave any outstanding leader-key release to :meth:`shutdown`.
+
+        :param mode: One of ``offline``, ``graceful``, ``immediate``, ``immediate-nolock``, or ``demote-cluster``.
                      ``offline`` is used when connection to DCS is not available.
                      ``graceful`` is used when failing over to another node due to user request. May only be called
                      running async.
@@ -1831,6 +1863,10 @@ class Ha(object):
                      ``immediate-nolock`` is used when find out that we have lost the lock to be primary. Need to bring
                      down PostgreSQL as quickly as possible without regard for data durability. May only be called
                      synchronously.
+                     ``demote-cluster`` is used when converting this cluster to a standby cluster.
+
+        :returns: the result of following the new upstream, ``None`` if an asynchronous follow was requested,
+                  or ``False`` if shutdown, other work, or a required rewind prevents starting the standby now.
         """
         mode_control = {
             'offline':          dict(stop='fast',      checkpoint=False, release=False, offline=True,  async_req=False),  # noqa: E241,E501
@@ -1865,6 +1901,13 @@ class Ha(object):
             mode_control['release'] = False
 
         def on_shutdown(checkpoint_location: int, prev_location: int) -> None:
+            """Release the leader key if a failover candidate received the shutdown checkpoint.
+
+            :param checkpoint_location: shutdown checkpoint LSN used to check failover eligibility.
+            :param prev_location: preceding WAL switch LSN, or the checkpoint LSN if no switch was identified.
+            """
+            if self.patroni.received_sigterm:
+                return
             # Postmaster is still running, but pg_control already reports clean "shut down".
             # It could happen if Postgres is still archiving the backlog of WAL files.
             # If we know that there are replicas that received the shutdown checkpoint
@@ -1876,6 +1919,8 @@ class Ha(object):
                 # not the prev one
                 last_lsn = checkpoint_location if mode == 'demote-cluster' else prev_location
                 with self._async_executor:
+                    if self.patroni.received_sigterm:
+                        return
                     self.release_leader_key_voluntarily(last_lsn)
                     status['released'] = True
 
@@ -1901,12 +1946,14 @@ class Ha(object):
             with self._async_executor:
                 self.dcs.update_leader(self.cluster, checkpoint_lsn, None, self._failsafe_config())
             mode_control['release'] = False
-        else:
+        elif not mode_control['release']:
             self.set_is_leader(False)
 
         if mode_control['release']:
             if not status['released']:
                 with self._async_executor:
+                    if self.patroni.received_sigterm:
+                        return False
                     self.release_leader_key_voluntarily(prev_lsn)
             time.sleep(2)  # Give a time to somebody to take the leader lock
 
@@ -1915,6 +1962,10 @@ class Ha(object):
                 self._rewind.archive_shutdown_checkpoint_wal(cast(str, archive_cmd))
             else:
                 logger.info('Not archiving latest checkpoint WAL file. Archiving is not configured.')
+
+        if self.patroni.received_sigterm:
+            # A normal demotion now follows another member and can restart PostgreSQL. A daemon exiting must not.
+            return False
 
         if mode_control['offline']:
             node_to_follow, leader = None, None
@@ -2424,6 +2475,11 @@ class Ha(object):
         self._start_timeout = value
 
     def _run_cycle(self) -> str:
+        """Run one HA iteration using the cluster state from the DCS and the state of local PostgreSQL.
+
+        :returns: a status message describing the action taken, work in progress, or why no action was taken.
+        :raises SystemExit: if shutdown was requested at a safe point in the cycle.
+        """
         self._prev_wal_lsn = self._last_wal_lsn
         dcs_failed = False
         busy = self._async_executor.busy
@@ -2431,8 +2487,10 @@ class Ha(object):
             try:
                 self.load_cluster_from_dcs()
                 global_config.update(self.cluster)
+                self.patroni.check_shutdown()
                 self.state_handler.reset_cluster_info_state(self.cluster, self.patroni)
             except Exception as exc1:
+                self.patroni.check_shutdown()
                 self.state_handler.reset_cluster_info_state(None)
                 if self.is_failsafe_mode():
                     # If DCS is not accessible we want to get the latest value of received/replayed LSN
@@ -2609,12 +2667,15 @@ class Ha(object):
             return ret
         except DCSError:
             dcs_failed = True
+            self.patroni.check_shutdown()
             logger.error('Error communicating with DCS')
             return self._handle_dcs_error()
         except (psycopg.Error, PostgresConnectionException):
             return 'Error communicating with PostgreSQL. Will try again later'
         finally:
-            if not dcs_failed:
+            # A safe-point exit still runs this block. Skip the routine heartbeat during shutdown; the normal
+            # shutdown path can publish the final member state after it has verified the stop.
+            if not dcs_failed and not self.patroni.received_sigterm:
                 if not busy and self._recovering is _RecoveryAction.FOLLOW_OFFLINE:
                     # Releasing the old key or queuing follow does not configure a replica. Drop the offline fallback
                     # only if DCS chose different work (e.g. rewind) instead.
@@ -2625,6 +2686,10 @@ class Ha(object):
                 self.touch_member()
 
     def _handle_dcs_error(self) -> str:
+        """Decide whether this member can keep its role while the DCS is unreachable.
+
+        :returns: a status message describing the failsafe decision, recovery action, or loss of DCS access.
+        """
         if not self.is_paused():
             running = self.state_handler.is_running()
             if self._recovering is _RecoveryAction.FOLLOW_OFFLINE and not self._async_executor.busy:
@@ -2637,6 +2702,7 @@ class Ha(object):
             primary = running and self.state_handler.is_primary()
             if primary and self.is_failsafe_mode() and self.check_failsafe_topology():
                 self.set_is_leader(True)
+                self.patroni.check_shutdown()
                 self._failsafe.set_is_active(time.monotonic())
                 self.watchdog.keepalive()
                 self._sync_replication_slots(True)
@@ -2692,11 +2758,35 @@ class Ha(object):
                 logger.exception('Unexpected exception')
                 return 'Unexpected exception raised, please report it as a BUG'
 
+    def shutdown_fence(self) -> None:
+        """Finish emergency shutdown without HA locks or DCS writes.
+
+        Try to release the watchdog once after PostgreSQL stops, even if it may remain armed.
+        A paused node keeps PostgreSQL running; an aborted join leaves both alone.
+        """
+        if self._join_aborted:
+            return
+        if not self.is_paused():
+            self.state_handler.shutdown_fence(self.primary_stop_timeout())
+        with suppress(Exception):
+            self.watchdog.try_disable()
+
     def shutdown(self) -> None:
+        """Cancel background work and stop PostgreSQL if HA claims the normal shutdown.
+
+        Leave the leader key alone if the guard claimed the stop. Paused members keep PostgreSQL running;
+        an aborted join does not stop PostgreSQL or release the watchdog.
+        """
+        guard = self.patroni.shutdown_guard
+        # A running job may still be starting or promoting PostgreSQL. cancel() waits for it, so leave the
+        # guard armed here just as we do while waiting for REST shutdown.
         self._async_executor.cancel()
+        if guard.owns_stop():
+            return
         if self.is_paused():
             logger.info('Leader key is not deleted and Postgresql is not stopped due paused state')
-            self.watchdog.disable()
+            if guard.claim_normal():
+                self.watchdog.disable()
         elif not self._join_aborted:
             # FIXME: If stop doesn't reach safepoint quickly enough keepalive is triggered. If shutdown checkpoint
             # takes longer than ttl, then leader key is lost and replication might not have sent out all WAL.
@@ -2724,10 +2814,25 @@ class Ha(object):
 
             on_shutdown = _on_shutdown if self.is_leader() else None
             before_shutdown = _before_shutdown if self.is_leader() else None
-            self.while_not_sync_standby(lambda: self.state_handler.stop(checkpoint=False, on_safepoint=disable_wd,
-                                                                        on_shutdown=on_shutdown,
-                                                                        before_shutdown=before_shutdown,
-                                                                        stop_timeout=self.primary_stop_timeout()))
+            if not self.is_leader() and self.is_synchronous_mode() and not self.patroni.nosync:
+                # Allow the primary to replace this synchronous standby before stopping it. That may take two
+                # HA cycles and DCS retries before we enter stop().
+                guard.extend_grace(2 * self.dcs.loop_wait + 2 * self.patroni.config['retry_timeout'] + 2)
+
+            def stop() -> bool:
+                """Attempt the normal stop after the synchronous standby check.
+
+                :returns: ``True`` if HA claimed and attempted the stop, not necessarily if PostgreSQL exited;
+                          ``False`` if the guard owns the stop.
+                """
+                if not guard.claim_normal():
+                    return False
+                self.state_handler.stop(checkpoint=False, on_safepoint=disable_wd, on_shutdown=on_shutdown,
+                                        before_shutdown=before_shutdown, stop_timeout=self.primary_stop_timeout())
+                return True
+
+            if not self.while_not_sync_standby(stop):
+                return
             if not self.state_handler.is_running():
                 if self.is_leader() and not status['deleted']:
                     _, prev_location = self.state_handler.latest_checkpoint_locations()
@@ -2739,6 +2844,8 @@ class Ha(object):
                 # system due to a bad config.
                 logger.error("PostgreSQL shutdown failed, leader key not removed.%s",
                              (" Leaving watchdog running." if self.watchdog.is_running else ""))
+        else:
+            guard.claim_normal()
 
     def watch(self, timeout: float) -> bool:
         # watch on leader key changes if the postgres is running and leader is known and current node is not lock owner

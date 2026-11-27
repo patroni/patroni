@@ -14,7 +14,7 @@ from threading import current_thread, Lock
 from typing import Any, Callable, Dict, Generator, List, Optional, Tuple, TYPE_CHECKING, Union
 
 from dateutil import tz
-from psutil import TimeoutExpired
+from psutil import AccessDenied, Process, TimeoutExpired
 
 from .. import global_config, psycopg
 from ..async_executor import CriticalTask
@@ -78,6 +78,11 @@ class Postgresql(ClusterSite):
               "pg_catalog.pg_is_in_recovery() AND pg_catalog.pg_is_{0}_replay_paused()")
 
     def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
+        """Set up management of the local PostgreSQL instance and check whether it is already running.
+
+        :param config: PostgreSQL configuration for this Patroni member, including its name and data directory.
+        :param mpp: MPP implementation used to create the handler for this instance.
+        """
         super(Postgresql, self).__init__(config.get('site'))
 
         self.name: str = config['name']
@@ -114,7 +119,15 @@ class Postgresql(ClusterSite):
         self.__cb_called = False
         self.__cb_pending = None
 
-        self.cancellable = CancellableSubprocess()
+        # Patroni supplies these shutdown predicates after construction.
+        self.stopping: Callable[[], bool] = lambda: False
+        self.guard_owns_stop: Callable[[], bool] = lambda: False
+        self.cancellable = CancellableSubprocess(lambda: self.stopping())
+
+        # Track the launcher until it reports the postmaster PID. The lock keeps a stale PID-file lookup
+        # from overwriting the newly published postmaster.
+        self._postmaster_lock = Lock()
+        self._launch_process: Optional[Process] = None
 
         self._sysid = ''
         self.retry = Retry(max_tries=-1, deadline=config['retry_timeout'] / 2.0, max_delay=1,
@@ -315,12 +328,12 @@ class Postgresql(ClusterSite):
         """Builds and executes the initdb command.
 
         :param args: List of arguments to be joined into the initdb command.
-        :param kwargs: Keyword arguments to pass to ``subprocess.call``.
+        :param kwargs: Keyword arguments to pass to :func:`subprocess.call`.
 
-        :returns: ``True`` if the result of ``subprocess.call`, the exit code, is ``0``.
+        :returns: ``True`` if ``initdb`` exits with status zero, ``False`` if it fails or shutdown prevents launch.
         """
         initdb = [self.pgcommand('initdb')] + list(args) + [self.data_dir]
-        return subprocess.call(initdb, **kwargs) == 0
+        return not self.stopping() and subprocess.call(initdb, **kwargs) == 0
 
     def pg_isready(self) -> PgIsReadyStatus:
         """Runs pg_isready to see if PostgreSQL is accepting connections.
@@ -680,19 +693,24 @@ class Postgresql(ClusterSite):
         return None, None
 
     def is_running(self) -> Optional[PostmasterProcess]:
-        """Returns PostmasterProcess if one is running on the data directory or None. If most recently seen process
-        is running updates the cached process based on pid file."""
-        if self._postmaster_proc:
-            if self._postmaster_proc.is_running():
+        """Look up the running postmaster without overwriting a concurrent launch or PID-file refresh.
+
+        :returns: the tracked postmaster, or ``None`` if none was found.
+        """
+        cached = self._postmaster_proc
+        if cached:
+            if cached.is_running():
                 return self._postmaster_proc
-            self._postmaster_proc = None
             self._available_gucs = None
 
         # we noticed that postgres was restarted, force syncing of replication slots and check of logical slots
         self.slots_handler.schedule()
 
-        self._postmaster_proc = PostmasterProcess.from_pidfile(self.pgcommand('postgres'), self._data_dir)
-        return self._postmaster_proc
+        found = PostmasterProcess.from_pidfile(self.pgcommand('postgres'), self._data_dir)
+        with self._postmaster_lock:
+            if self._postmaster_proc is cached:
+                self._postmaster_proc = found
+            return self._postmaster_proc
 
     @property
     def cb_called(self) -> bool:
@@ -743,6 +761,67 @@ class Postgresql(ClusterSite):
     def is_starting(self) -> bool:
         return self.state in (PostgresqlState.STARTING, PostgresqlState.BOOTSTRAP_STARTING)
 
+    def _publish_launch(self, process: Process) -> bool:
+        """Record the process so shutdown can find it during startup.
+
+        :param process: the launcher before it is allowed to start PostgreSQL, or the new postmaster before
+                        Patroni acknowledges its PID to the launcher.
+        :returns: ``True`` if startup may continue, ``False`` if shutdown was requested. In either case,
+                  the process is already tracked.
+        """
+        with self._postmaster_lock:
+            if isinstance(process, PostmasterProcess):
+                self._postmaster_proc = process
+                self._launch_process = None
+            else:
+                self._launch_process = process
+        return not self.stopping()
+
+    def _find_postmaster_for_shutdown(self) -> Tuple[Optional[PostmasterProcess], bool]:
+        """Find the postmaster to stop, checking the PID file if the cached process is gone.
+
+        :returns: ``(postmaster, False)`` if a process needs stopping, ``(None, True)`` if both the launcher and
+                  postmaster are gone, or ``(None, False)`` if a launch or handoff may still be in progress.
+        """
+        launcher, cached = self._launch_process, self._postmaster_proc
+        if cached is not None and PostmasterProcess.alive(cached):
+            return cached, False
+        found = PostmasterProcess.from_pidfile(self.pgcommand('postgres'), self._data_dir)
+        if found is not None and PostmasterProcess.alive(found):
+            return found, False
+        stopped = (launcher is None or not PostmasterProcess.alive(launcher)) \
+            and launcher is self._launch_process and cached is self._postmaster_proc
+        return None, stopped
+
+    def shutdown_fence(self, stop_timeout: Optional[int] = None) -> None:
+        """Stop PostgreSQL and wait until neither the postmaster nor its launcher is running.
+
+        Retry a failed fast-stop signal on the same postmaster even if its PID file disappears. After a successful
+        signal, use the normal shutdown escalation policy. Recheck for a launcher or replacement before returning.
+
+        :param stop_timeout: seconds to wait after signaling fast shutdown, then again after requesting immediate
+                             shutdown before killing the process tree. With no positive timeout, wait indefinitely.
+        """
+        postmaster = None
+        if stop_timeout is not None and stop_timeout <= 0:
+            stop_timeout = None
+        pg_ctl = self.pgcommand('pg_ctl')
+        while True:
+            try:
+                if postmaster is None or not PostmasterProcess.alive(postmaster):
+                    postmaster, stopped = self._find_postmaster_for_shutdown()
+                    if stopped:
+                        return
+
+                if postmaster is not None and postmaster.signal_stop('fast', pg_ctl) is None:
+                    if not self._wait_for_postmaster(postmaster, stop_timeout) \
+                            and not self.terminate_postmaster(postmaster, 'fast', stop_timeout, warn_on_kill=False):
+                        postmaster.wait()
+                    continue
+            except (AccessDenied, OSError):
+                pass
+            time.sleep(0.1)
+
     def wait_for_port_open(self, postmaster: PostmasterProcess, timeout: float) -> bool:
         """Waits until PostgreSQL opens ports."""
         for _ in polling_loop(timeout):
@@ -766,13 +845,19 @@ class Postgresql(ClusterSite):
     def start(self, timeout: Optional[float] = None, task: Optional[CriticalTask] = None,
               block_callbacks: bool = False, role: Optional[PostgresqlRole] = None,
               after_start: Optional[Callable[..., Any]] = None) -> Optional[bool]:
-        """Start PostgreSQL
+        """Start PostgreSQL and check whether it is ready to accept connections.
 
-        Waits for postmaster to open ports or terminate so pg_isready can be used to check startup completion
-        or failure.
+        :param timeout: seconds to wait for the port to open and for startup to finish. Defaults to ``pg_ctl_timeout``.
+        :param task: optional critical task used to cancel launch or record the postmaster returned by the launcher.
+        :param block_callbacks: do not schedule an ``on_start`` callback, for example during a restart.
+        :param role: role to assign on startup. By default, infer it from the data directory.
+        :param after_start: optional callback invoked without arguments after a new start is confirmed successful.
+        :returns: ``True`` if already running or startup succeeded; ``False`` if refused, failed, or an explicit timeout
+                  expired; ``None`` if configuration was unavailable or startup is pending without an explicit timeout.
+        """
+        if self.stopping():
+            return False
 
-        :returns: True if start was initiated and postmaster ports are open,
-                  False if start failed, and None if postgres is still starting up"""
         # make sure we close all connections established against
         # the former node, otherwise, we might get a stalled one
         # after kill -9, which would report incorrect data to
@@ -815,17 +900,19 @@ class Postgresql(ClusterSite):
             return False
 
         with task or null_context():
-            if task and task.is_cancelled:
+            if task and task.is_cancelled or self.stopping():
                 logger.info("PostgreSQL start cancelled.")
                 return False
 
-            self._postmaster_proc = PostmasterProcess.start(self.pgcommand('postgres'),
-                                                            self._data_dir,
-                                                            self.config.postgresql_conf,
-                                                            options)
+            postmaster = PostmasterProcess.start(self.pgcommand('postgres'), self._data_dir,
+                                                 self.config.postgresql_conf, options, self._publish_launch)
+            with self._postmaster_lock:
+                if postmaster is not None:
+                    self._postmaster_proc = postmaster
+                self._launch_process = None
 
             if task:
-                task.complete(self._postmaster_proc)
+                task.complete(postmaster)
 
         start_timeout = timeout
         if not start_timeout:
@@ -835,7 +922,7 @@ class Postgresql(ClusterSite):
                 start_timeout = 60
 
         # We want postmaster to open ports before we continue
-        if not self._postmaster_proc or not self.wait_for_port_open(self._postmaster_proc, start_timeout):
+        if not postmaster or not self.wait_for_port_open(postmaster, start_timeout):
             return False
 
         ret = self.wait_for_startup(start_timeout)
@@ -868,15 +955,20 @@ class Postgresql(ClusterSite):
     def stop(self, mode: str = 'fast', block_callbacks: bool = False, checkpoint: Optional[bool] = None,
              on_safepoint: Optional[Callable[..., Any]] = None, on_shutdown: Optional[Callable[[int, int], Any]] = None,
              before_shutdown: Optional[Callable[..., Any]] = None, stop_timeout: Optional[int] = None) -> bool:
-        """Stop PostgreSQL
+        """Stop PostgreSQL and wait for the postmaster to exit.
 
-        Supports a callback when a safepoint is reached. A safepoint is when no user backend can return a successful
-        commit to users. Currently this means we wait for user backends to close. But in the future alternate mechanisms
-        could be added.
-
-        :param on_safepoint: This callback is called when no user backends are running.
-        :param on_shutdown: is called when pg_controldata starts reporting `Database cluster state: shut down`
-        :param before_shutdown: is called after running optional CHECKPOINT and before running pg_ctl stop
+        :param mode: shutdown mode: ``smart``, ``fast`` (default), or ``immediate``.
+        :param block_callbacks: suppress the ``on_stop`` callback.
+        :param checkpoint: request a checkpoint before signaling a server that has finished startup. Defaults to
+                           ``True`` except in immediate mode.
+        :param on_safepoint: optional callback invoked without arguments once no user backend can return a successful
+                             commit. It may be invoked more than once.
+        :param on_shutdown: optional callback invoked during fast or smart shutdown when the shutdown checkpoint is
+                            known. Receives its LSN and the preceding switch LSN, or the checkpoint LSN again.
+        :param before_shutdown: optional callback invoked without arguments after the ``before_stop`` hook and before
+                                the postmaster is signaled.
+        :param stop_timeout: seconds to wait for the postmaster before escalating; ``None`` to wait indefinitely.
+        :returns: ``True`` if PostgreSQL stopped or was already down, ``False`` if the stop signal failed.
         """
         if checkpoint is None:
             checkpoint = False if mode == 'immediate' else True
@@ -898,6 +990,19 @@ class Postgresql(ClusterSite):
     def _do_stop(self, mode: str, block_callbacks: bool, checkpoint: bool,
                  on_safepoint: Optional[Callable[..., Any]], on_shutdown: Optional[Callable[[int, int], Any]],
                  before_shutdown: Optional[Callable[..., Any]], stop_timeout: Optional[int]) -> Tuple[bool, bool]:
+        """Stop PostgreSQL with the hooks and safepoints used by normal HA shutdown.
+
+        :param mode: PostgreSQL shutdown mode.
+        :param block_callbacks: skip the transition to ``STOPPING`` during a restart.
+        :param checkpoint: request a checkpoint before stopping a server that has finished startup.
+        :param on_safepoint: optional callback invoked when no user backend can acknowledge a commit.
+        :param on_shutdown: optional callback receiving the shutdown checkpoint and preceding WAL switch LSNs.
+        :param before_shutdown: optional callback invoked after the pre-stop hook and before signaling the postmaster.
+        :param stop_timeout: seconds to wait before escalating, or ``None`` for no timeout.
+        :returns: a tuple ``(success, pg_signaled)``. ``(True, False)`` means no postmaster was found;
+              ``(True, True)`` means it stopped or was already gone when Patroni tried to signal it;
+              ``(False, True)`` means Patroni tried to signal it but the request failed.
+        """
         postmaster = self.is_running()
         if not postmaster:
             if on_safepoint:
@@ -953,9 +1058,7 @@ class Postgresql(ClusterSite):
                 time.sleep(STOP_POLLING_INTERVAL)
                 i += STOP_POLLING_INTERVAL
 
-        try:
-            postmaster.wait(timeout=stop_timeout)
-        except TimeoutExpired:
+        if not self._wait_for_postmaster(postmaster, stop_timeout):
             logger.warning("Timeout during postmaster stop, aborting Postgres.")
             if not self.terminate_postmaster(postmaster, mode, stop_timeout):
                 postmaster.wait()
@@ -964,18 +1067,37 @@ class Postgresql(ClusterSite):
             on_safepoint()
         return True, True
 
+    @staticmethod
+    def _wait_for_postmaster(postmaster: PostmasterProcess, timeout: Optional[float]) -> bool:
+        """Wait for the given postmaster without sending it another signal.
+
+        :param postmaster: process whose exit to wait for.
+        :param timeout: seconds to wait, or ``None`` to wait indefinitely.
+        :returns: ``True`` if the process exited, ``False`` if the wait timed out.
+        """
+        try:
+            postmaster.wait(timeout=timeout)
+            return True
+        except TimeoutExpired:
+            return False
+
     def terminate_postmaster(self, postmaster: PostmasterProcess, mode: str,
-                             stop_timeout: Optional[int]) -> Optional[bool]:
+                             stop_timeout: Optional[int], *, warn_on_kill: bool = True) -> Optional[bool]:
+        """Escalate a timed-out stop, killing the process tree as a last resort.
+
+        :param postmaster: process whose initial stop timed out.
+        :param mode: initial shutdown mode; try immediate shutdown first after a smart or fast stop.
+        :param stop_timeout: seconds to wait after requesting immediate shutdown, or ``None`` for no timeout.
+        :param warn_on_kill: log a warning before sending ``SIGKILL``. The guard disables this because the log queue
+                             may be blocked.
+        :returns: ``True`` if the postmaster is gone, otherwise the result of :meth:`PostmasterProcess.signal_kill`.
+        """
         if mode in ['fast', 'smart']:
-            try:
-                success = postmaster.signal_stop('immediate', self.pgcommand('pg_ctl'))
-                if success:
-                    return True
-                postmaster.wait(timeout=stop_timeout)
+            if postmaster.signal_stop('immediate', self.pgcommand('pg_ctl')) \
+                    or self._wait_for_postmaster(postmaster, stop_timeout):
                 return True
-            except TimeoutExpired:
-                pass
-        logger.warning("Sending SIGKILL to Postmaster and its children")
+        if warn_on_kill:
+            logger.warning("Sending SIGKILL to Postmaster and its children")
         return postmaster.signal_kill()
 
     def terminate_starting_postmaster(self, postmaster: PostmasterProcess) -> None:
@@ -1056,13 +1178,19 @@ class Postgresql(ClusterSite):
                 block_callbacks: bool = False, role: Optional[PostgresqlRole] = None,
                 before_shutdown: Optional[Callable[..., Any]] = None,
                 after_start: Optional[Callable[..., Any]] = None) -> Optional[bool]:
-        """Restarts PostgreSQL.
+        """Stop PostgreSQL and start it again without firing separate stop and start callbacks.
 
-        When timeout parameter is set the call will block either until PostgreSQL has started, failed to start or
-        timeout arrives.
-
-        :returns: True when restart was successful and timeout did not expire when waiting.
+        :param timeout: startup timeout in seconds, passed to :meth:`start`. Does not limit the preceding stop.
+        :param task: optional critical task passed to :meth:`start` to coordinate launch with cancellation.
+        :param block_callbacks: do not schedule the ``on_restart`` callback.
+        :param role: role to assign on startup, or ``None`` to infer it from the data directory.
+        :param before_shutdown: optional callback invoked without arguments before signaling the old postmaster.
+        :param after_start: optional callback invoked without arguments after confirming the new start.
+        :returns: ``False`` if shutdown prevents the restart or the stop fails; otherwise the result of :meth:`start`.
         """
+        if self.stopping():
+            return False
+
         self.set_state(PostgresqlState.RESTARTING)
         if not block_callbacks:
             self.__cb_pending = CallbackAction.ON_RESTART
@@ -1241,8 +1369,12 @@ class Postgresql(ClusterSite):
             self._do_before_stop(cmd)
 
     def _do_before_stop(self, cmd: str) -> None:
+        """Run the configured pre-stop hook unless the shutdown guard has taken over.
+
+        :param cmd: command line to split into the executable and its arguments.
+        """
         try:
-            ret = self.cancellable.call(shlex.split(cmd))
+            ret = self.cancellable.call(shlex.split(cmd), stopping=self.guard_owns_stop)
             if ret is not None:
                 logger.info('before_stop script `%s` exited with %s', cmd, ret)
         except Exception as e:
@@ -1250,6 +1382,17 @@ class Postgresql(ClusterSite):
 
     def promote(self, wait_seconds: int, task: CriticalTask,
                 before_promote: Optional[Callable[..., Any]] = None) -> Optional[bool]:
+        """Request promotion and wait for PostgreSQL to leave recovery.
+
+        :param wait_seconds: seconds to wait for confirmation after ``pg_ctl promote`` succeeds.
+        :param task: critical task used to check cancellation and record the result of the ``pre_promote`` hook.
+        :param before_promote: optional callback invoked without arguments after the hook succeeds and before issuing
+                       the promotion command.
+        :returns: ``True`` if already promoted or promotion is confirmed, ``False`` if refused, cancelled, or failed,
+              or ``None`` if promotion was requested but not confirmed in time.
+        """
+        if self.stopping():
+            return False
         if self.role in (PostgresqlRole.PROMOTED, PostgresqlRole.PRIMARY):
             return True
 
@@ -1276,7 +1419,7 @@ class Postgresql(ClusterSite):
         self.slots_handler.on_promote()
         self.mpp_handler.schedule_cache_rebuild()
 
-        ret = self.pg_ctl('promote', '-W')
+        ret = not self.stopping() and self.pg_ctl('promote', '-W')
         if ret:
             self.set_role(PostgresqlRole.PROMOTED)
             self.call_nowait(CallbackAction.ON_ROLE_CHANGE)

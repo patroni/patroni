@@ -92,16 +92,19 @@ class AsyncExecutor(object):
     :ivar critical_task: a :class:`CriticalTask` instance to handle execution of critical background tasks.
     """
 
-    def __init__(self, cancellable: CancellableSubprocess, ha_wakeup: Callable[..., None]) -> None:
+    def __init__(self, cancellable: CancellableSubprocess, ha_wakeup: Callable[..., None],
+                 stopping: Callable[[], bool] = lambda: False) -> None:
         """Create a new instance of :class:`AsyncExecutor`.
 
         Configure the given *cancellable* and *ha_wakeup* and initialize the locks protecting the current action.
 
         :param cancellable: a subprocess that supports being cancelled.
-        :param ha_wakeup: function to wake up the HA loop.
+        :param ha_wakeup: callback that wakes the HA loop after a background action finishes.
+        :param stopping: callback returning ``True`` when shutdown should prevent a new or queued action from starting.
         """
         self._cancellable = cancellable
         self._ha_wakeup = ha_wakeup
+        self._stopping = stopping
         self._thread_lock = RLock()
         self._scheduled_action: Optional[_ScheduledAction] = None
         self._scheduled_action_lock = RLock()
@@ -123,9 +126,12 @@ class AsyncExecutor(object):
 
         :param action: action to be executed.
 
-        :returns: the reservation to pass to :meth:`run` or :meth:`run_async`, or the name of the conflicting action.
+        :returns: the reservation to pass to :meth:`run` or :meth:`run_async`, ``'shutdown'`` if the daemon is
+              stopping, or the name of the conflicting action.
         """
         with self._scheduled_action_lock:
+            if self._stopping():
+                return 'shutdown'
             if self._scheduled_action is not None:
                 return self._scheduled_action.name
             self._scheduled_action = _ScheduledAction(action)
@@ -162,15 +168,18 @@ class AsyncExecutor(object):
             Expected to be executed through a thread.
 
         :param action: reservation returned by :meth:`schedule`.
-        :param func: function to be run. If it returns anything other than ``None``, HA loop will be woken up at the end
-            of :func:`run` execution.
+        :param func: callback to run. If it returns anything other than ``None``, wake the HA loop afterward.
         :param args: arguments to be passed to *func*.
 
-        :returns: ``None`` if *func* execution has been cancelled or faced any exception, otherwise the result of
-            *func*.
+        :returns: the result of *func*, or ``None`` if the reservation is no longer current, is already running,
+                  shutdown prevents it from starting, or *func* raises an exception.
         """
         with self:
             if self._scheduled_action is not action or action.running:
+                return None
+            # Shutdown may have started after this action was scheduled but before its worker ran.
+            if self._stopping():
+                self.reset_scheduled_action()
                 return None
             self._cancellable.reset_is_cancelled()
             action.running = True

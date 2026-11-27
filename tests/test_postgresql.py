@@ -11,7 +11,7 @@ import unittest
 from copy import deepcopy
 from pathlib import Path
 from threading import current_thread, Thread
-from unittest.mock import MagicMock, Mock, mock_open, patch, PropertyMock
+from unittest.mock import call, MagicMock, Mock, mock_open, patch, PropertyMock
 
 import psutil
 
@@ -121,6 +121,82 @@ class TestPostgresql(BaseTestPostgresql):
         super(TestPostgresql, self).setUp()
         self.p.config.write_postgresql_conf()
 
+    @patch('patroni.postgresql.time.sleep', Mock())
+    @patch.object(PostmasterProcess, 'from_pidfile')
+    def test_shutdown_fence_during_launch(self, lookup):
+        launcher, postmaster = Mock(spec=psutil.Process), Mock(spec=PostmasterProcess)
+        self.assertTrue(self.p._publish_launch(launcher))
+        self.p._postmaster_proc = Mock(is_running=Mock(return_value=False))
+        lookup.side_effect = [psutil.AccessDenied(), None, postmaster, None, None]
+        launcher.is_running.side_effect = [True, True, False]
+        postmaster.is_running.side_effect = [True, False]
+        postmaster.signal_stop.return_value = None
+        self.p.shutdown_fence(0)
+        lookup.assert_called_with(self.p.pgcommand('postgres'), self.p.data_dir)
+        postmaster.signal_stop.assert_called_once_with('fast', self.p.pgcommand('pg_ctl'))
+        postmaster.wait.assert_called_once_with(timeout=None)
+        self.assertEqual(launcher.is_running.call_count, 3)
+
+    @patch.object(PostmasterProcess, 'from_pidfile')
+    @patch('patroni.postgresql.time.sleep', Mock())
+    def test_shutdown_fence_timeout(self, lookup):
+        calls = Mock()
+        postmaster = Mock(spec=PostmasterProcess, signal_stop=calls.signal_stop, signal_kill=calls.signal_kill,
+                          wait=calls.wait)
+        replacement = Mock(spec=PostmasterProcess)
+        pg_ctl = self.p.pgcommand('pg_ctl')
+        lookup.side_effect = [postmaster, None]
+        calls.signal_stop.side_effect = [False, OSError, None, None]
+        calls.signal_kill.return_value = False
+
+        def wait(timeout=None):
+            if timeout is not None:
+                self.p._publish_launch(replacement)
+                raise psutil.TimeoutExpired(timeout)
+            postmaster.is_running.return_value = False
+
+        calls.wait.side_effect = wait
+        replacement.signal_stop.return_value = None
+        replacement.wait.side_effect = lambda timeout: setattr(replacement.is_running, 'return_value', False)
+        with patch('patroni.postgresql.logger.warning', side_effect=AssertionError('guard used the normal logger')):
+            self.assertIsNone(self.p.shutdown_fence(5))
+        self.assertEqual(calls.mock_calls, [call.signal_stop('fast', pg_ctl)] * 3 + [call.wait(timeout=5),
+                         call.signal_stop('immediate', pg_ctl), call.wait(timeout=5), call.signal_kill(), call.wait()])
+        replacement.signal_stop.assert_called_once_with('fast', pg_ctl)
+        replacement.wait.assert_called_once_with(timeout=5)
+        replacement.signal_kill.assert_not_called()
+
+    @patch('patroni.postgresql.time.sleep', Mock())
+    def test_shutdown_fence_during_handoff(self):
+        helper, postmaster = Mock(spec=psutil.Process), Mock(spec=PostmasterProcess)
+        self.p._publish_launch(helper)
+
+        def handoff():
+            self.p._publish_launch(postmaster)
+            raise psutil.NoSuchProcess(123)
+
+        helper.is_running.side_effect = handoff
+        postmaster.status.side_effect = [psutil.AccessDenied(), psutil.STATUS_ZOMBIE, psutil.STATUS_ZOMBIE]
+        postmaster.signal_stop.return_value = False
+        self.p.shutdown_fence()
+        postmaster.signal_stop.assert_called_once_with('fast', self.p.pgcommand('pg_ctl'))
+
+    def test_shutdown_command_admission(self):
+        def finish_initdb(cmd):
+            self.p.stopping = lambda: True
+            self.p.cancellable.cancel()
+            return 0
+
+        with patch('subprocess.call', side_effect=finish_initdb) as initdb:
+            self.assertTrue(self.p.initdb('--nosync'))
+            self.p.cancellable.reset_is_cancelled()
+            self.assertFalse(self.p.initdb('--nosync'))
+            initdb.assert_called_once_with([self.p.pgcommand('initdb'), '--nosync', self.p.data_dir])
+        self.p.connection_pool.close = self.p.stop = self.p._pre_promote = Mock(side_effect=AssertionError)
+        self.assertFalse(self.p.start())
+        self.assertFalse(self.p.restart())
+        self.assertFalse(self.p.promote(0, CriticalTask()))
+
     @patch('subprocess.Popen')
     @patch.object(Postgresql, 'wait_for_startup')
     @patch.object(Postgresql, 'wait_for_port_open')
@@ -138,7 +214,7 @@ class TestPostgresql(BaseTestPostgresql):
             self.assertIsNone(self.p.start())
 
         mock_postmaster = MockPostmaster()
-        with patch.object(PostmasterProcess, 'start', return_value=mock_postmaster):
+        with patch.object(PostmasterProcess, 'start', return_value=mock_postmaster) as launch:
             pg_conf = os.path.join(self.p.data_dir, 'postgresql.conf')
             open(pg_conf, 'w').close()
             self.assertFalse(self.p.start(task=CriticalTask()))
@@ -157,6 +233,17 @@ class TestPostgresql(BaseTestPostgresql):
             task.cancel()
             self.assertFalse(self.p.start(task=task))
 
+            launch.reset_mock()
+            self.p.stopping = Mock(side_effect=[False, True])
+            self.assertFalse(self.p.start())
+            launch.assert_not_called()
+            target = Mock(spec=PostmasterProcess)
+            self.p.stopping.side_effect = [False, False, True]
+            launch.side_effect = lambda cmd, data, conf, opts, publish: self.assertFalse(publish(target))
+            self.assertFalse(self.p.start())
+            self.assertIs(self.p._postmaster_proc, target)
+
+        self.p.stopping = lambda: False
         self.p.cancellable.cancel()
         self.assertFalse(self.p.start())
         with patch('patroni.postgresql.config.ConfigHandler.effective_configuration',
@@ -207,13 +294,18 @@ class TestPostgresql(BaseTestPostgresql):
         # Timed out waiting for fast shutdown triggers immediate shutdown
         mock_postmaster.wait.side_effect = [psutil.TimeoutExpired(30), psutil.TimeoutExpired(30), Mock()]
         mock_callback.reset_mock()
-        self.assertTrue(self.p.stop(on_safepoint=mock_callback, stop_timeout=30))
+        with patch('patroni.postgresql.logger.warning') as warning:
+            self.assertTrue(self.p.stop(on_safepoint=mock_callback, stop_timeout=30))
+        warning.assert_any_call('Sending SIGKILL to Postmaster and its children')
         mock_callback.assert_called()
-        mock_postmaster.signal_stop.assert_called()
+        mock_postmaster.signal_stop.assert_called_with('immediate', self.p.pgcommand('pg_ctl'))
+        mock_postmaster.signal_kill.assert_called_once_with()
 
         # Immediate shutdown succeeded
         mock_postmaster.wait.side_effect = [psutil.TimeoutExpired(30), Mock()]
+        mock_postmaster.signal_kill.reset_mock()
         self.assertTrue(self.p.stop(on_safepoint=mock_callback, stop_timeout=30))
+        mock_postmaster.signal_kill.assert_not_called()
 
         # Ensure before_stop script is called when configured to
         self.p.config._config['before_stop'] = ':'
@@ -257,6 +349,7 @@ class TestPostgresql(BaseTestPostgresql):
             with self.subTest(stop_timeout=stop_timeout):
                 on_safepoint.reset_mock()
                 self.assertTrue(self.p.stop(on_safepoint=on_safepoint, stop_timeout=stop_timeout))
+                postmaster.wait.assert_called_with(timeout=stop_timeout)
 
     @patch('time.sleep', Mock())
     @patch.object(Postgresql, 'is_running', MockPostmaster)
@@ -640,6 +733,11 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertTrue(self.p.promote(0, task))
 
         self.p.set_role(PostgresqlRole.REPLICA)
+        with patch('subprocess.call', return_value=1) as pg_ctl:
+            self.assertIs(self.p.promote(0, CriticalTask()), False)
+            with patch.object(self.p, 'stopping', return_value=False) as stopping:
+                self.assertFalse(self.p.promote(0, CriticalTask(), lambda: setattr(stopping, 'return_value', True)))
+            pg_ctl.assert_called_once_with([self.p.pgcommand('pg_ctl'), 'promote', '-D', self.p.data_dir, '-W'])
         self.p.config._config['pre_promote'] = 'test'
         with patch('patroni.postgresql.cancellable.CancellableSubprocess.is_cancelled', PropertyMock(return_value=1)):
             with patch('patroni.postgresql.logger.info') as mock_info:
@@ -678,6 +776,15 @@ class TestPostgresql(BaseTestPostgresql):
         mock_frompidfile.return_value = mock_postmaster2 = MockPostmaster()
         self.assertEqual(self.p.is_running(), mock_postmaster2)
         self.assertEqual(self.p._postmaster_proc, mock_postmaster2)
+
+        replacement = Mock(spec=PostmasterProcess)
+
+        def late_miss(*args):
+            self.p._publish_launch(replacement)
+
+        mock_postmaster2.is_running.return_value = False
+        mock_frompidfile.side_effect = late_miss
+        self.assertIs(self.p.is_running(), replacement)
 
     @patch('shlex.split', Mock(side_effect=OSError))
     def test_call_nowait(self):

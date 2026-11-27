@@ -6,15 +6,19 @@ Implement ``patroni`` main daemon and expose its entry point.
 import logging
 import os
 import signal
+import socket
 import sys
 import time
 
 from argparse import Namespace
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from contextlib import suppress
+from enum import Enum
+from threading import current_thread, Event, local, Lock, main_thread, Thread
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 from patroni import global_config, MIN_PSYCOPG2, MIN_PSYCOPG3, parse_version
 from patroni.collections import EMPTY_DICT
-from patroni.daemon import abstract_main, AbstractPatroniDaemon, get_base_arg_parser
+from patroni.daemon import abstract_main, AbstractPatroniDaemon, get_base_arg_parser, notify_systemd
 from patroni.site import ClusterSite
 from patroni.tags import Tags
 
@@ -24,6 +28,247 @@ if TYPE_CHECKING:  # pragma: no cover
     from .log import PatroniLogger
 
 logger = logging.getLogger(__name__)
+
+
+_guard: Optional['ShutdownGuard'] = None
+_fork = local()
+
+
+def _before_fork() -> None:
+    """Prevent a SIGTERM sent to the child from waking the parent's guard.
+
+    A worker can fork while the main thread is installing the guard. The child inherits the forking thread's
+    signal mask, so it can detach before unblocking SIGTERM. Leave an already blocked SIGTERM blocked.
+    """
+    if _guard is not None or current_thread() is not main_thread():
+        _fork.unblock = signal.SIGTERM not in signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
+
+
+def _after_fork() -> None:
+    """Unblock SIGTERM only if the pre-fork hook blocked it."""
+    if getattr(_fork, 'unblock', False):
+        _fork.unblock = False
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTERM})
+
+
+def _after_fork_in_child() -> None:
+    """Disconnect the child from the parent's shutdown guard before restoring the child's signal mask."""
+    global _guard
+    if _guard is not None:
+        # Both CPython and our Python SIGTERM handler can write to the parent's socket. Disconnect both in
+        # the child before restoring its signal mask. Closing the child's copies leaves the parent untouched.
+        signal.set_wakeup_fd(-1)
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        _guard.detach()
+        _guard = None
+    _after_fork()
+
+
+class _ShutdownOwner(Enum):
+    """Whether the stop is unclaimed, owned by HA, or owned by the guard."""
+
+    WAITING = 'waiting'
+    NORMAL = 'normal'
+    GUARD = 'guard'
+
+
+class ShutdownGuard(Thread):
+    """Monitor shutdown even when the daemon's main thread cannot handle SIGTERM.
+
+    The guard stays armed while the main thread shuts down the API and waits for HA work to finish. HA calls
+    :meth:`claim_normal` just before stopping PostgreSQL. If the guard took over first, HA leaves the stop to it.
+    """
+
+    def __init__(self, *, is_requested: Callable[[], bool], on_request: Callable[[], float],
+                 on_timeout: Callable[[], None], force_stop: Callable[[], None]) -> None:
+        """Create the wakeup sockets without arming the guard.
+
+        :param is_requested: callback that checks whether shutdown was requested, even before the guard started.
+        :param on_request: callback that records the request, wakes HA, and returns the handoff grace period in seconds.
+        :param on_timeout: callback invoked once to report takeover before the first emergency stop attempt.
+        :param force_stop: callback that returns only when emergency shutdown is complete and Patroni can exit.
+        """
+        super().__init__(name='shutdown-guard', daemon=True)
+        self._is_requested = is_requested
+        self._on_request = on_request
+        self._on_timeout = on_timeout
+        self._force_stop = force_stop
+        self._reader, self._writer = socket.socketpair()
+        self._writer.setblocking(False)
+        self._previous_fd: Optional[int] = None
+        self._closed = Event()
+        self._lock = Lock()
+        self._owner: _ShutdownOwner = _ShutdownOwner.WAITING
+        self._grace_until = 0.0
+
+    def start(self, set_armed: Callable[[bool], None] = lambda _: None) -> None:
+        """Arm the guard and start its thread. Repeated calls after startup have no effect.
+
+        On POSIX, call this from the main thread. Publish the guard to the fork hooks before arming the daemon's
+        signal callback so a forked child cannot send a shutdown request to its parent.
+
+        :param set_armed: callback invoked with ``True`` to enable signal notifications, and with ``False`` to undo
+                          that step if startup fails. It is not called when another guard is already installed.
+        :raises RuntimeError: if another guard is already installed on POSIX.
+        :raises ValueError: if :func:`signal.set_wakeup_fd` rejects the wakeup fd or the calling thread.
+        """
+        global _guard
+        if self.ident is not None:
+            return
+        if os.name == 'posix' and _guard is not None:
+            self.close()
+            raise RuntimeError('shutdown guard already installed')
+        try:
+            if os.name == 'posix':
+                _guard = self
+            set_armed(True)
+            if os.name == 'posix':
+                # CPython writes the signal number here even if the main thread cannot run its Python handler yet.
+                self._previous_fd = signal.set_wakeup_fd(self._writer.fileno())
+            super().start()
+        except BaseException:
+            set_armed(False)
+            self.close()
+            raise
+
+    def detach(self) -> None:
+        """Close the forked child's copies of the wakeup sockets without taking the guard lock or waking the parent."""
+        self._reader.close()
+        self._writer.close()
+
+    def notify(self) -> None:
+        """Send a shutdown wakeup byte without blocking or taking a lock, so the Python signal handler can call it."""
+        with suppress(OSError):
+            self._writer.send(bytes((signal.SIGTERM,)))
+
+    def extend_grace(self, timeout: float) -> None:
+        """Give HA more time to prepare for the normal stop, for example while a synchronous standby is replaced.
+
+        Wake the reader to apply the updated deadline without requesting shutdown.
+
+        :param timeout: seconds from now to allow HA to claim the stop. This does not shorten the original grace
+                        period or impose a timeout on PostgreSQL once HA has claimed the stop.
+        """
+        self._grace_until = time.monotonic() + timeout
+        with suppress(OSError):
+            self._writer.send(b'\0')
+
+    def _claim(self, owner: _ShutdownOwner) -> bool:
+        """Claim responsibility for stopping PostgreSQL if the stop is still unclaimed.
+
+        :param owner: ``NORMAL`` for HA's normal stop, or ``GUARD`` for emergency shutdown.
+        :returns: ``True`` if *owner* acquired or already held the claim; ``False`` if the other owner holds it.
+        """
+        # The grace period can expire just as HA is about to stop PostgreSQL. Only the winner may proceed.
+        with self._lock:
+            if self._owner is _ShutdownOwner.WAITING:
+                self._owner = owner
+            return self._owner is owner
+
+    def claim_normal(self) -> bool:
+        """Reserve the normal PostgreSQL stop for HA.
+
+        :returns: ``True`` if HA owns the stop and may proceed; ``False`` if the guard has already taken over.
+        """
+        return self._claim(_ShutdownOwner.NORMAL)
+
+    def owns_stop(self) -> bool:
+        """:returns: ``True`` if the guard has claimed emergency shutdown, otherwise ``False``."""
+        return self._owner is _ShutdownOwner.GUARD
+
+    def close(self) -> None:
+        """Disarm the guard and wake its thread without waiting for it to finish.
+
+        If the guard installed a POSIX signal wakeup fd, call this from the main thread to restore the previous fd
+        before closing the socket.
+        """
+        global _guard
+        with self._lock:
+            if _guard is self:
+                # Restore the previous fd before closing ours: a later signal must not write to a reused descriptor.
+                if self._previous_fd is not None:
+                    signal.set_wakeup_fd(self._previous_fd)
+                _guard = None
+            self._closed.set()
+        self.notify()
+        self._writer.close()
+        if self.ident is None:
+            self._reader.close()
+
+    def finish(self) -> None:
+        """Finish shutdown on the main thread after daemon teardown.
+
+        Close the guard if it never started or if HA claimed the stop. Otherwise the guard owns the stop;
+        wait for it to exit the process or be closed.
+        """
+        if self.ident is None or not self._claim(_ShutdownOwner.GUARD):
+            self.close()
+            return
+        self.notify()
+        while not self._closed.is_set():
+            with suppress(KeyboardInterrupt):
+                self._closed.wait()
+
+    def _wait_for_takeover(self) -> bool:
+        """Wake HA and wait for it to claim the stop, counting the wakeup time toward its grace period.
+
+        If waking HA or waiting for its claim fails, try to take over immediately. If HA wins, drain the signal
+        wakeup socket until the main thread disarms the guard.
+
+        :returns: ``True`` if the guard owns the emergency stop, ``False`` if HA owns it or the guard was closed.
+        """
+        with suppress(Exception):
+            deadline = time.monotonic() + self._on_request()
+            while self._owner is _ShutdownOwner.WAITING and not self._closed.is_set():
+                remaining = max(deadline, self._grace_until) - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._reader.settimeout(remaining)
+                with suppress(socket.timeout):
+                    if not self._reader.recv(4096):
+                        return False
+
+        if self._closed.is_set():
+            return False
+        if self._claim(_ShutdownOwner.GUARD):
+            return True
+
+        self._reader.settimeout(None)
+        while not self._closed.is_set() and self._reader.recv(4096):
+            pass
+        return False
+
+    def run(self) -> None:
+        """Wait for a shutdown request, wake HA, and take over if HA misses the deadline to claim the stop.
+
+        If HA claims the stop, leave it in charge and wait for :meth:`finish` to close the guard.
+        On takeover, request one systemd timeout extension and exit with status 1 once emergency shutdown is complete.
+        """
+        with self._reader:
+            while not self._is_requested():
+                data = self._reader.recv(4096)
+                if not data or self._closed.is_set():
+                    return
+                # The wakeup fd also receives other handled signals, such as SIGHUP. Only SIGTERM starts shutdown;
+                # one or more SIGTERM bytes all represent the same request.
+                if signal.SIGTERM in data:
+                    break
+            if self._closed.is_set() or not self._wait_for_takeover():
+                return
+
+            with suppress(Exception):
+                notify_systemd('EXTEND_TIMEOUT_USEC=30000000')
+            with suppress(Exception):
+                self._on_timeout()
+            while not self._closed.is_set():
+                try:
+                    self._force_stop()
+                    break
+                except Exception:
+                    self._closed.wait(0.1)
+            with self._lock:
+                if not self._closed.is_set():
+                    os._exit(1)
 
 
 class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
@@ -90,6 +335,12 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
         self.postgresql = Postgresql(self.config['postgresql'], self.dcs.mpp)
         self.api = RestApiServer(self, self.config['restapi'])
         self.ha = Ha(self)
+        self.postgresql.stopping = lambda: self.received_sigterm
+        self._api_started = False
+        self.shutdown_guard = ShutdownGuard(
+            is_requested=lambda: self.received_sigterm, on_request=self.shutdown_requested,
+            on_timeout=self.logger.report_shutdown_timeout, force_stop=self.ha.shutdown_fence)
+        self.postgresql.guard_owns_stop = self.shutdown_guard.owns_stop
 
         self._tags = self._get_tags()
         self.next_run = time.monotonic()
@@ -228,12 +479,31 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
         elif self.ha.watch(nap_time):
             self.next_run = time.monotonic()
 
+    def shutdown_requested(self) -> float:
+        """Record the shutdown request and wake the HA loop from the guard, outside the signal handler.
+
+        :returns: seconds to allow HA to claim the normal stop, not a time limit on PostgreSQL shutdown.
+        """
+        self._received_sigterm = True
+        self.dcs.wakeup()
+        return max(self.dcs.loop_wait, 2 * self.config['retry_timeout'])
+
     def run(self) -> None:
         """Run ``patroni`` daemon process main loop.
 
         Start the REST API and keep running HA cycles every ``loop_wait`` seconds.
         """
+        def set_armed(armed: bool) -> None:
+            """Set the signal handler's wakeup callback.
+
+            :param armed: ``True`` to notify the guard on SIGTERM, ``False`` to remove the callback.
+            """
+            self._on_sigterm = self.shutdown_guard.notify if armed else None
+
+        # Arm the guard before starting services: even joining their threads during shutdown may block.
+        self.shutdown_guard.start(set_armed)
         self.api.start()
+        self._api_started = True
         self.next_run = time.monotonic()
         super(Patroni, self).run()
 
@@ -250,6 +520,7 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
 
         logger.info(self.ha.run_cycle())
 
+        self.check_shutdown()
         if self.dcs.cluster and self.dcs.cluster.config and self.dcs.cluster.config.data \
                 and self.config.set_dynamic_configuration(self.dcs.cluster.config):
             self.reload_config()
@@ -263,6 +534,7 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
         if self.postgresql.role != PostgresqlRole.UNINITIALIZED:
             self.config.save_cache()
 
+        self.check_shutdown()
         self.schedule_next_run()
 
     def _shutdown(self) -> None:
@@ -272,16 +544,26 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
         """
         from patroni import thread_pool
 
-        try:
-            self.api.shutdown()
-        except Exception:
-            logger.exception('Exception during RestApi.shutdown')
+        if self._api_started:
+            try:
+                self.api.shutdown()
+            except Exception:
+                logger.exception('Exception during RestApi.shutdown')
         try:
             self.ha.shutdown()
         except Exception:
             logger.exception('Exception during Ha.shutdown')
 
         thread_pool.get_executor().shutdown(wait=False)
+
+    def shutdown(self) -> None:
+        """Keep the monitor armed until normal shutdown, including logger teardown, has finished."""
+        # abstract_main() also calls shutdown() after Ctrl-C or an exception. Neither has to deliver a SIGTERM byte.
+        self.shutdown_guard.notify()
+        try:
+            super(Patroni, self).shutdown()
+        finally:
+            self.shutdown_guard.finish()
 
 
 def patroni_main(configfile: str) -> None:
@@ -469,4 +751,8 @@ def main() -> None:
 
 
 if __name__ == '__main__':
-    main()
+    # HA and the REST API import patroni.__main__; use the same guard and fork hooks when invoked with -m.
+    from patroni.__main__ import main as _main
+    _main()
+elif hasattr(os, 'register_at_fork'):
+    os.register_at_fork(before=_before_fork, after_in_child=_after_fork_in_child, after_in_parent=_after_fork)
